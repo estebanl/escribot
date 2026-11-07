@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock,
@@ -10,59 +10,83 @@ import {
   StickyNote,
   CheckCircle2,
   Loader2,
+  RotateCcw,
   Send,
   AlertTriangle,
 } from "lucide-react";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
 import { countEssayWords } from "@/lib/ielts-utils";
-import type { SessionMode, TaskType } from "@/lib/types";
+import {
+  submitEvaluationStream,
+  type DraftSubmissionPayload,
+} from "@/lib/client-evaluate";
+import type { SessionMode } from "@/lib/types";
 import type { PromptRecord } from "./PromptModals";
+
+export interface RestoredSimulatorPart {
+  essayText: string;
+  secondsSpent: number;
+  promptHighlights?: string[];
+  scratchNotes?: string | null;
+}
 
 export function InsperaSimulator({
   sessionId,
   mode,
   task1Prompt,
   task2Prompt,
+  initialDrafts,
 }: {
   sessionId: string;
   mode: SessionMode;
   task1Prompt: PromptRecord | null;
   task2Prompt: PromptRecord | null;
+  initialDrafts?: {
+    task1?: RestoredSimulatorPart | null;
+    task2?: RestoredSimulatorPart | null;
+  };
 }) {
   const router = useRouter();
   const isFull60 = mode === "simulator_full_60m";
   const initialTotalSeconds =
     mode === "simulator_t1" ? 20 * 60 : mode === "simulator_t2" ? 40 * 60 : 60 * 60;
+  const elapsedInitial =
+    (initialDrafts?.task1?.secondsSpent || 0) +
+    (initialDrafts?.task2?.secondsSpent || 0);
 
   const [activePart, setActivePart] = useState<"task1" | "task2">(
     task1Prompt ? "task1" : "task2"
   );
-  const [remainingSeconds, setRemainingSeconds] = useState(initialTotalSeconds);
+  const [remainingSeconds, setRemainingSeconds] = useState(
+    Math.max(0, initialTotalSeconds - elapsedInitial)
+  );
   const [hideClockDigits, setHideClockDigits] = useState(false);
   const [leftWidthPct, setLeftWidthPct] = useState<42 | 50 | 58>(50);
 
   // Per-part essay, time spent, highlights & scratch notes
   const [essays, setEssays] = useState<{ task1: string; task2: string }>({
-    task1: "",
-    task2: "",
+    task1: initialDrafts?.task1?.essayText || "",
+    task2: initialDrafts?.task2?.essayText || "",
   });
   const [secondsPerPart, setSecondsPerPart] = useState<{ task1: number; task2: number }>({
-    task1: 0,
-    task2: 0,
+    task1: initialDrafts?.task1?.secondsSpent || 0,
+    task2: initialDrafts?.task2?.secondsSpent || 0,
   });
   const [highlights, setHighlights] = useState<{ task1: string[]; task2: string[] }>({
-    task1: [],
-    task2: [],
+    task1: initialDrafts?.task1?.promptHighlights || [],
+    task2: initialDrafts?.task2?.promptHighlights || [],
   });
   const [notesOpen, setNotesOpen] = useState(false);
   const [scratchNotes, setScratchNotes] = useState<{ task1: string; task2: string }>({
-    task1: "",
-    task2: "",
+    task1: initialDrafts?.task1?.scratchNotes || "",
+    task2: initialDrafts?.task2?.scratchNotes || "",
   });
 
   const [confirmModal, setConfirmModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [gradingStage, setGradingStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const completedPromptIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (submitting) return;
@@ -137,17 +161,10 @@ export function InsperaSimulator({
     setSubmitting(true);
     setError(null);
 
-    const submissions: Array<{
-      promptId: string;
-      taskType: TaskType;
-      essayText: string;
-      secondsSpent: number;
-      promptHighlights: string[];
-      scratchNotes: string;
-    }> = [];
+    const allSubmissions: DraftSubmissionPayload[] = [];
 
     if (task1Prompt && (mode === "simulator_t1" || isFull60)) {
-      submissions.push({
+      allSubmissions.push({
         promptId: task1Prompt.id,
         taskType: "task1",
         essayText: essays.task1.trim() || "(No response entered for Task 1)",
@@ -158,7 +175,7 @@ export function InsperaSimulator({
     }
 
     if (task2Prompt && (mode === "simulator_t2" || isFull60)) {
-      submissions.push({
+      allSubmissions.push({
         promptId: task2Prompt.id,
         taskType: "task2",
         essayText: essays.task2.trim() || "(No response entered for Task 2)",
@@ -168,29 +185,42 @@ export function InsperaSimulator({
       });
     }
 
-    try {
-      const res = await fetch("/api/ai/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    const totalSeconds = secondsPerPart.task1 + secondsPerPart.task2;
+
+    // Submit each part in its own dedicated request so 60m Full Mock Exams never exceed per-invocation time limits
+    for (let idx = 0; idx < allSubmissions.length; idx++) {
+      const sub = allSubmissions[idx];
+      if (completedPromptIdsRef.current.has(sub.promptId)) {
+        continue;
+      }
+
+      const partLabel =
+        allSubmissions.length > 1
+          ? `Part ${idx + 1} of ${allSubmissions.length}: `
+          : "";
+
+      setGradingStage(`${partLabel}Examiner reviewing response...`);
+
+      const outcome = await submitEvaluationStream(
+        {
           sessionId,
-          totalSecondsSpent: secondsPerPart.task1 + secondsPerPart.task2,
-          submissions,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Grading failed.");
+          totalSecondsSpent: totalSeconds,
+          submissions: [sub],
+        },
+        (stage) => setGradingStage(`${partLabel}${stage}`)
+      );
+
+      if (!outcome.ok) {
+        setError(outcome.error || "Grading failed. Please try again.");
         setSubmitting(false);
-        setConfirmModal(false);
+        setGradingStage(null);
         return;
       }
-      router.push(`/session/${sessionId}`);
-    } catch {
-      setError("Network error while submitting exam.");
-      setSubmitting(false);
-      setConfirmModal(false);
+
+      completedPromptIdsRef.current.add(sub.promptId);
     }
+
+    router.push(`/session/${sessionId}`);
   }
 
   const minsLeft = Math.floor(remainingSeconds / 60);
@@ -309,8 +339,17 @@ export function InsperaSimulator({
       </div>
 
       {error && (
-        <div className="bg-red-100 border-b border-red-300 text-red-900 px-6 py-2 text-xs font-semibold">
-          {error}
+        <div className="bg-amber-100 border-b border-amber-300 text-slate-900 px-6 py-2 text-xs font-semibold flex flex-wrap items-center justify-between gap-3">
+          <span>{error}</span>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={executeSubmission}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Retry Grading</span>
+          </button>
         </div>
       )}
 
@@ -497,6 +536,19 @@ export function InsperaSimulator({
                   </span>
                 </p>
               )}
+              {submitting && gradingStage && (
+                <div className="flex items-center gap-2 text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 p-2.5 rounded font-medium">
+                  <Loader2 className="w-4 h-4 animate-spin text-emerald-700 shrink-0" />
+                  <span>{gradingStage}</span>
+                </div>
+              )}
+
+              {error && (
+                <div className="flex items-start gap-2 text-xs text-red-900 bg-red-50 border border-red-200 p-2.5 rounded font-medium">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -515,8 +567,18 @@ export function InsperaSimulator({
                 onClick={executeSubmission}
                 className="flex items-center gap-2 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer disabled:opacity-60"
               >
-                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>{submitting ? "Examiner Grading..." : "Confirm & Grade Now"}</span>
+                {submitting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : error ? (
+                  <RotateCcw className="w-3.5 h-3.5" />
+                ) : null}
+                <span>
+                  {submitting
+                    ? "Examiner Grading..."
+                    : error
+                    ? "Retry Grading"
+                    : "Confirm & Grade Now"}
+                </span>
               </button>
             </div>
           </div>

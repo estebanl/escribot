@@ -20,216 +20,344 @@ interface SingleDraftSubmission {
 }
 
 export async function POST(request: Request) {
-  try {
-    const body = (await request.json()) as {
-      sessionId: string;
-      submissions: SingleDraftSubmission[];
-      totalSecondsSpent?: number;
-    };
+  let body: {
+    sessionId: string;
+    submissions: SingleDraftSubmission[];
+    totalSecondsSpent?: number;
+  };
 
-    if (!body.sessionId || !Array.isArray(body.submissions) || body.submissions.length === 0) {
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON request payload." },
+      { status: 400 }
+    );
+  }
+
+  if (
+    !body.sessionId ||
+    !Array.isArray(body.submissions) ||
+    body.submissions.length === 0
+  ) {
+    return NextResponse.json(
+      { error: "Session ID and at least one draft submission are required." },
+      { status: 400 }
+    );
+  }
+
+  const db = await getDb();
+
+  // Validate submissions & prompts synchronously before opening NDJSON stream
+  const validatedSubmissions: Array<{
+    sub: SingleDraftSubmission;
+    prompt: typeof schema.prompts.$inferSelect;
+  }> = [];
+
+  for (const sub of body.submissions) {
+    if (!sub.essayText || sub.essayText.trim().length < 15) {
       return NextResponse.json(
-        { error: "Session ID and at least one draft submission are required." },
+        {
+          error: `Please write at least a short draft for ${sub.taskType.toUpperCase()} before submitting.`,
+        },
         { status: 400 }
       );
     }
 
-    const db = await getDb();
-    const now = new Date().toISOString();
-    const existingVault = await db.select().from(schema.vaultItems);
-    const knownOriginals = new Set(
-      existingVault.map((v) => v.originalText.trim().toLowerCase())
-    );
-
-    const gradedResults = [];
-
-    for (const sub of body.submissions) {
-      if (!sub.essayText || sub.essayText.trim().length < 15) {
-        return NextResponse.json(
-          { error: `Please write at least a short draft for ${sub.taskType.toUpperCase()} before submitting.` },
-          { status: 400 }
-        );
-      }
-
-      const [prompt] = await db
-        .select()
-        .from(schema.prompts)
-        .where(eq(schema.prompts.id, sub.promptId));
-
-      if (!prompt) {
-        return NextResponse.json({ error: "Prompt not found." }, { status: 404 });
-      }
-
-      // Resolve visual ground truth (caching vision extraction for uploaded Task 1 images)
-      let visualContext: string | null = prompt.chartSpecJson || prompt.extractedVisualSpec || null;
-      if (!visualContext && prompt.imageDataUrl) {
-        visualContext = await extractVisualSpecFromImage(
-          prompt.imageDataUrl,
-          prompt.promptText
-        );
-        await db
-          .update(schema.prompts)
-          .set({ extractedVisualSpec: visualContext })
-          .where(eq(schema.prompts.id, prompt.id));
-      }
-
-      // Determine draft version (v1, v2, v3...) for this session + prompt
-      const priorDrafts = await db
-        .select()
-        .from(schema.drafts)
-        .where(
-          and(
-            eq(schema.drafts.sessionId, body.sessionId),
-            eq(schema.drafts.promptId, sub.promptId)
-          )
-        )
-        .orderBy(desc(schema.drafts.version));
-
-      const nextVersion = (priorDrafts[0]?.version ?? 0) + 1;
-      let previousBand: number | null = null;
-      if (priorDrafts[0]) {
-        const [prevEval] = await db
-          .select()
-          .from(schema.evaluations)
-          .where(eq(schema.evaluations.draftId, priorDrafts[0].id));
-        previousBand = prevEval?.overallBand ?? null;
-      }
-
-      const draftId = `draft-${crypto.randomUUID().slice(0, 10)}`;
-      const wordCount = countEssayWords(sub.essayText);
-
-      await db.insert(schema.drafts).values({
-        id: draftId,
-        sessionId: body.sessionId,
-        promptId: sub.promptId,
-        taskType: sub.taskType,
-        version: nextVersion,
-        outlineJson: sub.outline ? JSON.stringify(sub.outline) : null,
-        outlineFeedbackJson: sub.outlineFeedback
-          ? JSON.stringify(sub.outlineFeedback)
-          : null,
-        essayText: sub.essayText,
-        wordCount,
-        secondsSpent: sub.secondsSpent ?? 0,
-        promptHighlightsJson: sub.promptHighlights
-          ? JSON.stringify(sub.promptHighlights)
-          : null,
-        scratchNotes: sub.scratchNotes || null,
-        createdAt: now,
-      });
-
-      const { payload, providerUsed, modelUsed } = await evaluateEssayWithAI({
-        taskType: sub.taskType,
-        promptTitle: prompt.title,
-        promptText: prompt.promptText,
-        visualContext,
-        essayText: sub.essayText,
-        draftVersion: nextVersion,
-        previousBand,
-      });
-
-      const evalId = `eval-${crypto.randomUUID().slice(0, 10)}`;
-      await db.insert(schema.evaluations).values({
-        id: evalId,
-        draftId,
-        overallBand: payload.overallBand,
-        taTrBand: payload.taTrBand,
-        ccBand: payload.ccBand,
-        lrBand: payload.lrBand,
-        graBand: payload.graBand,
-        examinerSummary: payload.examinerSummary,
-        criterionFeedbackJson: JSON.stringify(payload.criteria),
-        inlineAnnotationsJson: JSON.stringify(payload.inlineAnnotations),
-        targetBandRewrite: payload.targetBandRewrite,
-        rewriteKeyChangesJson: JSON.stringify(payload.rewriteKeyChanges),
-        topPrioritiesJson: JSON.stringify(payload.topPriorities),
-        providerUsed,
-        modelUsed,
-        createdAt: now,
-      });
-
-      // Auto-populate Personal Error & Collocation Vault
-      for (const v of payload.vaultItems) {
-        const key = v.originalText.trim().toLowerCase();
-        if (!key || !v.upgradedText.trim() || knownOriginals.has(key)) continue;
-        knownOriginals.add(key);
-
-        await db.insert(schema.vaultItems).values({
-          id: `vault-${crypto.randomUUID().slice(0, 9)}`,
-          sourceDraftId: draftId,
-          itemType: v.itemType,
-          criterion: v.criterion,
-          originalText: v.originalText.trim(),
-          upgradedText: v.upgradedText.trim(),
-          explanation: v.explanation.trim(),
-          exampleSentence: v.exampleSentence.trim() || v.upgradedText.trim(),
-          masteryLevel: 0,
-          reviewCount: 0,
-          nextReviewAt: now,
-          createdAt: now,
-        });
-      }
-
-      gradedResults.push({
-        draftId,
-        version: nextVersion,
-        taskType: sub.taskType,
-        wordCount,
-        evaluationId: evalId,
-        providerUsed,
-        modelUsed,
-        payload,
-      });
-    }
-
-    // Recompute session status & official 1:2 weighted band if both Task 1 & Task 2 exist
-    const allSessionDrafts = await db
+    const [prompt] = await db
       .select()
-      .from(schema.drafts)
-      .where(eq(schema.drafts.sessionId, body.sessionId))
-      .orderBy(desc(schema.drafts.version));
+      .from(schema.prompts)
+      .where(eq(schema.prompts.id, sub.promptId));
 
-    const latestT1 = allSessionDrafts.find((d) => d.taskType === "task1");
-    const latestT2 = allSessionDrafts.find((d) => d.taskType === "task2");
-
-    let weightedBand: number | null = null;
-    if (latestT1 && latestT2) {
-      const [e1] = await db
-        .select()
-        .from(schema.evaluations)
-        .where(eq(schema.evaluations.draftId, latestT1.id));
-      const [e2] = await db
-        .select()
-        .from(schema.evaluations)
-        .where(eq(schema.evaluations.draftId, latestT2.id));
-      if (e1 && e2) {
-        weightedBand = computeWeightedExamBand(e1.overallBand, e2.overallBand);
-      }
-    } else if (gradedResults[0]) {
-      weightedBand = gradedResults[0].payload.overallBand;
+    if (!prompt) {
+      return NextResponse.json({ error: "Prompt not found." }, { status: 404 });
     }
 
-    await db
-      .update(schema.writingSessions)
-      .set({
-        status: "completed",
-        completedAt: now,
-        totalSecondsSpent:
-          body.totalSecondsSpent ??
-          allSessionDrafts.reduce((acc, d) => acc + d.secondsSpent, 0),
-        weightedBand,
-      })
-      .where(eq(schema.writingSessions.id, body.sessionId));
-
-    return NextResponse.json({
-      sessionId: body.sessionId,
-      weightedBand,
-      results: gradedResults,
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to evaluate draft." },
-      { status: 500 }
-    );
+    validatedSubmissions.push({ sub, prompt });
   }
+
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false;
+      const sendEvent = (event: Record<string, unknown>) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        } catch {
+          closed = true;
+        }
+      };
+
+      // Flush initial bytes immediately so HTTP 200 headers arrive right away
+      sendEvent({
+        type: "progress",
+        stage: "Examiner reviewing prompt & essay...",
+      });
+
+      const keepAliveTimer = setInterval(() => {
+        sendEvent({ type: "ping", ts: Date.now() });
+      }, 4_000);
+
+      try {
+        const now = new Date().toISOString();
+        const existingVault = await db.select().from(schema.vaultItems);
+        const knownOriginals = new Set(
+          existingVault.map((v) => v.originalText.trim().toLowerCase())
+        );
+
+        const gradedResults = [];
+
+        for (let i = 0; i < validatedSubmissions.length; i++) {
+          const { sub, prompt } = validatedSubmissions[i];
+          const taskPrefix =
+            validatedSubmissions.length > 1
+              ? `[Part ${i + 1}/${validatedSubmissions.length}] `
+              : "";
+
+          // Resolve visual ground truth (caching vision extraction for uploaded Task 1 images)
+          let visualContext: string | null =
+            prompt.chartSpecJson || prompt.extractedVisualSpec || null;
+
+          if (!visualContext && prompt.imageDataUrl) {
+            sendEvent({
+              type: "progress",
+              stage: `${taskPrefix}Extracting chart data from uploaded image...`,
+            });
+            visualContext = await extractVisualSpecFromImage(
+              prompt.imageDataUrl,
+              prompt.promptText
+            );
+            await db
+              .update(schema.prompts)
+              .set({ extractedVisualSpec: visualContext })
+              .where(eq(schema.prompts.id, prompt.id));
+          }
+
+          // Inspect prior drafts for this (sessionId, promptId), distinguishing evaluated drafts from interrupted orphans
+          const priorDrafts = await db
+            .select()
+            .from(schema.drafts)
+            .where(
+              and(
+                eq(schema.drafts.sessionId, body.sessionId),
+                eq(schema.drafts.promptId, sub.promptId)
+              )
+            )
+            .orderBy(desc(schema.drafts.version));
+
+          const evaluatedPriorDrafts: Array<{
+            version: number;
+            overallBand: number;
+          }> = [];
+          const orphanDraftIds: string[] = [];
+
+          for (const d of priorDrafts) {
+            const [ev] = await db
+              .select({ overallBand: schema.evaluations.overallBand })
+              .from(schema.evaluations)
+              .where(eq(schema.evaluations.draftId, d.id));
+
+            if (ev) {
+              evaluatedPriorDrafts.push({
+                version: d.version,
+                overallBand: ev.overallBand,
+              });
+            } else {
+              orphanDraftIds.push(d.id);
+            }
+          }
+
+          const nextVersion = (evaluatedPriorDrafts[0]?.version ?? 0) + 1;
+          const previousBand = evaluatedPriorDrafts[0]?.overallBand ?? null;
+          const wordCount = countEssayWords(sub.essayText);
+
+          // Run AI evaluation BEFORE writing draft row so interrupted attempts never leave orphan drafts
+          const { payload, providerUsed, modelUsed } = await evaluateEssayWithAI({
+            taskType: sub.taskType,
+            promptTitle: prompt.title,
+            promptText: prompt.promptText,
+            visualContext,
+            essayText: sub.essayText,
+            draftVersion: nextVersion,
+            previousBand,
+            onProgress: (stage) =>
+              sendEvent({ type: "progress", stage: `${taskPrefix}${stage}` }),
+          });
+
+          sendEvent({
+            type: "progress",
+            stage: `${taskPrefix}Saving band scores & marginalia...`,
+          });
+
+          // Clean up any historical un-evaluated orphan drafts for this (sessionId, promptId)
+          for (const orphanId of orphanDraftIds) {
+            await db.delete(schema.drafts).where(eq(schema.drafts.id, orphanId));
+          }
+
+          const draftId = `draft-${crypto.randomUUID().slice(0, 10)}`;
+          await db.insert(schema.drafts).values({
+            id: draftId,
+            sessionId: body.sessionId,
+            promptId: sub.promptId,
+            taskType: sub.taskType,
+            version: nextVersion,
+            outlineJson: sub.outline ? JSON.stringify(sub.outline) : null,
+            outlineFeedbackJson: sub.outlineFeedback
+              ? JSON.stringify(sub.outlineFeedback)
+              : null,
+            essayText: sub.essayText,
+            wordCount,
+            secondsSpent: sub.secondsSpent ?? 0,
+            promptHighlightsJson: sub.promptHighlights
+              ? JSON.stringify(sub.promptHighlights)
+              : null,
+            scratchNotes: sub.scratchNotes || null,
+            createdAt: now,
+          });
+
+          const evalId = `eval-${crypto.randomUUID().slice(0, 10)}`;
+          await db.insert(schema.evaluations).values({
+            id: evalId,
+            draftId,
+            overallBand: payload.overallBand,
+            taTrBand: payload.taTrBand,
+            ccBand: payload.ccBand,
+            lrBand: payload.lrBand,
+            graBand: payload.graBand,
+            examinerSummary: payload.examinerSummary,
+            criterionFeedbackJson: JSON.stringify(payload.criteria),
+            inlineAnnotationsJson: JSON.stringify(payload.inlineAnnotations),
+            targetBandRewrite: payload.targetBandRewrite,
+            rewriteKeyChangesJson: JSON.stringify(payload.rewriteKeyChanges),
+            topPrioritiesJson: JSON.stringify(payload.topPriorities),
+            providerUsed,
+            modelUsed,
+            createdAt: now,
+          });
+
+          // Auto-populate Personal Error & Collocation Vault
+          for (const v of payload.vaultItems) {
+            const key = v.originalText.trim().toLowerCase();
+            if (!key || !v.upgradedText.trim() || knownOriginals.has(key)) continue;
+            knownOriginals.add(key);
+
+            await db.insert(schema.vaultItems).values({
+              id: `vault-${crypto.randomUUID().slice(0, 9)}`,
+              sourceDraftId: draftId,
+              itemType: v.itemType,
+              criterion: v.criterion,
+              originalText: v.originalText.trim(),
+              upgradedText: v.upgradedText.trim(),
+              explanation: v.explanation.trim(),
+              exampleSentence: v.exampleSentence.trim() || v.upgradedText.trim(),
+              masteryLevel: 0,
+              reviewCount: 0,
+              nextReviewAt: now,
+              createdAt: now,
+            });
+          }
+
+          gradedResults.push({
+            draftId,
+            version: nextVersion,
+            taskType: sub.taskType,
+            wordCount,
+            evaluationId: evalId,
+            providerUsed,
+            modelUsed,
+            payload,
+          });
+        }
+
+        // Recompute session status & official 1:2 weighted band from evaluated drafts
+        const allSessionDrafts = await db
+          .select()
+          .from(schema.drafts)
+          .where(eq(schema.drafts.sessionId, body.sessionId))
+          .orderBy(desc(schema.drafts.version));
+
+        let t1EvalBand: number | null = null;
+        let t2EvalBand: number | null = null;
+
+        for (const d of allSessionDrafts) {
+          if (d.taskType === "task1" && t1EvalBand === null) {
+            const [e1] = await db
+              .select({ overallBand: schema.evaluations.overallBand })
+              .from(schema.evaluations)
+              .where(eq(schema.evaluations.draftId, d.id));
+            if (e1) t1EvalBand = e1.overallBand;
+          } else if (d.taskType === "task2" && t2EvalBand === null) {
+            const [e2] = await db
+              .select({ overallBand: schema.evaluations.overallBand })
+              .from(schema.evaluations)
+              .where(eq(schema.evaluations.draftId, d.id));
+            if (e2) t2EvalBand = e2.overallBand;
+          }
+        }
+
+        let weightedBand: number | null = null;
+        if (t1EvalBand !== null && t2EvalBand !== null) {
+          weightedBand = computeWeightedExamBand(t1EvalBand, t2EvalBand);
+        } else if (gradedResults[0]) {
+          weightedBand = gradedResults[0].payload.overallBand;
+        }
+
+        await db
+          .update(schema.writingSessions)
+          .set({
+            status: "completed",
+            completedAt: now,
+            totalSecondsSpent:
+              body.totalSecondsSpent ??
+              allSessionDrafts.reduce((acc, d) => acc + d.secondsSpent, 0),
+            weightedBand,
+          })
+          .where(eq(schema.writingSessions.id, body.sessionId));
+
+        sendEvent({
+          type: "result",
+          sessionId: body.sessionId,
+          weightedBand,
+          results: gradedResults,
+        });
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to evaluate draft.";
+        const isTimeout =
+          err instanceof Error &&
+          (err.name === "TimeoutError" ||
+            err.name === "AbortError" ||
+            /timed?\s*out/i.test(message));
+
+        sendEvent({
+          type: "error",
+          isTimeout,
+          error: isTimeout
+            ? "Grading took too long, please try again. Your essay is safely preserved in the editor."
+            : message,
+        });
+      } finally {
+        clearInterval(keepAliveTimer);
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            // Stream already closed by client
+          }
+        }
+      }
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

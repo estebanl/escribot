@@ -28,10 +28,17 @@ export default async function StudioHomePage() {
     .from(schema.drafts)
     .orderBy(desc(schema.drafts.version));
 
+  const allEvals = await db
+    .select({ draftId: schema.evaluations.draftId })
+    .from(schema.evaluations);
+  const evaluatedDraftIds = new Set(allEvals.map((e) => e.draftId));
+
   const promptMap = new Map(allPrompts.map((p) => [p.id, p]));
 
   const recentSessions = sessions.map((s) => {
-    const sDrafts = allDrafts.filter((d) => d.sessionId === s.id);
+    const sDrafts = allDrafts.filter(
+      (d) => d.sessionId === s.id && evaluatedDraftIds.has(d.id)
+    );
     const maxVersion = sDrafts.reduce((m, d) => Math.max(m, d.version), 0);
     return {
       id: s.id,

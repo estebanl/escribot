@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowUpRight,
   BookmarkPlus,
@@ -11,11 +12,16 @@ import {
   Eye,
   FileCheck2,
   Loader2,
+  RotateCcw,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
 import { countEssayWords, getMinimumWords } from "@/lib/ielts-utils";
+import {
+  submitEvaluationStream,
+  type EvaluationErrorKind,
+} from "@/lib/client-evaluate";
 import type {
   AnnotationCategory,
   CriterionAssessment,
@@ -170,8 +176,13 @@ export function EvaluationWorkbench({
 }) {
   const [sessionData, setSessionData] = useState(initialSession);
 
-  const hasTask1 = sessionData.drafts.some((d) => d.taskType === "task1");
-  const hasTask2 = sessionData.drafts.some((d) => d.taskType === "task2");
+  const gradedDrafts = useMemo(
+    () => sessionData.drafts.filter((d) => d.evaluation !== null),
+    [sessionData.drafts]
+  );
+
+  const hasTask1 = gradedDrafts.some((d) => d.taskType === "task1");
+  const hasTask2 = gradedDrafts.some((d) => d.taskType === "task2");
 
   const [activeTaskType, setActiveTaskType] = useState<TaskType>(
     hasTask2 && !hasTask1 ? "task2" : "task1"
@@ -179,10 +190,10 @@ export function EvaluationWorkbench({
 
   const taskDrafts = useMemo(
     () =>
-      sessionData.drafts
+      gradedDrafts
         .filter((d) => d.taskType === activeTaskType)
         .sort((a, b) => a.version - b.version),
-    [sessionData.drafts, activeTaskType]
+    [gradedDrafts, activeTaskType]
   );
 
   const latestDraft = taskDrafts[taskDrafts.length - 1];
@@ -215,7 +226,10 @@ export function EvaluationWorkbench({
   // Redraft editor state
   const [redraftText, setRedraftText] = useState(currentDraft?.essayText || "");
   const [redraftSubmitting, setRedraftSubmitting] = useState(false);
+  const [redraftStage, setRedraftStage] = useState<string | null>(null);
   const [redraftError, setRedraftError] = useState<string | null>(null);
+  const [redraftErrorKind, setRedraftErrorKind] =
+    useState<EvaluationErrorKind | null>(null);
   const [promptExpanded, setPromptExpanded] = useState(false);
 
   if (!currentDraft || !currentDraft.evaluation) {
@@ -256,12 +270,13 @@ export function EvaluationWorkbench({
   async function handleSubmitRedraft() {
     if (!currentDraft.prompt) return;
     setRedraftSubmitting(true);
+    setRedraftStage("Examiner reviewing redraft...");
     setRedraftError(null);
+    setRedraftErrorKind(null);
+
     try {
-      const res = await fetch("/api/ai/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const outcome = await submitEvaluationStream(
+        {
           sessionId: sessionData.id,
           submissions: [
             {
@@ -271,12 +286,13 @@ export function EvaluationWorkbench({
               secondsSpent: 0,
             },
           ],
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setRedraftError(data.error || "Redraft evaluation failed.");
-        setRedraftSubmitting(false);
+        },
+        (stage) => setRedraftStage(stage)
+      );
+
+      if (!outcome.ok) {
+        setRedraftError(outcome.error || "Redraft evaluation failed. Please try again.");
+        setRedraftErrorKind(outcome.errorKind || "server");
         return;
       }
 
@@ -285,14 +301,19 @@ export function EvaluationWorkbench({
       const refreshed = await refreshedRes.json();
       if (refreshed.session) {
         setSessionData(refreshed.session);
-        const newVersion = data.results?.[0]?.version || currentDraft.version + 1;
+        const newVersion =
+          outcome.results?.[0]?.version || (latestDraft?.version || currentDraft.version) + 1;
         setSelectedVersion(newVersion);
         setActiveView("annotated");
       }
     } catch {
-      setRedraftError("Network error while grading redraft.");
+      setRedraftError(
+        "Could not refresh session results. Please reload the page to view your score."
+      );
+      setRedraftErrorKind("network");
     } finally {
       setRedraftSubmitting(false);
+      setRedraftStage(null);
     }
   }
 
@@ -363,7 +384,7 @@ export function EvaluationWorkbench({
                 type="button"
                 onClick={() => {
                   setActiveTaskType("task1");
-                  const t1Latest = sessionData.drafts
+                  const t1Latest = gradedDrafts
                     .filter((d) => d.taskType === "task1")
                     .pop();
                   setSelectedVersion(t1Latest?.version || 1);
@@ -381,7 +402,7 @@ export function EvaluationWorkbench({
                 type="button"
                 onClick={() => {
                   setActiveTaskType("task2");
-                  const t2Latest = sessionData.drafts
+                  const t2Latest = gradedDrafts
                     .filter((d) => d.taskType === "task2")
                     .pop();
                   setSelectedVersion(t2Latest?.version || 1);
@@ -777,8 +798,41 @@ export function EvaluationWorkbench({
               </button>
             </div>
 
+            {redraftSubmitting && redraftStage && (
+              <div className="p-3 rounded-xl border border-accent/35 bg-accent-soft/60 flex items-center gap-2 text-xs text-ink">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-accent shrink-0" />
+                <span className="font-medium">{redraftStage}</span>
+              </div>
+            )}
+
             {redraftError && (
-              <p className="text-xs text-red-600">{redraftError}</p>
+              <div
+                role="alert"
+                className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+                  redraftErrorKind === "timeout"
+                    ? "border-warm bg-warm-soft text-ink"
+                    : "border-red-400 bg-red-500/10 text-red-600 dark:text-red-300"
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle
+                    className={`w-4 h-4 shrink-0 mt-0.5 ${
+                      redraftErrorKind === "timeout" ? "text-warm" : "text-red-500"
+                    }`}
+                  />
+                  <span>{redraftError}</span>
+                </div>
+                <button
+                  id="retry-redraft-btn"
+                  type="button"
+                  disabled={redraftSubmitting}
+                  onClick={handleSubmitRedraft}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold transition cursor-pointer shrink-0"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Retry Re-Score</span>
+                </button>
+              </div>
             )}
 
             <textarea

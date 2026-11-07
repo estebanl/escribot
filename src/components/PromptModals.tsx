@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, Upload, Sparkles, Image as ImageIcon, Loader2 } from "lucide-react";
+import { safePostJson } from "@/lib/client-evaluate";
 import type { PromptCategory, TaskType } from "@/lib/types";
 
 export interface PromptRecord {
@@ -365,21 +366,17 @@ export function GeneratePromptModal({
     setGenerating(true);
     setError(null);
     try {
-      const res = await fetch("/api/ai/generate-prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskType, category, topic }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to generate prompt.");
-        setGenerating(false);
+      const outcome = await safePostJson<{ prompt: PromptRecord }>(
+        "/api/ai/generate-prompt",
+        { taskType, category, topic },
+        "generating your IELTS prompt"
+      );
+      if (!outcome.ok) {
+        setError(outcome.error);
         return;
       }
-      onCreated(data.prompt);
+      onCreated(outcome.data.prompt);
       onClose();
-    } catch {
-      setError("Network error while generating prompt.");
     } finally {
       setGenerating(false);
     }

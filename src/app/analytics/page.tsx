@@ -80,10 +80,13 @@ export default async function AnalyticsPage() {
     weakestCriterion = pairs[0][0];
   }
 
-  const totalWordsWritten = allDrafts.reduce((acc, d) => acc + d.wordCount, 0);
+  const evaluatedIds = new Set(allEvals.map((e) => e.draftId));
+  const evaluatedDrafts = allDrafts.filter((d) => evaluatedIds.has(d.id));
+
+  const totalWordsWritten = evaluatedDrafts.reduce((acc, d) => acc + d.wordCount, 0);
 
   const sessionRows = sessions.map((s) => {
-    const sDrafts = allDrafts.filter((d) => d.sessionId === s.id);
+    const sDrafts = evaluatedDrafts.filter((d) => d.sessionId === s.id);
     const t2 = s.task2PromptId ? promptMap.get(s.task2PromptId)?.title : null;
     const t1 = s.task1PromptId ? promptMap.get(s.task1PromptId)?.title : null;
     return {

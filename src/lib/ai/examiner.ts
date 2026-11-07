@@ -43,20 +43,24 @@ export async function extractVisualSpecFromImage(
 
   const visionModel = PROVIDER_DEFAULTS[cfg.provider]?.visionModel || cfg.fastModel;
 
-  const raw = await callLLM({
-    provider: cfg.provider,
-    apiKey: cfg.apiKey,
-    model: visionModel,
-    imageDataUrl,
-    jsonMode: true,
-    thinkingMode: "enabled",
-    reasoningEffort: "low",
-    systemPrompt:
-      "You are an Academic IELTS Task 1 visual data analyst. Extract every objective detail from the uploaded chart, table, process diagram, or comparison map so a text-based IELTS examiner can verify a candidate's Task Achievement with 100% numeric and factual precision.",
-    userPrompt: `Task prompt accompanying this image:\n${promptText}\n\nReturn a JSON object with keys:\n- "visualType": string (e.g., line graph, bar chart, pie charts, table, process diagram, map comparison)\n- "unitsAndAxes": string\n- "macroOverviewTrends": string[] (2-4 overarching trends, extremes, or transformations without drowning in minutiae)\n- "exactFiguresAndStages": string[] (comprehensive list of numbers, years, intersections, rankings, or process/map changes visible in the image)`,
-  });
-
-  return raw;
+  try {
+    const raw = await callLLM({
+      provider: cfg.provider,
+      apiKey: cfg.apiKey,
+      model: visionModel,
+      imageDataUrl,
+      jsonMode: true,
+      thinkingMode: "disabled",
+      maxTokens: 900,
+      timeoutMs: 20_000,
+      systemPrompt:
+        "You are an Academic IELTS Task 1 visual data analyst. Extract every objective detail from the uploaded chart, table, process diagram, or comparison map so a text-based IELTS examiner can verify a candidate's Task Achievement with 100% numeric and factual precision.",
+      userPrompt: `Task prompt accompanying this image:\n${promptText}\n\nReturn a JSON object with keys:\n- "visualType": string (e.g., line graph, bar chart, pie charts, table, process diagram, map comparison)\n- "unitsAndAxes": string\n- "macroOverviewTrends": string[] (2-4 overarching trends, extremes, or transformations without drowning in minutiae)\n- "exactFiguresAndStages": string[] (comprehensive list of numbers, years, intersections, rankings, or process/map changes visible in the image)`,
+    });
+    return raw;
+  } catch {
+    return "Uploaded visual chart/diagram screenshot (verify internal factual consistency against prompt instructions).";
+  }
 }
 
 /* ============================================================================
@@ -71,6 +75,24 @@ export interface EvaluateEssayInput {
   essayText: string;
   draftVersion: number;
   previousBand?: number | null;
+  onProgress?: (stage: string) => void;
+}
+
+interface RubricScoreOutput {
+  taTrBand?: number;
+  ccBand?: number;
+  lrBand?: number;
+  graBand?: number;
+  examinerSummary?: string;
+  criteria?: Partial<EvaluationPayload["criteria"]>;
+  topPriorities?: string[];
+}
+
+interface AnnotationRewriteOutput {
+  inlineAnnotations?: InlineAnnotation[];
+  targetBandRewrite?: string;
+  rewriteKeyChanges?: string[];
+  vaultItems?: EvaluationPayload["vaultItems"];
 }
 
 export async function evaluateEssayWithAI(
@@ -85,6 +107,7 @@ export async function evaluateEssayWithAI(
   const minWords = getMinimumWords(input.taskType);
 
   if (!cfg.apiKey) {
+    input.onProgress?.("Running local diagnostic analysis...");
     return {
       payload: buildHeuristicDiagnosticPreview(input, cfg, wordCount, minWords),
       providerUsed: "local-diagnostic-preview",
@@ -92,6 +115,7 @@ export async function evaluateEssayWithAI(
     };
   }
 
+  const apiKey = cfg.apiKey;
   const l1Profile = cfg.l1CoachingEnabled
     ? L1_LANGUAGE_PROFILES[cfg.nativeLanguage]
     : L1_LANGUAGE_PROFILES.neutral;
@@ -101,33 +125,9 @@ export async function evaluateEssayWithAI(
       ? "Task Achievement (TA): accurate data selection, clear macro Overview paragraph (mandatory for Band 7+), key comparisons, no personal opinion/speculation, 150+ words."
       : "Task Response (TR): addresses all parts of the prompt fully, maintains a clear & consistent position throughout, extends main ideas with specific reasoning/examples rather than over-generalising, 250+ words.";
 
-  const systemPrompt = `You are a Principal Academic IELTS Writing Examiner and Band ${cfg.targetBand.toFixed(
-    1
-  )}+ Academic Prose Coach.
-Grade strictly according to official IELTS Academic Writing Band Descriptors (0.0 to 9.0 in 0.5 increments; do NOT inflate scores—Band 6.5 plateaus are common when cohesion is mechanical, Task 1 lacks a synthesised overview, or Task 2 ideas remain over-generalised).
+  const targetRewriteBand = Math.max(cfg.targetBand, 8.0).toFixed(1);
 
-Candidate Calibration:
-- Current Baseline Band: ${cfg.currentBand.toFixed(1)}
-- Target Band: ${cfg.targetBand.toFixed(1)}
-- Linguistic Lens (${l1Profile.label}): ${l1Profile.coachingFocus}
-
-Official 4 Criteria:
-1. TA_TR — ${criterion1Name}
-2. CC — Coherence and Cohesion: logical paragraphing, clear central topic per body paragraph, natural cohesive devices (referencing, substitution, thematic progression) WITHOUT mechanical sentence-initial linkers ("Firstly, Secondly, Moreover, In a nutshell").
-3. LR — Lexical Resource: natural C1/C2 academic collocations, precise register, effective hedging, accurate word formation & spelling without forced archaic vocabulary.
-4. GRA — Grammatical Range and Accuracy: flexible mix of complex subordinate, relative, participial, and conditional structures with high punctuation & clause accuracy.
-
-CRITICAL RULES FOR JSON OUTPUT:
-- Each "inlineAnnotations" item MUST set "originalSpan" to an EXACT verbatim substring copied character-for-character from the candidate's essay (15 to 140 characters) so it highlights cleanly in the UI. Include 5 to 10 high-impact annotations spanning TA_TR, CC, LR, GRA${
-    cfg.l1CoachingEnabled && cfg.nativeLanguage !== "neutral" ? ", and L1" : ""
-  }.
-- "targetBandRewrite" MUST rewrite the candidate's OWN arguments/data groupings elevated to natural Band ${Math.max(
-    cfg.targetBand,
-    8.0
-  ).toFixed(1)} academic prose (multi-paragraph essay separated by "\\n\\n"), NOT a generic unrelated sample.
-- "vaultItems" MUST extract 3 to 5 reusable items (recurring error fixes and high-utility academic collocations) for spaced review.`;
-
-  const userPrompt = `TASK TYPE: Academic IELTS ${
+  const sharedEssayContext = `TASK TYPE: Academic IELTS ${
     input.taskType === "task1" ? "Writing Task 1 (Report)" : "Writing Task 2 (Essay)"
   }
 DRAFT VERSION: v${input.draftVersion}${
@@ -143,11 +143,29 @@ ${
   input.visualContext
     ? `UNDERLYING VISUAL DATA / DIAGRAM GROUND TRUTH (verify candidate's figures & overview against this):\n${input.visualContext}\n`
     : ""
-}
-CANDIDATE ESSAY:
+}CANDIDATE ESSAY:
 """
 ${input.essayText}
-"""
+"""`;
+
+  const rubricSystemPrompt = `You are a Principal Academic IELTS Writing Examiner calibrated for Band ${cfg.targetBand.toFixed(
+    1
+  )}+.
+Grade strictly according to official IELTS Academic Writing Band Descriptors (0.0 to 9.0 in 0.5 increments; do NOT inflate scores—Band 6.5 plateaus are common when cohesion is mechanical, Task 1 lacks a synthesised overview, or Task 2 ideas remain over-generalised).
+
+Candidate Calibration:
+- Current Baseline Band: ${cfg.currentBand.toFixed(1)} | Target Band: ${cfg.targetBand.toFixed(1)}
+- Linguistic Lens (${l1Profile.label}): ${l1Profile.coachingFocus}
+
+Official 4 Criteria:
+1. TA_TR — ${criterion1Name}
+2. CC — Coherence and Cohesion: logical paragraphing, clear central topic per body paragraph, natural cohesive devices WITHOUT mechanical sentence-initial linkers ("Firstly, Secondly, Moreover, In a nutshell").
+3. LR — Lexical Resource: natural C1/C2 academic collocations, precise register, effective hedging, accurate word formation & spelling.
+4. GRA — Grammatical Range and Accuracy: flexible mix of complex subordinate, relative, participial, and conditional structures with high punctuation & clause accuracy.
+
+Keep each string concise and high-signal so JSON generation is rapid.`;
+
+  const rubricUserPrompt = `${sharedEssayContext}
 
 Return ONLY a valid JSON object matching this exact structure:
 {
@@ -159,15 +177,32 @@ Return ONLY a valid JSON object matching this exact structure:
   "criteria": {
     "TA_TR": {
       "band": 6.5,
-      "descriptorSummary": "Why this specific band applies under official descriptors.",
-      "strengths": ["..."],
-      "limitingFactors": ["..."],
-      "howToGainHalfBand": "Concrete revision step to reach +0.5/+1.0."
+      "descriptorSummary": "1-2 sentences on why this band applies under official descriptors.",
+      "strengths": ["1-2 concise strengths"],
+      "limitingFactors": ["1-2 concise limiting factors"],
+      "howToGainHalfBand": "1 concrete revision step to reach +0.5/+1.0."
     },
     "CC": { "band": 6.5, "descriptorSummary": "...", "strengths": ["..."], "limitingFactors": ["..."], "howToGainHalfBand": "..." },
     "LR": { "band": 7.0, "descriptorSummary": "...", "strengths": ["..."], "limitingFactors": ["..."], "howToGainHalfBand": "..." },
     "GRA": { "band": 6.5, "descriptorSummary": "...", "strengths": ["..."], "limitingFactors": ["..."], "howToGainHalfBand": "..." }
   },
+  "topPriorities": ["Top 1 highest-leverage fix for v${input.draftVersion + 1}", "Top 2...", "Top 3..."]
+}`;
+
+  const coachSystemPrompt = `You are a Band ${targetRewriteBand} Academic IELTS Prose Coach & Marginalia Editor.
+Linguistic Lens (${l1Profile.label}): ${l1Profile.coachingFocus}
+
+CRITICAL RULES FOR JSON OUTPUT:
+- Each "inlineAnnotations" item MUST set "originalSpan" to an EXACT verbatim substring copied character-for-character from the candidate's essay (15 to 140 characters) so it highlights cleanly in the UI. Include 5 to 8 high-impact annotations spanning TA_TR, CC, LR, GRA${
+    cfg.l1CoachingEnabled && cfg.nativeLanguage !== "neutral" ? ", and L1" : ""
+  }.
+- "targetBandRewrite" MUST rewrite the candidate's OWN arguments/data groupings elevated to natural Band ${targetRewriteBand} academic prose (multi-paragraph essay separated by "\\n\\n"), NOT a generic unrelated sample.
+- "vaultItems" MUST extract 3 to 4 reusable items (recurring error fixes and high-utility academic collocations) for spaced review.`;
+
+  const coachUserPrompt = `${sharedEssayContext}
+
+Return ONLY a valid JSON object matching this exact structure:
+{
   "inlineAnnotations": [
     {
       "id": "ann-1",
@@ -175,15 +210,11 @@ Return ONLY a valid JSON object matching this exact structure:
       "severity": "upgrade",
       "originalSpan": "exact substring from candidate essay",
       "replacement": "natural Band 8+ revision of that span",
-      "explanation": "Concise examiner note explaining why."
+      "explanation": "Concise 1-sentence examiner note explaining why."
     }
   ],
-  "targetBandRewrite": "Full multi-paragraph rewrite of the candidate's own essay at Band ${Math.max(
-    cfg.targetBand,
-    8.0
-  ).toFixed(1)}...",
-  "rewriteKeyChanges": ["3-4 bullet takeaways comparing the rewrite to the candidate's draft"],
-  "topPriorities": ["Top 1 highest-leverage fix for v${input.draftVersion + 1}", "Top 2...", "Top 3..."],
+  "targetBandRewrite": "Full multi-paragraph rewrite of the candidate's own essay at Band ${targetRewriteBand}...",
+  "rewriteKeyChanges": ["3-4 concise bullet takeaways comparing the rewrite to the candidate's draft"],
   "vaultItems": [
     {
       "itemType": "error",
@@ -196,29 +227,95 @@ Return ONLY a valid JSON object matching this exact structure:
   ]
 }`;
 
-  const raw = await callLLM({
-    provider: cfg.provider,
-    apiKey: cfg.apiKey,
-    model: cfg.graderModel,
-    systemPrompt,
-    userPrompt,
-    jsonMode: true,
-    thinkingMode: "enabled",
-    reasoningEffort: "high",
-    timeoutMs: 115_000,
-  });
+  input.onProgress?.("Scoring 4 IELTS criteria & generating Band 8+ rewrite...");
 
-  const parsed = extractJsonObject<Partial<EvaluationPayload>>(raw);
+  let modelUsed = cfg.graderModel;
 
-  const taTrBand = roundIeltsBand(Number(parsed.taTrBand ?? parsed.criteria?.TA_TR?.band ?? 6.5));
-  const ccBand = roundIeltsBand(Number(parsed.ccBand ?? parsed.criteria?.CC?.band ?? 6.5));
-  const lrBand = roundIeltsBand(Number(parsed.lrBand ?? parsed.criteria?.LR?.band ?? 6.5));
-  const graBand = roundIeltsBand(Number(parsed.graBand ?? parsed.criteria?.GRA?.band ?? 6.5));
+  const scorePromise = (async (): Promise<RubricScoreOutput> => {
+    try {
+      const rawRubric = await callLLM({
+        provider: cfg.provider,
+        apiKey,
+        model: cfg.graderModel,
+        systemPrompt: rubricSystemPrompt,
+        userPrompt: rubricUserPrompt,
+        jsonMode: true,
+        thinkingMode: "disabled",
+        maxTokens: 1200,
+        timeoutMs: 26_000,
+      });
+      const parsedRubric = extractJsonObject<RubricScoreOutput>(rawRubric);
+      input.onProgress?.("4-criterion band scores ready — finalising inline upgrades...");
+      return parsedRubric;
+    } catch (primaryErr) {
+      if (cfg.fastModel && cfg.fastModel !== cfg.graderModel) {
+        input.onProgress?.("Switching to fast examiner model to complete band scoring...");
+        modelUsed = cfg.fastModel;
+        const rawFallback = await callLLM({
+          provider: cfg.provider,
+          apiKey,
+          model: cfg.fastModel,
+          systemPrompt: rubricSystemPrompt,
+          userPrompt: rubricUserPrompt,
+          jsonMode: true,
+          thinkingMode: "disabled",
+          maxTokens: 1200,
+          timeoutMs: 20_000,
+        });
+        input.onProgress?.("4-criterion band scores ready — finalising inline upgrades...");
+        return extractJsonObject<RubricScoreOutput>(rawFallback);
+      }
+      throw primaryErr;
+    }
+  })();
+
+  const annotationsPromise = (async (): Promise<AnnotationRewriteOutput> => {
+    try {
+      const rawCoach = await callLLM({
+        provider: cfg.provider,
+        apiKey,
+        model: cfg.fastModel,
+        systemPrompt: coachSystemPrompt,
+        userPrompt: coachUserPrompt,
+        jsonMode: true,
+        thinkingMode: "disabled",
+        maxTokens: 2100,
+        timeoutMs: 34_000,
+      });
+      const parsedCoach = extractJsonObject<AnnotationRewriteOutput>(rawCoach);
+      input.onProgress?.("Inline annotations & Band 8+ rewrite ready...");
+      return parsedCoach;
+    } catch {
+      const localPreview = buildHeuristicDiagnosticPreview(input, cfg, wordCount, minWords);
+      return {
+        inlineAnnotations: localPreview.inlineAnnotations,
+        targetBandRewrite:
+          "Band 8.0+ full rewrite timed out on this run, while your official 4-criterion band scores succeeded above. You can redraft or re-run anytime.",
+        rewriteKeyChanges: [],
+        vaultItems: localPreview.vaultItems,
+      };
+    }
+  })();
+
+  const [rubricData, coachData] = await Promise.all([scorePromise, annotationsPromise]);
+
+  const taTrBand = roundIeltsBand(
+    Number(rubricData.taTrBand ?? rubricData.criteria?.TA_TR?.band ?? 6.5)
+  );
+  const ccBand = roundIeltsBand(
+    Number(rubricData.ccBand ?? rubricData.criteria?.CC?.band ?? 6.5)
+  );
+  const lrBand = roundIeltsBand(
+    Number(rubricData.lrBand ?? rubricData.criteria?.LR?.band ?? 6.5)
+  );
+  const graBand = roundIeltsBand(
+    Number(rubricData.graBand ?? rubricData.criteria?.GRA?.band ?? 6.5)
+  );
   const overallBand = roundIeltsBand((taTrBand + ccBand + lrBand + graBand) / 4);
 
   const validCategories = new Set<AnnotationCategory>(["TA_TR", "CC", "LR", "GRA", "L1"]);
 
-  const normalizedAnnotations: InlineAnnotation[] = (parsed.inlineAnnotations || [])
+  const normalizedAnnotations: InlineAnnotation[] = (coachData.inlineAnnotations || [])
     .filter((a) => a && typeof a.originalSpan === "string" && a.originalSpan.trim().length > 0)
     .map((a, idx) => ({
       id: a.id || `ann-${idx + 1}`,
@@ -236,61 +333,62 @@ Return ONLY a valid JSON object matching this exact structure:
     lrBand,
     graBand,
     examinerSummary:
-      parsed.examinerSummary ||
+      rubricData.examinerSummary ||
       `Scored Band ${overallBand.toFixed(1)} overall across the four official Academic IELTS criteria.`,
     criteria: {
       TA_TR: {
         band: taTrBand,
         descriptorSummary:
-          parsed.criteria?.TA_TR?.descriptorSummary || "Assessed for task fulfilment.",
-        strengths: parsed.criteria?.TA_TR?.strengths || [],
-        limitingFactors: parsed.criteria?.TA_TR?.limitingFactors || [],
+          rubricData.criteria?.TA_TR?.descriptorSummary || "Assessed for task fulfilment.",
+        strengths: rubricData.criteria?.TA_TR?.strengths || [],
+        limitingFactors: rubricData.criteria?.TA_TR?.limitingFactors || [],
         howToGainHalfBand:
-          parsed.criteria?.TA_TR?.howToGainHalfBand ||
+          rubricData.criteria?.TA_TR?.howToGainHalfBand ||
           "Extend core points with sharper precision.",
       },
       CC: {
         band: ccBand,
         descriptorSummary:
-          parsed.criteria?.CC?.descriptorSummary || "Assessed for logical flow and cohesion.",
-        strengths: parsed.criteria?.CC?.strengths || [],
-        limitingFactors: parsed.criteria?.CC?.limitingFactors || [],
+          rubricData.criteria?.CC?.descriptorSummary || "Assessed for logical flow and cohesion.",
+        strengths: rubricData.criteria?.CC?.strengths || [],
+        limitingFactors: rubricData.criteria?.CC?.limitingFactors || [],
         howToGainHalfBand:
-          parsed.criteria?.CC?.howToGainHalfBand ||
+          rubricData.criteria?.CC?.howToGainHalfBand ||
           "Replace mechanical linkers with demonstrative referencing.",
       },
       LR: {
         band: lrBand,
         descriptorSummary:
-          parsed.criteria?.LR?.descriptorSummary || "Assessed for academic lexical precision.",
-        strengths: parsed.criteria?.LR?.strengths || [],
-        limitingFactors: parsed.criteria?.LR?.limitingFactors || [],
+          rubricData.criteria?.LR?.descriptorSummary || "Assessed for academic lexical precision.",
+        strengths: rubricData.criteria?.LR?.strengths || [],
+        limitingFactors: rubricData.criteria?.LR?.limitingFactors || [],
         howToGainHalfBand:
-          parsed.criteria?.LR?.howToGainHalfBand ||
+          rubricData.criteria?.LR?.howToGainHalfBand ||
           "Use precise domain collocations and nuanced hedging.",
       },
       GRA: {
         band: graBand,
         descriptorSummary:
-          parsed.criteria?.GRA?.descriptorSummary || "Assessed for syntactic range and accuracy.",
-        strengths: parsed.criteria?.GRA?.strengths || [],
-        limitingFactors: parsed.criteria?.GRA?.limitingFactors || [],
+          rubricData.criteria?.GRA?.descriptorSummary ||
+          "Assessed for syntactic range and accuracy.",
+        strengths: rubricData.criteria?.GRA?.strengths || [],
+        limitingFactors: rubricData.criteria?.GRA?.limitingFactors || [],
         howToGainHalfBand:
-          parsed.criteria?.GRA?.howToGainHalfBand ||
+          rubricData.criteria?.GRA?.howToGainHalfBand ||
           "Vary subordinate clauses and eliminate punctuation splices.",
       },
     },
     inlineAnnotations: normalizedAnnotations,
     targetBandRewrite:
-      parsed.targetBandRewrite ||
+      coachData.targetBandRewrite ||
       "Target-band rewrite unavailable for this response.",
-    rewriteKeyChanges: parsed.rewriteKeyChanges || [],
-    topPriorities: parsed.topPriorities || [
+    rewriteKeyChanges: coachData.rewriteKeyChanges || [],
+    topPriorities: rubricData.topPriorities || [
       "Strengthen macro overview / thesis precision",
       "Replace mechanical sequence connectors with cohesive referencing",
       "Upgrade high-frequency verbs into formal academic collocations",
     ],
-    vaultItems: (parsed.vaultItems || []).map((v) => ({
+    vaultItems: (coachData.vaultItems || []).map((v) => ({
       itemType: v.itemType === "collocation" ? "collocation" : "error",
       criterion: validCategories.has(v.criterion) ? v.criterion : "LR",
       originalText: v.originalText || "",
@@ -303,7 +401,7 @@ Return ONLY a valid JSON object matching this exact structure:
   return {
     payload,
     providerUsed: cfg.provider,
-    modelUsed: cfg.graderModel,
+    modelUsed,
   };
 }
 
@@ -554,9 +652,9 @@ export async function generatePromptWithAI(params: {
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
     jsonMode: true,
-    thinkingMode: "enabled",
-    reasoningEffort: "low",
-    timeoutMs: 65_000,
+    thinkingMode: "disabled",
+    maxTokens: 1600,
+    timeoutMs: 38_000,
     systemPrompt:
       "You are an official Cambridge Academic IELTS test-paper designer. Create realistic, nuanced Academic IELTS Writing tasks with rich contrasts, crossovers, or thought-provoking academic tensions.",
     userPrompt: `Create a brand-new Academic IELTS ${

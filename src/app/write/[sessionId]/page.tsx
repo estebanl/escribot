@@ -1,13 +1,22 @@
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { isPasscodeRequired } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { CoachWorkspace } from "@/components/CoachWorkspace";
 import { InsperaSimulator } from "@/components/InsperaSimulator";
-import type { SessionMode } from "@/lib/types";
+import type { OutlineFeedback, OutlineInput, SessionMode } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+function safeParseJson<T>(raw: string | null | undefined): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
 
 export default async function WriteSessionPage({
   params,
@@ -44,15 +53,49 @@ export default async function WriteSessionPage({
       )[0] || null
     : null;
 
+  // Restore any previously saved draft rows for this session (e.g. from an interrupted or in-progress attempt)
+  const existingDrafts = await db
+    .select()
+    .from(schema.drafts)
+    .where(eq(schema.drafts.sessionId, sessionId))
+    .orderBy(desc(schema.drafts.version));
+
   if (session.mode === "coach") {
     const activePrompt = task1Prompt || task2Prompt;
     if (!activePrompt) notFound();
+
+    const latestSaved = existingDrafts.find(
+      (d) => d.promptId === activePrompt.id
+    );
+
     return (
       <AppShell passcodeActive={isPasscodeRequired()}>
-        <CoachWorkspace sessionId={session.id} prompt={activePrompt} />
+        <CoachWorkspace
+          sessionId={session.id}
+          prompt={activePrompt}
+          initialDraft={
+            latestSaved
+              ? {
+                  essayText: latestSaved.essayText,
+                  secondsSpent: latestSaved.secondsSpent,
+                  outline: safeParseJson<OutlineInput>(latestSaved.outlineJson),
+                  outlineFeedback: safeParseJson<OutlineFeedback>(
+                    latestSaved.outlineFeedbackJson
+                  ),
+                }
+              : null
+          }
+        />
       </AppShell>
     );
   }
+
+  const latestT1 = task1Prompt
+    ? existingDrafts.find((d) => d.promptId === task1Prompt.id)
+    : undefined;
+  const latestT2 = task2Prompt
+    ? existingDrafts.find((d) => d.promptId === task2Prompt.id)
+    : undefined;
 
   // Authentic Full-Screen Computer-Delivered IELTS (Inspera) Simulator
   return (
@@ -61,6 +104,26 @@ export default async function WriteSessionPage({
       mode={session.mode as SessionMode}
       task1Prompt={task1Prompt}
       task2Prompt={task2Prompt}
+      initialDrafts={{
+        task1: latestT1
+          ? {
+              essayText: latestT1.essayText,
+              secondsSpent: latestT1.secondsSpent,
+              promptHighlights:
+                safeParseJson<string[]>(latestT1.promptHighlightsJson) || [],
+              scratchNotes: latestT1.scratchNotes,
+            }
+          : null,
+        task2: latestT2
+          ? {
+              essayText: latestT2.essayText,
+              secondsSpent: latestT2.secondsSpent,
+              promptHighlights:
+                safeParseJson<string[]>(latestT2.promptHighlightsJson) || [],
+              scratchNotes: latestT2.scratchNotes,
+            }
+          : null,
+      }}
     />
   );
 }

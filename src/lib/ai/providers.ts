@@ -101,6 +101,7 @@ export interface GenerateCompletionOptions {
   jsonMode?: boolean;
   thinkingMode?: "enabled" | "disabled";
   reasoningEffort?: "low" | "high" | "max";
+  maxTokens?: number;
   timeoutMs?: number;
 }
 
@@ -108,6 +109,15 @@ function splitDataUrl(dataUrl: string): { mimeType: string; base64: string } | n
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return null;
   return { mimeType: match[1], base64: match[2] };
+}
+
+function isAbortOrTimeout(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.name === "TimeoutError" ||
+    err.name === "AbortError" ||
+    /timed?\s*out|aborted due to timeout/i.test(err.message)
+  );
 }
 
 export async function callLLM(opts: GenerateCompletionOptions): Promise<string> {
@@ -121,220 +131,246 @@ export async function callLLM(opts: GenerateCompletionOptions): Promise<string> 
     jsonMode = true,
     thinkingMode = "disabled",
     reasoningEffort = "high",
-    timeoutMs = 95_000,
+    maxTokens,
+    timeoutMs = 45_000,
   } = opts;
 
   const signal = AbortSignal.timeout(timeoutMs);
 
-  /* -------------------- 1. DEEPSEEK (OpenAI-compatible v4/v4.1) -------------------- */
-  if (provider === "deepseek") {
-    const baseUrl = (
-      process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com"
-    ).replace(/\/+$/, "");
+  try {
+    /* -------------------- 1. DEEPSEEK (OpenAI-compatible v4/v4.1) -------------------- */
+    if (provider === "deepseek") {
+      const baseUrl = (
+        process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com"
+      ).replace(/\/+$/, "");
 
-    // DeepSeek-V4-Pro does not accept image blocks; ensure deepseek-flash is used if image is attached
-    const effectiveModel =
-      imageDataUrl && model.includes("pro") ? "deepseek-flash" : model;
+      // DeepSeek-V4-Pro does not accept image blocks; ensure deepseek-flash is used if image is attached
+      const effectiveModel =
+        imageDataUrl && model.includes("pro") ? "deepseek-flash" : model;
 
-    const userContent = imageDataUrl
-      ? [
-          { type: "text", text: userPrompt },
-          {
-            type: "image_url",
-            image_url: { url: imageDataUrl, detail: "high" },
-          },
-        ]
-      : userPrompt;
+      const userContent = imageDataUrl
+        ? [
+            { type: "text", text: userPrompt },
+            {
+              type: "image_url",
+              image_url: { url: imageDataUrl, detail: "high" },
+            },
+          ]
+        : userPrompt;
 
-    const body: Record<string, unknown> = {
-      model: effectiveModel,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-      thinking: { type: thinkingMode },
-    };
+      const body: Record<string, unknown> = {
+        model: effectiveModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+        thinking: { type: thinkingMode },
+      };
 
-    if (thinkingMode === "enabled") {
-      body.reasoning_effort = reasoningEffort;
-    } else {
-      body.temperature = 0.3;
-    }
-
-    if (jsonMode) {
-      body.response_format = { type: "json_object" };
-    }
-
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`DeepSeek API error (${res.status}): ${errText.slice(0, 300)}`);
-    }
-
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("Empty response from DeepSeek API.");
-    return content;
-  }
-
-  /* -------------------- 2. OPENAI -------------------- */
-  if (provider === "openai") {
-    const userContent = imageDataUrl
-      ? [
-          { type: "text", text: userPrompt },
-          { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
-        ]
-      : userPrompt;
-
-    const body: Record<string, unknown> = {
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-    };
-
-    if (jsonMode) {
-      body.response_format = { type: "json_object" };
-    }
-
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`OpenAI API error (${res.status}): ${errText.slice(0, 300)}`);
-    }
-
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("Empty response from OpenAI API.");
-    return content;
-  }
-
-  /* -------------------- 3. GOOGLE GEMINI -------------------- */
-  if (provider === "gemini") {
-    const parts: Array<Record<string, unknown>> = [{ text: userPrompt }];
-    if (imageDataUrl) {
-      const parsed = splitDataUrl(imageDataUrl);
-      if (parsed) {
-        parts.push({
-          inlineData: {
-            mimeType: parsed.mimeType,
-            data: parsed.base64,
-          },
-        });
+      if (thinkingMode === "enabled") {
+        body.reasoning_effort = reasoningEffort;
+      } else {
+        body.temperature = 0.25;
       }
-    }
 
-    const body: Record<string, unknown> = {
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts }],
-      generationConfig: jsonMode
-        ? { responseMimeType: "application/json", temperature: 0.25 }
-        : { temperature: 0.3 },
-    };
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      model
-    )}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gemini API error (${res.status}): ${errText.slice(0, 300)}`);
-    }
-
-    const data = (await res.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const text = data.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text || "")
-      .join("");
-    if (!text) throw new Error("Empty response from Gemini API.");
-    return text;
-  }
-
-  /* -------------------- 4. ANTHROPIC CLAUDE -------------------- */
-  if (provider === "anthropic") {
-    const contentBlocks: Array<Record<string, unknown>> = [];
-    if (imageDataUrl) {
-      const parsed = splitDataUrl(imageDataUrl);
-      if (parsed) {
-        contentBlocks.push({
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: parsed.mimeType,
-            data: parsed.base64,
-          },
-        });
+      if (typeof maxTokens === "number" && maxTokens > 0) {
+        body.max_tokens = maxTokens;
       }
-    }
-    contentBlocks.push({
-      type: "text",
-      text: jsonMode
-        ? `${userPrompt}\n\nRespond strictly with a single valid JSON object and no markdown prose outside JSON.`
-        : userPrompt,
-    });
 
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
+      if (jsonMode) {
+        body.response_format = { type: "json_object" };
+      }
+
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`DeepSeek API error (${res.status}): ${errText.slice(0, 300)}`);
+      }
+
+      const data = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error("Empty response from DeepSeek API.");
+      return content;
+    }
+
+    /* -------------------- 2. OPENAI -------------------- */
+    if (provider === "openai") {
+      const userContent = imageDataUrl
+        ? [
+            { type: "text", text: userPrompt },
+            { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
+          ]
+        : userPrompt;
+
+      const body: Record<string, unknown> = {
         model,
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: "user", content: contentBlocks }],
-      }),
-      signal,
-    });
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+      };
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Anthropic API error (${res.status}): ${errText.slice(0, 300)}`);
+      if (typeof maxTokens === "number" && maxTokens > 0) {
+        body.max_tokens = maxTokens;
+      }
+
+      if (jsonMode) {
+        body.response_format = { type: "json_object" };
+      }
+
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`OpenAI API error (${res.status}): ${errText.slice(0, 300)}`);
+      }
+
+      const data = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error("Empty response from OpenAI API.");
+      return content;
     }
 
-    const data = (await res.json()) as {
-      content?: Array<{ type: string; text?: string }>;
-    };
-    const text = data.content
-      ?.filter((c) => c.type === "text")
-      .map((c) => c.text || "")
-      .join("");
-    if (!text) throw new Error("Empty response from Anthropic API.");
-    return text;
-  }
+    /* -------------------- 3. GOOGLE GEMINI -------------------- */
+    if (provider === "gemini") {
+      const parts: Array<Record<string, unknown>> = [{ text: userPrompt }];
+      if (imageDataUrl) {
+        const parsed = splitDataUrl(imageDataUrl);
+        if (parsed) {
+          parts.push({
+            inlineData: {
+              mimeType: parsed.mimeType,
+              data: parsed.base64,
+            },
+          });
+        }
+      }
 
-  throw new Error(`Unsupported AI provider: ${provider}`);
+      const generationConfig: Record<string, unknown> = jsonMode
+        ? { responseMimeType: "application/json", temperature: 0.25 }
+        : { temperature: 0.3 };
+
+      if (typeof maxTokens === "number" && maxTokens > 0) {
+        generationConfig.maxOutputTokens = maxTokens;
+      }
+
+      const body: Record<string, unknown> = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts }],
+        generationConfig,
+      };
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        model
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Gemini API error (${res.status}): ${errText.slice(0, 300)}`);
+      }
+
+      const data = (await res.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+      const text = data.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text || "")
+        .join("");
+      if (!text) throw new Error("Empty response from Gemini API.");
+      return text;
+    }
+
+    /* -------------------- 4. ANTHROPIC CLAUDE -------------------- */
+    if (provider === "anthropic") {
+      const contentBlocks: Array<Record<string, unknown>> = [];
+      if (imageDataUrl) {
+        const parsed = splitDataUrl(imageDataUrl);
+        if (parsed) {
+          contentBlocks.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: parsed.mimeType,
+              data: parsed.base64,
+            },
+          });
+        }
+      }
+      contentBlocks.push({
+        type: "text",
+        text: jsonMode
+          ? `${userPrompt}\n\nRespond strictly with a single valid JSON object and no markdown prose outside JSON.`
+          : userPrompt,
+      });
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens ?? 4096,
+          system: systemPrompt,
+          messages: [{ role: "user", content: contentBlocks }],
+        }),
+        signal,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Anthropic API error (${res.status}): ${errText.slice(0, 300)}`);
+      }
+
+      const data = (await res.json()) as {
+        content?: Array<{ type: string; text?: string }>;
+      };
+      const text = data.content
+        ?.filter((c) => c.type === "text")
+        ?.map((c) => c.text || "")
+        .join("");
+      if (!text) throw new Error("Empty response from Anthropic API.");
+      return text;
+    }
+
+    throw new Error(`Unsupported AI provider: ${provider}`);
+  } catch (err) {
+    if (isAbortOrTimeout(err)) {
+      const timeoutError = new Error(
+        `AI model (${model}) timed out after ${Math.round(timeoutMs / 1000)}s.`
+      );
+      timeoutError.name = "TimeoutError";
+      throw timeoutError;
+    }
+    throw err;
+  }
 }

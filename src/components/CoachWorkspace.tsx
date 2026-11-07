@@ -9,15 +9,22 @@ import {
   Clock,
   Compass,
   Loader2,
+  RotateCcw,
   Send,
   Sparkles,
   Languages,
   AlignLeft,
   Copy,
   Check,
+  AlertTriangle,
 } from "lucide-react";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
 import { countEssayWords, getMinimumWords, getRecommendedMinutes } from "@/lib/ielts-utils";
+import {
+  safePostJson,
+  submitEvaluationStream,
+  type EvaluationErrorKind,
+} from "@/lib/client-evaluate";
 import type {
   OutlineFeedback,
   OutlineInput,
@@ -26,12 +33,21 @@ import type {
 } from "@/lib/types";
 import type { PromptRecord } from "./PromptModals";
 
+export interface RestoredCoachDraft {
+  essayText: string;
+  secondsSpent: number;
+  outline?: OutlineInput | null;
+  outlineFeedback?: OutlineFeedback | null;
+}
+
 export function CoachWorkspace({
   sessionId,
   prompt,
+  initialDraft,
 }: {
   sessionId: string;
   prompt: PromptRecord;
+  initialDraft?: RestoredCoachDraft | null;
 }) {
   const router = useRouter();
   const taskType = (prompt.taskType === "task1" ? "task1" : "task2") as TaskType;
@@ -39,20 +55,26 @@ export function CoachWorkspace({
   const recMinutes = getRecommendedMinutes(taskType);
 
   // Step 1: 5-Minute Outline Check state
-  const [outlineOpen, setOutlineOpen] = useState(true);
-  const [outline, setOutline] = useState<OutlineInput>({
-    thesisOrOverview: "",
-    body1Plan: "",
-    body2Plan: "",
-    targetKeyTerms: "",
-  });
-  const [outlineFeedback, setOutlineFeedback] = useState<OutlineFeedback | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(
+    !initialDraft?.essayText || Boolean(initialDraft?.outline?.thesisOrOverview)
+  );
+  const [outline, setOutline] = useState<OutlineInput>(
+    initialDraft?.outline || {
+      thesisOrOverview: "",
+      body1Plan: "",
+      body2Plan: "",
+      targetKeyTerms: "",
+    }
+  );
+  const [outlineFeedback, setOutlineFeedback] = useState<OutlineFeedback | null>(
+    initialDraft?.outlineFeedback || null
+  );
   const [checkingOutline, setCheckingOutline] = useState(false);
 
   // Step 2: Distraction-free Essay Editor state
-  const [essayText, setEssayText] = useState("");
+  const [essayText, setEssayText] = useState(initialDraft?.essayText || "");
   const [serifEditor, setSerifEditor] = useState(true);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(initialDraft?.secondsSpent || 0);
   const [timerPaused, setTimerPaused] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -64,7 +86,10 @@ export function CoachWorkspace({
 
   // Final evaluation submission state
   const [submitting, setSubmitting] = useState(false);
+  const [gradingStage, setGradingStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<EvaluationErrorKind | null>(null);
+  const [canRetryGrading, setCanRetryGrading] = useState(false);
 
   useEffect(() => {
     if (timerPaused || submitting) return;
@@ -90,25 +115,24 @@ export function CoachWorkspace({
   async function handleValidateOutline() {
     setCheckingOutline(true);
     setError(null);
+    setErrorKind(null);
+    setCanRetryGrading(false);
     try {
-      const res = await fetch("/api/ai/outline-check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const outcome = await safePostJson<{ feedback: OutlineFeedback }>(
+        "/api/ai/outline-check",
+        {
           promptId: prompt.id,
           taskType,
           promptText: prompt.promptText,
           outline,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Outline check failed.");
+        },
+        "checking your outline"
+      );
+      if (!outcome.ok) {
+        setError(outcome.error);
       } else {
-        setOutlineFeedback(data.feedback);
+        setOutlineFeedback(outcome.data.feedback);
       }
-    } catch {
-      setError("Network error while checking outline.");
     } finally {
       setCheckingOutline(false);
     }
@@ -128,31 +152,32 @@ export function CoachWorkspace({
       setError(
         "Highlight a phrase/sentence in your draft (or write at least one sentence) before running an on-demand check."
       );
+      setErrorKind(null);
+      setCanRetryGrading(false);
       return;
     }
 
     setToolkitLoading(tool);
     setError(null);
+    setErrorKind(null);
+    setCanRetryGrading(false);
     try {
-      const res = await fetch("/api/ai/toolkit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const outcome = await safePostJson<{ result: ToolkitResponse }>(
+        "/api/ai/toolkit",
+        {
           tool,
           taskType,
           promptText: prompt.promptText,
           selectedText: targetText,
           fullEssayContext: essayText,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Toolkit request failed.");
+        },
+        "consulting the coach toolkit"
+      );
+      if (!outcome.ok) {
+        setError(outcome.error);
       } else {
-        setToolkitResult(data.result);
+        setToolkitResult(outcome.data.result);
       }
-    } catch {
-      setError("Network error while consulting toolkit.");
     } finally {
       setToolkitLoading(null);
     }
@@ -161,40 +186,44 @@ export function CoachWorkspace({
   async function handleSubmitEssay() {
     if (wordCount < 15) {
       setError("Please write your draft before submitting for 4-criterion grading.");
+      setErrorKind(null);
+      setCanRetryGrading(false);
       return;
     }
     setSubmitting(true);
+    setGradingStage("Examiner reviewing prompt & essay...");
     setError(null);
-    try {
-      const res = await fetch("/api/ai/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          totalSecondsSpent: elapsedSeconds,
-          submissions: [
-            {
-              promptId: prompt.id,
-              taskType,
-              essayText,
-              secondsSpent: elapsedSeconds,
-              outline,
-              outlineFeedback,
-            },
-          ],
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Evaluation failed.");
-        setSubmitting(false);
-        return;
-      }
-      router.push(`/session/${sessionId}`);
-    } catch {
-      setError("Network error during evaluation.");
+    setErrorKind(null);
+    setCanRetryGrading(false);
+
+    const outcome = await submitEvaluationStream(
+      {
+        sessionId,
+        totalSecondsSpent: elapsedSeconds,
+        submissions: [
+          {
+            promptId: prompt.id,
+            taskType,
+            essayText,
+            secondsSpent: elapsedSeconds,
+            outline,
+            outlineFeedback,
+          },
+        ],
+      },
+      (stage) => setGradingStage(stage)
+    );
+
+    if (!outcome.ok) {
+      setError(outcome.error || "Evaluation failed. Please try again.");
+      setErrorKind(outcome.errorKind || "server");
+      setCanRetryGrading(true);
       setSubmitting(false);
+      setGradingStage(null);
+      return;
     }
+
+    router.push(`/session/${sessionId}`);
   }
 
   const mm = String(Math.floor(elapsedSeconds / 60)).padStart(2, "0");
@@ -262,9 +291,43 @@ export function CoachWorkspace({
         </div>
       </div>
 
+      {submitting && gradingStage && (
+        <div className="p-3.5 rounded-xl border border-accent/35 bg-accent-soft/60 flex items-center gap-2.5 text-xs sm:text-sm text-ink">
+          <Loader2 className="w-4 h-4 animate-spin text-accent shrink-0" />
+          <span className="font-medium">{gradingStage}</span>
+        </div>
+      )}
+
       {error && (
-        <div className="p-3.5 rounded-xl border border-red-400 bg-red-500/10 text-xs sm:text-sm text-red-600 dark:text-red-300">
-          {error}
+        <div
+          role="alert"
+          className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm ${
+            errorKind === "timeout"
+              ? "border-warm bg-warm-soft text-ink"
+              : "border-red-400 bg-red-500/10 text-red-600 dark:text-red-300"
+          }`}
+        >
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle
+              className={`w-4 h-4 shrink-0 mt-0.5 ${
+                errorKind === "timeout" ? "text-warm" : "text-red-500"
+              }`}
+            />
+            <span>{error}</span>
+          </div>
+
+          {canRetryGrading && (
+            <button
+              id="retry-coach-essay-btn"
+              type="button"
+              disabled={submitting}
+              onClick={handleSubmitEssay}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold transition cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Retry Grading</span>
+            </button>
+          )}
         </div>
       )}
 
