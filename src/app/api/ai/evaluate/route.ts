@@ -4,7 +4,12 @@ import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
 import { evaluateEssayWithAI, extractVisualSpecFromImage } from "@/lib/ai/examiner";
 import { computeWeightedExamBand, countEssayWords } from "@/lib/ielts-utils";
-import type { OutlineFeedback, OutlineInput, TaskType } from "@/lib/types";
+import type {
+  OutlineFeedback,
+  OutlineInput,
+  TaskType,
+  ToolkitResponse,
+} from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -15,6 +20,7 @@ interface SingleDraftSubmission {
   secondsSpent?: number;
   outline?: OutlineInput | null;
   outlineFeedback?: OutlineFeedback | null;
+  coachingHistory?: ToolkitResponse[] | null;
   promptHighlights?: string[];
   scratchNotes?: string;
 }
@@ -182,6 +188,9 @@ export async function POST(request: Request) {
             essayText: sub.essayText,
             draftVersion: nextVersion,
             previousBand,
+            outline: sub.outline,
+            outlineFeedback: sub.outlineFeedback,
+            coachingHistory: sub.coachingHistory,
             onProgress: (stage) =>
               sendEvent({ type: "progress", stage: `${taskPrefix}${stage}` }),
           });

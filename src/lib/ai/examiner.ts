@@ -75,6 +75,9 @@ export interface EvaluateEssayInput {
   essayText: string;
   draftVersion: number;
   previousBand?: number | null;
+  outline?: OutlineInput | null;
+  outlineFeedback?: OutlineFeedback | null;
+  coachingHistory?: ToolkitResponse[] | null;
   onProgress?: (stage: string) => void;
 }
 
@@ -93,6 +96,224 @@ interface AnnotationRewriteOutput {
   targetBandRewrite?: string;
   rewriteKeyChanges?: string[];
   vaultItems?: EvaluationPayload["vaultItems"];
+}
+
+function getSharedPedagogyRules(taskType: TaskType): string {
+  const taskSpecificRule =
+    taskType === "task1"
+      ? `- TASK 1 OVERVIEW RULE (CRITICAL — DO NOT CONTRADICT): The Task 1 Overview paragraph MUST be 100% free of raw numbers, percentages, and specific years. It must synthesise 2–3 overarching macro trends, dominant categories, or crossovers ONLY. Exact figures (e.g., "coal fell from 65% to 0%") belong strictly in Body Paragraphs 1 & 2, NEVER in the Overview. Never advise adding numbers or percentages to the Overview.
+- TASK 1 REGISTER CONSISTENCY: Across all tools (Outline Check, Paragraph Check, Collocations, and Final Grader), avoid dramatic/journalistic metaphors ("collapsed", "skyrocketed", "crashed", "exploded"). Consistently recommend objective statistical phrasing ("declined precipitously", "fell sharply to zero", "experienced a steep contraction", "surged", "expanded rapidly").`
+      : `- TASK 2 THESIS & EXTENSION RULE: The introduction must state a clear, nuanced position that is maintained throughout. Body paragraphs must develop one central claim each with specific causal mechanisms and concrete examples rather than sweeping generalisations.`;
+
+  return `SHARED HOUSE PEDAGOGY & CONSISTENCY RULES:
+${taskSpecificRule}
+- FALSE COGNATES & WHOLE-PHRASE REPLACEMENTS: When "actually" is used to mean "currently / at present / in recent years" or inside a trend/growth verb phrase (e.g., "Actually, ..." or "it has actually grown very fast"), it is a Romance L1 false cognate (Spanish/Portuguese/French "actualmente/atualmente/actuellement"). NEVER keep "actually" in a suggested revision (do NOT suggest "it has actually grown very fast") and NEVER suggest swapping "actually" with an intensifier like "extremely" (which creates ungrammatical double intensifiers like "grown extremely very fast"). Instead, replace the entire verb/adverb phrase with natural academic English (e.g., "it has expanded rapidly in recent years" or "Currently, ..."). Every suggested replacement MUST be grammatically valid in its exact surrounding sentence context.
+- STRICT EVIDENCE & ANTI-HALLUCINATION RULE: Every error or limiting factor mentioned in feedback MUST exist verbatim in the candidate's text. NEVER invent or assume errors from the L1 profile (such as claiming a "missing subject" when every sentence has a valid subject). Note that compound predicates sharing a single subject (e.g., "Coal stood at 65% in 1990 and fell to 0% by 2025") are grammatically complete and are NOT missing a subject.
+- STRICT CATEGORY BOUNDARIES:
+  * GRA (Grammatical Range & Accuracy): Comma splices (joining two independent clauses with a comma or ", however,"), run-on sentences, fragments, punctuation errors, verb tense errors, subject-verb agreement, and article/preposition grammar errors MUST be classified under GRA (with severity: "error"), NEVER under CC.
+  * CC (Coherence & Cohesion): Paragraphing, topic sentences, logical progression, and replacing mechanical sentence-initial linkers ("Firstly", "Moreover", "On the other hand") with demonstrative referencing ("This shift...", "Such measures...") — never punctuation or comma splices.
+  * LR (Lexical Resource): Upgrading genuinely informal vocabulary ("very fast", "a lot of", "big drop") or imprecise collocations to C1/C2 academic register.
+  * L1 (Native-Language Interference): False cognates ("actually" for "actualmente", "assist to", "sensible") and direct L1 calques.
+- NO LATERAL OR TRIVIAL SYNONYM SWAPS: Never suggest swapping words that are already accurate Academic English of the same register — specifically, NEVER suggest swapping "whereas" ↔ "while", "although" ↔ "even though", or "graph" ↔ "chart". Prefer fewer, genuinely high-leverage annotations over padding.`;
+}
+
+function cleanDoubleIntensifiers(text: string): string {
+  return text
+    .replace(/\b(extremely|very|really|highly)\s+(very|extremely|really)\b/gi, "rapidly")
+    .replace(/\bgrown\s+rapidly\s+fast\b/gi, "expanded rapidly");
+}
+
+function isTrivialLateralSwap(originalSpan: string, replacement: string, explanation: string): boolean {
+  const normOrig = originalSpan.trim().toLowerCase().replace(/[.,;!?]+$/g, "");
+  const normRepl = replacement.trim().toLowerCase().replace(/[.,;!?]+$/g, "");
+  if (normOrig === normRepl) return true;
+
+  // Check if the only difference between originalSpan and replacement is swapping whereas <-> while or although <-> even though
+  const normalizeLateral = (s: string) =>
+    s
+      .replace(/\b(whereas|while)\b/gi, "__CONTRAST_CONJ__")
+      .replace(/\b(although|even though|though)\b/gi, "__CONCESSIVE_CONJ__")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  if (normalizeLateral(normOrig) === normalizeLateral(normRepl)) {
+    return true;
+  }
+
+  if (
+    /\bswap(?:ping)?\s+['"“”]?whereas['"“”]?\s+(?:for|with|to)\s+['"“”]?while['"“”]?/i.test(
+      explanation
+    ) ||
+    /\breplac(?:e|ing)\s+['"“”]?whereas['"“”]?\s+with\s+['"“”]?while['"“”]?/i.test(
+      explanation
+    ) ||
+    /\breplac(?:e|ing)\s+['"“”]?while['"“”]?\s+with\s+['"“”]?whereas['"“”]?/i.test(
+      explanation
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeAndFilterAnnotations(
+  rawAnnotations: InlineAnnotation[],
+  validCategories: Set<AnnotationCategory>
+): InlineAnnotation[] {
+  const result: InlineAnnotation[] = [];
+
+  for (let idx = 0; idx < rawAnnotations.length; idx++) {
+    const a = rawAnnotations[idx];
+    if (!a || typeof a.originalSpan !== "string" || a.originalSpan.trim().length === 0) {
+      continue;
+    }
+
+    const originalSpan = a.originalSpan.trim();
+    let replacement = cleanDoubleIntensifiers((a.replacement || originalSpan).trim());
+    let explanation = (a.explanation || "Academic refinement suggested.").trim();
+    let category: AnnotationCategory = validCategories.has(a.category) ? a.category : "LR";
+    let severity: "error" | "upgrade" = a.severity === "error" ? "error" : "upgrade";
+
+    // Filter out trivial lateral swaps (e.g. "whereas" <-> "while")
+    if (isTrivialLateralSwap(originalSpan, replacement, explanation)) {
+      continue;
+    }
+
+    // Fix broken "actually" handling where the model kept "actually" or produced "actually grown very fast"
+    if (/\bactually\b/i.test(originalSpan)) {
+      if (/\bactually\b/i.test(replacement)) {
+        replacement = replacement
+          .replace(/\bhas actually grown very fast\b/gi, "has expanded rapidly in recent years")
+          .replace(/\bactually grown very fast\b/gi, "expanded rapidly in recent years")
+          .replace(/\bactually grew very fast\b/gi, "expanded rapidly")
+          .replace(/\bactually,\s*/gi, "Currently, ")
+          .replace(/\bactually\s+/gi, "");
+      }
+      if (/\bvery fast\b/i.test(replacement)) {
+        replacement = replacement
+          .replace(/\bgrown very fast\b/gi, "expanded rapidly")
+          .replace(/\bgrew very fast\b/gi, "expanded rapidly")
+          .replace(/\bvery fast\b/gi, "rapidly");
+      }
+      if (/['"“”]?actually['"“”]?\s+with\s+['"“”]?extremely['"“”]?/i.test(explanation)) {
+        explanation =
+          "'Actually' is a Romance false cognate for 'actualmente' ('currently / in recent years'); replace the whole phrase with formal academic phrasing such as 'expanded rapidly'.";
+      }
+      if (validCategories.has("L1") && /false cognate|actualmente|in fact|currently/i.test(explanation)) {
+        category = "L1";
+        severity = "error";
+      }
+    }
+
+    // Enforce GRA category for comma splices and clause/punctuation errors
+    if (
+      /\b(comma splice|run-on|independent clauses?|semicolon|clause boundary|subject-verb|verb tense|missing verb)\b/i.test(
+        explanation
+      )
+    ) {
+      category = "GRA";
+      severity = "error";
+    } else if (
+      /\b(false cognate|false friend|actualmente|calque)\b/i.test(explanation) &&
+      validCategories.has("L1")
+    ) {
+      category = "L1";
+      severity = "error";
+    }
+
+    result.push({
+      id: a.id || `ann-${idx + 1}`,
+      category,
+      severity,
+      originalSpan,
+      replacement,
+      explanation,
+    });
+  }
+
+  return result;
+}
+
+function hasLikelyMissingSubjectInEssay(essayText: string): boolean {
+  // Check if any sentence starts directly with a finite auxiliary/copula without a subject ("Is important...", "Has grown...")
+  return /(?:^|[.!?;]\s+)(?:is|are|was|were|has|have|had|will|would|can|could)\s+(?!there\b|it\b)[a-z]/im.test(
+    essayText
+  );
+}
+
+function sanitizeCriteriaFeedback(
+  criteria: EvaluationPayload["criteria"],
+  taskType: TaskType,
+  essayText: string
+): EvaluationPayload["criteria"] {
+  const sanitized = structuredClone(criteria);
+
+  // 1. Task 1 Overview must NEVER be told to include raw numbers/figures
+  if (taskType === "task1") {
+    const overviewHasNumbersAdvice = (text: string) =>
+      /\boverview\b/i.test(text) &&
+      /\b(\d+%|figures|statistics|numbers|percentages|data|from \d+)\b/i.test(text) &&
+      !/\b(without|no|avoid|free of|never|rather than|instead of)\b[^.!?]{0,35}\b(numbers|figures|statistics|percentages|\d+%)/i.test(
+        text
+      );
+
+    if (overviewHasNumbersAdvice(sanitized.TA_TR.howToGainHalfBand)) {
+      sanitized.TA_TR.howToGainHalfBand =
+        "Keep your Overview paragraph strictly number-free (2–3 macro trends and key crossovers only) and place exact start/end figures and percentage comparisons in Body Paragraphs 1 and 2.";
+    }
+
+    sanitized.TA_TR.limitingFactors = sanitized.TA_TR.limitingFactors.map((lf) =>
+      overviewHasNumbersAdvice(lf)
+        ? "Body paragraphs need sharper comparative figures (keep raw percentages in Body 1 & Body 2 while keeping the Overview number-free)"
+        : lf
+    );
+  }
+
+  // 2. Fix LR tips that wrongly suggest swapping "actually" -> "extremely"
+  const badActuallyTip = (text: string) =>
+    /actually/i.test(text) && /extremely/i.test(text);
+
+  if (badActuallyTip(sanitized.LR.howToGainHalfBand)) {
+    sanitized.LR.howToGainHalfBand =
+      "Replace L1 false cognates like 'actually' (actualmente → 'currently / in recent years') and conversational intensifiers ('very fast') with C1 academic verb-adverb collocations ('expanded rapidly', 'rose sharply').";
+  } else {
+    sanitized.LR.howToGainHalfBand = cleanDoubleIntensifiers(sanitized.LR.howToGainHalfBand);
+  }
+
+  sanitized.LR.limitingFactors = sanitized.LR.limitingFactors.map((lf) =>
+    badActuallyTip(lf)
+      ? "Uses L1 false cognate 'actually' (for 'currently') alongside informal intensifiers ('very fast')"
+      : cleanDoubleIntensifiers(lf)
+  );
+
+  // 3. Remove hallucinated "missing subject" claims in GRA if no sentence is missing a subject
+  if (!hasLikelyMissingSubjectInEssay(essayText)) {
+    if (/\bmissing subject(s|\s+pronouns?)?\b/i.test(sanitized.GRA.descriptorSummary)) {
+      sanitized.GRA.descriptorSummary = sanitized.GRA.descriptorSummary
+        .replace(
+          /[,;]?\s*(?:and\s+|with\s+|including\s+)?(?:occasional\s+|some\s+|a\s+)?missing subject(?:s|\s+pronouns?)?/gi,
+          ""
+        )
+        .replace(/missing subject(?:s|\s+pronouns?)?\s*(?:and|,)\s*/gi, "")
+        .trim();
+      if (!sanitized.GRA.descriptorSummary || sanitized.GRA.descriptorSummary.length < 15) {
+        sanitized.GRA.descriptorSummary =
+          "Uses a mix of simple and complex sentence structures; punctuation across clause boundaries and subordinate clauses can be tightened.";
+      }
+    }
+
+    sanitized.GRA.limitingFactors = sanitized.GRA.limitingFactors.filter(
+      (lf) => !/\bmissing subject(s|\s+pronouns?)?\b/i.test(lf)
+    );
+
+    if (/\bmissing subject(s|\s+pronouns?)?\b/i.test(sanitized.GRA.howToGainHalfBand)) {
+      sanitized.GRA.howToGainHalfBand =
+        "Eliminate comma splices between independent clauses (use a semicolon, period, or subordinating conjunction) and vary participial and relative clauses.";
+    }
+  }
+
+  return sanitized;
 }
 
 export async function evaluateEssayWithAI(
@@ -122,10 +343,38 @@ export async function evaluateEssayWithAI(
 
   const criterion1Name =
     input.taskType === "task1"
-      ? "Task Achievement (TA): accurate data selection, clear macro Overview paragraph (mandatory for Band 7+), key comparisons, no personal opinion/speculation, 150+ words."
+      ? "Task Achievement (TA): clear NUMBER-FREE macro Overview paragraph (mandatory for Band 7+; 2–3 overarching trends/crossovers WITHOUT raw percentages or dates), accurate data selection & exact comparative figures inside Body Paragraphs 1 & 2, no personal opinion/speculation, 150+ words."
       : "Task Response (TR): addresses all parts of the prompt fully, maintains a clear & consistent position throughout, extends main ideas with specific reasoning/examples rather than over-generalising, 250+ words.";
 
   const targetRewriteBand = Math.max(cfg.targetBand, 8.0).toFixed(1);
+  const sharedPedagogyRules = getSharedPedagogyRules(input.taskType);
+
+  const sessionCoachingContextParts: string[] = [];
+  if (input.outlineFeedback) {
+    sessionCoachingContextParts.push(
+      `Prior Outline Check given to student:\n- Overview/Thesis guidance: ${input.outlineFeedback.overviewOrThesisCheck}\n- Grouping guidance: ${input.outlineFeedback.bodyGroupingCheck}`
+    );
+  }
+  if (input.coachingHistory && input.coachingHistory.length > 0) {
+    const recentTools = input.coachingHistory
+      .slice(-3)
+      .map(
+        (t) =>
+          `- [${t.tool}] ${t.headline}: ${t.suggestions
+            .map((s) => `"${s.rewrittenOrPhrase}"`)
+            .join(" | ")}`
+      )
+      .join("\n");
+    sessionCoachingContextParts.push(
+      `Prior On-Demand Toolkit suggestions shown to student during drafting (DO NOT contradict or penalise phrasing recommended here):\n${recentTools}`
+    );
+  }
+  const sessionCoachingBlock =
+    sessionCoachingContextParts.length > 0
+      ? `\nSESSION COACHING CONTEXT (maintain 100% consistency with this prior guidance):\n${sessionCoachingContextParts.join(
+          "\n\n"
+        )}\n`
+      : "";
 
   const sharedEssayContext = `TASK TYPE: Academic IELTS ${
     input.taskType === "task1" ? "Writing Task 1 (Report)" : "Writing Task 2 (Essay)"
@@ -141,9 +390,9 @@ ${input.promptText}
 
 ${
   input.visualContext
-    ? `UNDERLYING VISUAL DATA / DIAGRAM GROUND TRUTH (verify candidate's figures & overview against this):\n${input.visualContext}\n`
+    ? `UNDERLYING VISUAL DATA / DIAGRAM GROUND TRUTH (verify candidate's body-paragraph figures & macro overview trends against this):\n${input.visualContext}\n`
     : ""
-}CANDIDATE ESSAY:
+}${sessionCoachingBlock}CANDIDATE ESSAY:
 """
 ${input.essayText}
 """`;
@@ -159,9 +408,11 @@ Candidate Calibration:
 
 Official 4 Criteria:
 1. TA_TR — ${criterion1Name}
-2. CC — Coherence and Cohesion: logical paragraphing, clear central topic per body paragraph, natural cohesive devices WITHOUT mechanical sentence-initial linkers ("Firstly, Secondly, Moreover, In a nutshell").
-3. LR — Lexical Resource: natural C1/C2 academic collocations, precise register, effective hedging, accurate word formation & spelling.
-4. GRA — Grammatical Range and Accuracy: flexible mix of complex subordinate, relative, participial, and conditional structures with high punctuation & clause accuracy.
+2. CC — Coherence and Cohesion: logical paragraphing, clear central topic per body paragraph, natural cohesive devices WITHOUT mechanical sentence-initial linkers ("Firstly, Secondly, Moreover, In a nutshell"). Note: comma splices belong under GRA, not CC.
+3. LR — Lexical Resource: natural C1/C2 academic collocations, precise statistical/academic register, effective hedging, accurate word formation & spelling.
+4. GRA — Grammatical Range and Accuracy: flexible mix of complex subordinate, relative, participial, and conditional structures with high punctuation & clause-boundary accuracy (comma splices are scored here under GRA).
+
+${sharedPedagogyRules}
 
 Keep each string concise and high-signal so JSON generation is rapid.`;
 
@@ -180,7 +431,7 @@ Return ONLY a valid JSON object matching this exact structure:
       "descriptorSummary": "1-2 sentences on why this band applies under official descriptors.",
       "strengths": ["1-2 concise strengths"],
       "limitingFactors": ["1-2 concise limiting factors"],
-      "howToGainHalfBand": "1 concrete revision step to reach +0.5/+1.0."
+      "howToGainHalfBand": "1 concrete revision step to reach +0.5/+1.0 (for Task 1: keep Overview number-free; put exact figures in Body 1 & 2)."
     },
     "CC": { "band": 6.5, "descriptorSummary": "...", "strengths": ["..."], "limitingFactors": ["..."], "howToGainHalfBand": "..." },
     "LR": { "band": 7.0, "descriptorSummary": "...", "strengths": ["..."], "limitingFactors": ["..."], "howToGainHalfBand": "..." },
@@ -192,11 +443,14 @@ Return ONLY a valid JSON object matching this exact structure:
   const coachSystemPrompt = `You are a Band ${targetRewriteBand} Academic IELTS Prose Coach & Marginalia Editor.
 Linguistic Lens (${l1Profile.label}): ${l1Profile.coachingFocus}
 
+${sharedPedagogyRules}
+
 CRITICAL RULES FOR JSON OUTPUT:
-- Each "inlineAnnotations" item MUST set "originalSpan" to an EXACT verbatim substring copied character-for-character from the candidate's essay (15 to 140 characters) so it highlights cleanly in the UI. Include 5 to 8 high-impact annotations spanning TA_TR, CC, LR, GRA${
+- Each "inlineAnnotations" item MUST set "originalSpan" to an EXACT verbatim substring copied character-for-character from the candidate's essay (15 to 140 characters) so it highlights cleanly in the UI. Include 3 to 7 genuinely high-impact annotations spanning TA_TR, CC, LR, GRA${
     cfg.l1CoachingEnabled && cfg.nativeLanguage !== "neutral" ? ", and L1" : ""
-  }.
-- "targetBandRewrite" MUST rewrite the candidate's OWN arguments/data groupings elevated to natural Band ${targetRewriteBand} academic prose (multi-paragraph essay separated by "\\n\\n"), NOT a generic unrelated sample.
+  } (do NOT pad with lateral synonym swaps like "whereas" -> "while").
+- Ensure every "replacement" is a complete, grammatically sound drop-in replacement for "originalSpan" that reads naturally in the surrounding sentence (never leave false cognates like "actually" in place or create double intensifiers).
+- "targetBandRewrite" MUST rewrite the candidate's OWN arguments/data groupings elevated to natural Band ${targetRewriteBand} academic prose (multi-paragraph essay separated by "\\n\\n"; for Task 1, ensure the Overview paragraph has NO raw numbers and Body 1 & 2 contain the exact figures).
 - "vaultItems" MUST extract 3 to 4 reusable items (recurring error fixes and high-utility academic collocations) for spaced review.`;
 
   const coachUserPrompt = `${sharedEssayContext}
@@ -206,10 +460,10 @@ Return ONLY a valid JSON object matching this exact structure:
   "inlineAnnotations": [
     {
       "id": "ann-1",
-      "category": "CC",
-      "severity": "upgrade",
+      "category": "GRA",
+      "severity": "error",
       "originalSpan": "exact substring from candidate essay",
-      "replacement": "natural Band 8+ revision of that span",
+      "replacement": "natural Band 8+ revision of that exact span",
       "explanation": "Concise 1-sentence examiner note explaining why."
     }
   ],
@@ -315,16 +569,86 @@ Return ONLY a valid JSON object matching this exact structure:
 
   const validCategories = new Set<AnnotationCategory>(["TA_TR", "CC", "LR", "GRA", "L1"]);
 
-  const normalizedAnnotations: InlineAnnotation[] = (coachData.inlineAnnotations || [])
-    .filter((a) => a && typeof a.originalSpan === "string" && a.originalSpan.trim().length > 0)
-    .map((a, idx) => ({
-      id: a.id || `ann-${idx + 1}`,
-      category: validCategories.has(a.category) ? a.category : "LR",
-      severity: a.severity === "error" ? "error" : "upgrade",
-      originalSpan: a.originalSpan.trim(),
-      replacement: a.replacement || a.originalSpan,
-      explanation: a.explanation || "Academic refinement suggested.",
-    }));
+  const normalizedAnnotations = normalizeAndFilterAnnotations(
+    coachData.inlineAnnotations || [],
+    validCategories
+  );
+
+  const rawCriteria: EvaluationPayload["criteria"] = {
+    TA_TR: {
+      band: taTrBand,
+      descriptorSummary:
+        rubricData.criteria?.TA_TR?.descriptorSummary || "Assessed for task fulfilment.",
+      strengths: rubricData.criteria?.TA_TR?.strengths || [],
+      limitingFactors: rubricData.criteria?.TA_TR?.limitingFactors || [],
+      howToGainHalfBand:
+        rubricData.criteria?.TA_TR?.howToGainHalfBand ||
+        (input.taskType === "task1"
+          ? "Keep your Overview number-free and support both body paragraphs with exact comparative figures."
+          : "Extend core points with sharper precision and concrete examples."),
+    },
+    CC: {
+      band: ccBand,
+      descriptorSummary:
+        rubricData.criteria?.CC?.descriptorSummary || "Assessed for logical flow and cohesion.",
+      strengths: rubricData.criteria?.CC?.strengths || [],
+      limitingFactors: rubricData.criteria?.CC?.limitingFactors || [],
+      howToGainHalfBand:
+        rubricData.criteria?.CC?.howToGainHalfBand ||
+        "Replace mechanical linkers with demonstrative referencing.",
+    },
+    LR: {
+      band: lrBand,
+      descriptorSummary:
+        rubricData.criteria?.LR?.descriptorSummary || "Assessed for academic lexical precision.",
+      strengths: rubricData.criteria?.LR?.strengths || [],
+      limitingFactors: rubricData.criteria?.LR?.limitingFactors || [],
+      howToGainHalfBand:
+        rubricData.criteria?.LR?.howToGainHalfBand ||
+        "Use precise domain collocations and nuanced hedging.",
+    },
+    GRA: {
+      band: graBand,
+      descriptorSummary:
+        rubricData.criteria?.GRA?.descriptorSummary ||
+        "Assessed for syntactic range and accuracy.",
+      strengths: rubricData.criteria?.GRA?.strengths || [],
+      limitingFactors: rubricData.criteria?.GRA?.limitingFactors || [],
+      howToGainHalfBand:
+        rubricData.criteria?.GRA?.howToGainHalfBand ||
+        "Vary subordinate clauses and eliminate punctuation splices.",
+    },
+  };
+
+  const sanitizedCriteria = sanitizeCriteriaFeedback(
+    rawCriteria,
+    input.taskType,
+    input.essayText
+  );
+
+  const sanitizedTopPriorities = (
+    rubricData.topPriorities || [
+      "Strengthen macro overview / thesis precision",
+      "Replace mechanical sequence connectors with cohesive referencing",
+      "Upgrade high-frequency verbs into formal academic collocations",
+    ]
+  ).map((p) => {
+    if (
+      input.taskType === "task1" &&
+      /\boverview\b/i.test(p) &&
+      /\b(\d+%|figures|statistics|numbers|percentages|data)\b/i.test(p) &&
+      !/\b(without|no|avoid|free of|never)\b/i.test(p)
+    ) {
+      return "Keep the Overview strictly number-free and place exact comparative figures in Body Paragraphs 1 & 2";
+    }
+    if (/actually/i.test(p) && /extremely/i.test(p)) {
+      return "Replace L1 false cognates ('actually' → 'currently / in recent years') and informal intensifiers ('very fast' → 'rapidly')";
+    }
+    if (!hasLikelyMissingSubjectInEssay(input.essayText) && /\bmissing subject/i.test(p)) {
+      return "Eliminate comma splices between independent clauses and vary subordinate clause structures";
+    }
+    return cleanDoubleIntensifiers(p);
+  });
 
   const payload: EvaluationPayload = {
     overallBand,
@@ -335,67 +659,46 @@ Return ONLY a valid JSON object matching this exact structure:
     examinerSummary:
       rubricData.examinerSummary ||
       `Scored Band ${overallBand.toFixed(1)} overall across the four official Academic IELTS criteria.`,
-    criteria: {
-      TA_TR: {
-        band: taTrBand,
-        descriptorSummary:
-          rubricData.criteria?.TA_TR?.descriptorSummary || "Assessed for task fulfilment.",
-        strengths: rubricData.criteria?.TA_TR?.strengths || [],
-        limitingFactors: rubricData.criteria?.TA_TR?.limitingFactors || [],
-        howToGainHalfBand:
-          rubricData.criteria?.TA_TR?.howToGainHalfBand ||
-          "Extend core points with sharper precision.",
-      },
-      CC: {
-        band: ccBand,
-        descriptorSummary:
-          rubricData.criteria?.CC?.descriptorSummary || "Assessed for logical flow and cohesion.",
-        strengths: rubricData.criteria?.CC?.strengths || [],
-        limitingFactors: rubricData.criteria?.CC?.limitingFactors || [],
-        howToGainHalfBand:
-          rubricData.criteria?.CC?.howToGainHalfBand ||
-          "Replace mechanical linkers with demonstrative referencing.",
-      },
-      LR: {
-        band: lrBand,
-        descriptorSummary:
-          rubricData.criteria?.LR?.descriptorSummary || "Assessed for academic lexical precision.",
-        strengths: rubricData.criteria?.LR?.strengths || [],
-        limitingFactors: rubricData.criteria?.LR?.limitingFactors || [],
-        howToGainHalfBand:
-          rubricData.criteria?.LR?.howToGainHalfBand ||
-          "Use precise domain collocations and nuanced hedging.",
-      },
-      GRA: {
-        band: graBand,
-        descriptorSummary:
-          rubricData.criteria?.GRA?.descriptorSummary ||
-          "Assessed for syntactic range and accuracy.",
-        strengths: rubricData.criteria?.GRA?.strengths || [],
-        limitingFactors: rubricData.criteria?.GRA?.limitingFactors || [],
-        howToGainHalfBand:
-          rubricData.criteria?.GRA?.howToGainHalfBand ||
-          "Vary subordinate clauses and eliminate punctuation splices.",
-      },
-    },
+    criteria: sanitizedCriteria,
     inlineAnnotations: normalizedAnnotations,
-    targetBandRewrite:
+    targetBandRewrite: cleanDoubleIntensifiers(
       coachData.targetBandRewrite ||
-      "Target-band rewrite unavailable for this response.",
-    rewriteKeyChanges: coachData.rewriteKeyChanges || [],
-    topPriorities: rubricData.topPriorities || [
-      "Strengthen macro overview / thesis precision",
-      "Replace mechanical sequence connectors with cohesive referencing",
-      "Upgrade high-frequency verbs into formal academic collocations",
-    ],
-    vaultItems: (coachData.vaultItems || []).map((v) => ({
-      itemType: v.itemType === "collocation" ? "collocation" : "error",
-      criterion: validCategories.has(v.criterion) ? v.criterion : "LR",
-      originalText: v.originalText || "",
-      upgradedText: v.upgradedText || "",
-      explanation: v.explanation || "",
-      exampleSentence: v.exampleSentence || "",
-    })),
+        "Target-band rewrite unavailable for this response."
+    ),
+    rewriteKeyChanges: (coachData.rewriteKeyChanges || []).map(cleanDoubleIntensifiers),
+    topPriorities: sanitizedTopPriorities,
+    vaultItems: (coachData.vaultItems || [])
+      .filter(
+        (v) =>
+          v &&
+          !isTrivialLateralSwap(
+            v.originalText || "",
+            v.upgradedText || "",
+            v.explanation || ""
+          )
+      )
+      .map((v) => {
+        const explanation = v.explanation || "";
+        let criterion: AnnotationCategory = validCategories.has(v.criterion)
+          ? v.criterion
+          : "LR";
+        if (/\b(comma splice|run-on|independent clauses?|semicolon)\b/i.test(explanation)) {
+          criterion = "GRA";
+        } else if (
+          /\b(false cognate|false friend|actualmente|calque)\b/i.test(explanation) &&
+          validCategories.has("L1")
+        ) {
+          criterion = "L1";
+        }
+        return {
+          itemType: v.itemType === "collocation" ? "collocation" : "error",
+          criterion,
+          originalText: v.originalText || "",
+          upgradedText: cleanDoubleIntensifiers(v.upgradedText || ""),
+          explanation,
+          exampleSentence: cleanDoubleIntensifiers(v.exampleSentence || ""),
+        };
+      }),
   };
 
   return {
@@ -451,8 +754,8 @@ export async function checkOutlineWithAI(params: {
                 usageNote: "Stronger than 'went up a lot' for sustained multi-year growth.",
               },
               {
-                phrase: "accounted for the lion's share / largest proportion",
-                usageNote: "Ideal for highlighting dominant pie/bar segments.",
+                phrase: "declined precipitously / fell sharply",
+                usageNote: "Objective statistical phrasing for steep drops (prefer over journalistic metaphors like 'collapsed').",
               },
               {
                 phrase: "converged before overtaking",
@@ -485,7 +788,9 @@ export async function checkOutlineWithAI(params: {
     timeoutMs: 35_000,
     systemPrompt: `You are a fast, surgical Academic IELTS Band ${cfg.targetBand.toFixed(
       1
-    )}+ Writing Coach. Validate the student's 5-minute pre-writing outline BEFORE they write the essay. Do NOT write the essay for them—spot Task Achievement/Response traps, weak grouping, or missing prompt parts, and suggest 4 high-register academic collocations.`,
+    )}+ Writing Coach. Validate the student's 5-minute pre-writing outline BEFORE they write the essay. Do NOT write the essay for them—spot Task Achievement/Response traps, weak grouping, or missing prompt parts, and suggest 4 high-register academic collocations.
+
+${getSharedPedagogyRules(taskType)}`,
     userPrompt: `TASK: Academic IELTS ${taskType.toUpperCase()}
 PROMPT:
 ${promptText}
@@ -501,8 +806,8 @@ Return JSON:
   "readiness": "strong" | "needs_refinement" | "off_track",
   "estimatedTaskBandCeiling": 7.5,
   "verdictSummary": "1-2 crisp sentences on whether they are ready to draft.",
-  "overviewOrThesisCheck": "Specific critique of their Overview (Task 1: no raw numbers? captures main trend + extreme?) or Thesis (Task 2: clear position?).",
-  "bodyGroupingCheck": "Critique of how logically Body 1 & Body 2 divide the data or arguments.",
+  "overviewOrThesisCheck": "Specific critique of their Overview (Task 1: strictly NO raw numbers/percentages in Overview; captures main trend + extreme; save exact figures for Body 1 & 2) or Thesis (Task 2: clear position?).",
+  "bodyGroupingCheck": "Critique of how logically Body 1 & Body 2 divide the data (with exact figures reserved for Body 1 & 2) or arguments.",
   "actionableTweaks": ["2-3 quick bullet adjustments before typing"],
   "suggestedAcademicCollocations": [
     { "phrase": "...", "usageNote": "..." }
@@ -551,12 +856,12 @@ export async function runToolkitWithAI(req: ToolkitRequest): Promise<ToolkitResp
     req.tool === "collocations"
       ? `Upgrade the selected phrase/sentence into 3 distinct, natural Band ${cfg.targetBand.toFixed(
           1
-        )}+ academic phrasings (one with C1/C2 collocations, one with nuanced academic hedging, one with compact nominalisation). Do NOT write new paragraphs—only refine the selected idea.`
+        )}+ academic phrasings (one with C1/C2 collocations, one with nuanced academic hedging, one with compact nominalisation). Do NOT write new paragraphs—only refine the selected idea. Never use journalistic metaphors like "collapsed" or "skyrocketed" (use objective statistical verbs like "declined precipitously", "fell sharply", "expanded rapidly"), and never suggest lateral swaps like "whereas" ↔ "while".`
       : req.tool === "l1_check"
-      ? `Inspect the selected text through the lens of ${l1Profile.label} (${l1Profile.coachingFocus}). Flag any false cognates, comma splices, article/preposition calques, or unnatural clause length, and provide 2-3 clean native academic alternatives.`
-      : `Evaluate this single paragraph for IELTS Coherence & Cohesion and Task ${
+      ? `Inspect the selected text through the lens of ${l1Profile.label} (${l1Profile.coachingFocus}). Flag any false cognates (such as "actually" used for "actualmente" = "currently / in recent years" — replace the whole phrase naturally, never keep "actually" or swap it with "extremely"), comma splices (note that comma splices are GRA punctuation errors), article/preposition calques, or unnatural clause length, and provide 2-3 clean native academic alternatives.`
+      : `Evaluate this single paragraph for IELTS Coherence & Cohesion, Task ${
           req.taskType === "task1" ? "Achievement" : "Response"
-        }: Does it have a clear topic sentence? Are ideas extended logically without mechanical linkers? Give concise diagnosis + 2 surgical improvements (do not rewrite the entire essay).`;
+        }, and Academic Register: Does it have a clear topic sentence or overview signpost? (If it is a Task 1 Overview paragraph, ensure it contains NO raw numbers/percentages; if it is a Body paragraph, ensure it groups and compares specific figures.) Are ideas extended logically without mechanical linkers or journalistic verbs like "collapsed"? Give concise diagnosis + 2 surgical improvements that align strictly with our examiner grading standards (do not rewrite the entire essay).`;
 
   const raw = await callLLM({
     provider: cfg.provider,
@@ -565,8 +870,9 @@ export async function runToolkitWithAI(req: ToolkitRequest): Promise<ToolkitResp
     jsonMode: true,
     thinkingMode: "disabled",
     timeoutMs: 35_000,
-    systemPrompt:
-      "You are an on-demand Academic IELTS writing coach. Be crisp, encouraging, and surgical.",
+    systemPrompt: `You are an on-demand Academic IELTS writing coach. Be crisp, encouraging, and surgical. Ensure 100% alignment with the final IELTS Examiner rubric so you never suggest phrasing that the grader would penalise.
+
+${getSharedPedagogyRules(req.taskType)}`,
     userPrompt: `TASK: ${req.taskType.toUpperCase()}
 PROMPT: ${req.promptText}
 SELECTED TEXT TO COACH:
@@ -987,16 +1293,25 @@ function buildHeuristicDiagnosticPreview(
   }
 
   // Scan Spanish -> English L1 false cognates & comma splices
-  const actuallyMatch = text.match(/\bActually,\s+[^.!?]{5,60}/i);
+  const actuallyMatch = text.match(
+    /\b(?:Actually,\s+[^.!?]{5,60}|(?:has|have|had)?\s*actually\s+(?:grown|grew|risen|rose|fallen|fell|increased)[^.!?]{0,35})/i
+  );
   if (actuallyMatch) {
+    const rawSpan = actuallyMatch[0].trim();
+    const cleanedSpan = /^actually,/i.test(rawSpan)
+      ? rawSpan.replace(/^Actually/i, "Currently")
+      : rawSpan
+          .replace(/\bactually\s+/i, "")
+          .replace(/\b(grown|grew)\s+very\s+fast\b/i, "expanded rapidly in recent years")
+          .replace(/\bvery\s+fast\b/i, "rapidly");
     annotations.push({
       id: `prev-l1-${annotations.length + 1}`,
       category: "L1",
       severity: "error",
-      originalSpan: actuallyMatch[0].trim(),
-      replacement: actuallyMatch[0].trim().replace(/^Actually/i, "Currently"),
+      originalSpan: rawSpan,
+      replacement: cleanedSpan,
       explanation:
-        "Spanish → English false friend: 'Actually' means 'in fact', whereas 'actualmente' translates to 'Currently / At present'.",
+        "Spanish → English false friend: 'actually' means 'in fact', whereas 'actualmente' translates to 'currently / in recent years'.",
     });
   }
 
@@ -1004,12 +1319,12 @@ function buildHeuristicDiagnosticPreview(
   if (commaSpliceMatch) {
     annotations.push({
       id: `prev-gra-${annotations.length + 1}`,
-      category: "L1",
+      category: "GRA",
       severity: "error",
       originalSpan: commaSpliceMatch[0].trim(),
       replacement: commaSpliceMatch[0].trim().replace(/,\s*(however|therefore|nevertheless),/i, "; $1,"),
       explanation:
-        "Comma splice: conjunctive adverbs ('however', 'therefore') between two independent clauses require a semicolon or period.",
+        "Comma splice (Grammar error): conjunctive adverbs ('however', 'therefore') between two independent clauses require a semicolon or period.",
     });
   }
 

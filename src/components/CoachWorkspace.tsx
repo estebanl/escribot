@@ -82,6 +82,7 @@ export function CoachWorkspace({
   const [selectedSnippet, setSelectedSnippet] = useState("");
   const [toolkitLoading, setToolkitLoading] = useState<string | null>(null);
   const [toolkitResult, setToolkitResult] = useState<ToolkitResponse | null>(null);
+  const [toolkitHistory, setToolkitHistory] = useState<ToolkitResponse[]>([]);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   // Final evaluation submission state
@@ -177,6 +178,7 @@ export function CoachWorkspace({
         setError(outcome.error);
       } else {
         setToolkitResult(outcome.data.result);
+        setToolkitHistory((prev) => [...prev, outcome.data.result]);
       }
     } finally {
       setToolkitLoading(null);
@@ -208,6 +210,7 @@ export function CoachWorkspace({
             secondsSpent: elapsedSeconds,
             outline,
             outlineFeedback,
+            coachingHistory: toolkitHistory,
           },
         ],
       },
@@ -391,7 +394,7 @@ export function CoachWorkspace({
                     }
                     placeholder={
                       taskType === "task1"
-                        ? "Overall, coal collapsed while renewables surged to become the dominant power source..."
+                        ? "Overall, coal generation declined precipitously while renewables surged to become the dominant power source..."
                         : "While applied research delivers short-term utility, restricting theoretical grants would cripple foundational breakthroughs..."
                     }
                     className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-xs sm:text-sm text-ink"

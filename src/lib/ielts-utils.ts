@@ -45,32 +45,32 @@ export const L1_LANGUAGE_PROFILES: Record<
   es: {
     label: "Spanish (Español → English)",
     coachingFocus:
-      "Watch for Romance false cognates ('actually' vs 'currently', 'sensible' vs 'sensitive', 'assist' vs 'attend', 'realize' vs 'carry out'), comma splices joining independent clauses with ', however,' or ', therefore,', overuse of definite articles before plural abstract nouns ('the society', 'the technology'), missing subject pronouns ('is important to note'), and overly ornate multi-clause sentences.",
+      "ONLY flag these patterns if they literally appear in the candidate's text (never invent or assume them): Romance false cognates ('actually' used for 'actualmente' = 'currently / at present / in recent years' — never keep 'actually' or swap it with an intensifier like 'extremely'; 'sensible' vs 'sensitive'; 'assist' vs 'attend'; 'realize' vs 'carry out'), comma splices joining independent clauses with ', however,' or ', therefore,' (classify comma splices under GRA, not CC), and definite articles before plural/uncountable general nouns ('the society', 'the technology'). Do NOT claim a 'missing subject' when a sentence uses a valid compound predicate sharing a subject (e.g., 'X rose and then fell').",
   },
   pt: {
     label: "Portuguese (Português → English)",
     coachingFocus:
-      "Watch for Romance false cognates ('actually', 'pretend', 'push'), definite articles with abstract nouns, comma-spliced long clauses, and preposition calques ('depend of', 'consist in').",
+      "ONLY flag these patterns if they literally appear in the candidate's text (never invent or assume them): Romance false cognates ('actually' used for 'atualmente' = 'currently / at present', 'pretend', 'push'), definite articles with abstract nouns, comma-spliced independent clauses (classify under GRA), and preposition calques ('depend of', 'consist in').",
   },
   fr: {
     label: "French (Français → English)",
     coachingFocus:
-      "Watch for false cognates ('actual', 'eventually', 'assist', 'demand'), article generalizations, and French-style three-part thesis delays that hide a clear position in IELTS Task 2.",
+      "ONLY flag these patterns if they literally appear in the candidate's text (never invent or assume them): false cognates ('actual' / 'actually' used for 'actuel / actuellement' = 'current / currently', 'eventually', 'assist', 'demand'), article generalizations, and delayed thesis positioning in IELTS Task 2.",
   },
   zh: {
     label: "Mandarin Chinese (中文 → English)",
     coachingFocus:
-      "Watch for singular/plural countability & article accuracy, tense consistency in historical vs present data, topic-comment comma splices ('Although..., but...'), and mechanical memorized idioms.",
+      "ONLY flag these patterns if they literally appear in the candidate's text (never invent or assume them): singular/plural countability & article accuracy, tense consistency in historical vs present data, topic-comment comma splices ('Although..., but...' — classify under GRA), and mechanical memorized idioms.",
   },
   ar: {
     label: "Arabic (العربية → English)",
     coachingFocus:
-      "Watch for syndetic 'and' clause chaining, relative pronoun resumption ('the policy which governments implement it'), definite article patterns, and rhetorical repetition.",
+      "ONLY flag these patterns if they literally appear in the candidate's text (never invent or assume them): syndetic 'and' clause chaining, relative pronoun resumption ('the policy which governments implement it'), definite article patterns, and rhetorical repetition.",
   },
   hi: {
     label: "Hindi (हिन्दी → English)",
     coachingFocus:
-      "Watch for progressive aspect overuse for habitual states, article placement, preposition idioms ('discuss about', 'cope up with'), and formal bureaucratic phrasing ('do the needful').",
+      "ONLY flag these patterns if they literally appear in the candidate's text (never invent or assume them): progressive aspect overuse for habitual states, article placement, preposition idioms ('discuss about', 'cope up with'), and formal bureaucratic phrasing ('do the needful').",
   },
   neutral: {
     label: "Language-Neutral Academic English",

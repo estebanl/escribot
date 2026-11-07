@@ -1,4 +1,9 @@
-import type { OutlineFeedback, OutlineInput, TaskType } from "./types";
+import type {
+  OutlineFeedback,
+  OutlineInput,
+  TaskType,
+  ToolkitResponse,
+} from "./types";
 
 export type EvaluationErrorKind = "timeout" | "network" | "server";
 
@@ -9,6 +14,7 @@ export interface DraftSubmissionPayload {
   secondsSpent?: number;
   outline?: OutlineInput | null;
   outlineFeedback?: OutlineFeedback | null;
+  coachingHistory?: ToolkitResponse[] | null;
   promptHighlights?: string[];
   scratchNotes?: string;
 }
