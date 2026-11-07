@@ -165,26 +165,29 @@ export function AnalyticsClient({
                   data={trendPoints}
                   margin={{ top: 10, right: 18, left: -8, bottom: 4 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                   <YAxis domain={[4.5, 9]} ticks={[5, 6, 6.5, 7, 7.5, 8, 8.5, 9]} tick={{ fontSize: 11 }} />
                   <Tooltip
                     contentStyle={{
-                      borderRadius: "10px",
+                      borderRadius: "2px",
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-strong)",
+                      color: "var(--ink-primary)",
                       fontSize: "12px",
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: "12px" }} />
                   <ReferenceLine
                     y={targetBand}
-                    stroke="#16656e"
+                    stroke="var(--accent-primary)"
                     strokeDasharray="4 4"
                   />
                   <Line
                     type="monotone"
                     dataKey="overall"
                     name="Overall Band"
-                    stroke="#16656e"
+                    stroke="var(--ink-primary)"
                     strokeWidth={3}
                     dot={{ r: 4 }}
                   />
@@ -192,28 +195,28 @@ export function AnalyticsClient({
                     type="monotone"
                     dataKey="taTr"
                     name="TA/TR"
-                    stroke="#2563eb"
+                    stroke="var(--crit-tatr)"
                     strokeWidth={1.5}
                   />
                   <Line
                     type="monotone"
                     dataKey="cc"
                     name="Cohesion"
-                    stroke="#228b5b"
+                    stroke="var(--crit-cc)"
                     strokeWidth={1.5}
                   />
                   <Line
                     type="monotone"
                     dataKey="lr"
                     name="Lexical"
-                    stroke="#d97706"
+                    stroke="var(--crit-lr)"
                     strokeWidth={1.5}
                   />
                   <Line
                     type="monotone"
                     dataKey="gra"
                     name="Grammar"
-                    stroke="#dc2626"
+                    stroke="var(--crit-gra)"
                     strokeWidth={1.5}
                   />
                 </LineChart>

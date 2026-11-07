@@ -121,7 +121,7 @@ export function StudioHomeClient({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-7 space-y-8">
       {/* Studio Editorial Masthead */}
-      <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-6 border-b border-line">
+      <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-6 border-b-[3px] border-double border-line-strong">
         <div className="space-y-2 max-w-2xl">
           <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-ink-secondary">
             <span>
@@ -145,8 +145,8 @@ export function StudioHomeClient({
               </>
             )}
           </div>
-          <h1 className="font-serif text-3xl sm:text-4xl font-semibold tracking-tight text-ink">
-            Academic Writing Studio
+          <h1 className="font-serif text-4xl sm:text-5xl font-semibold tracking-tight text-ink leading-[1.05]">
+            Academic Writing <em className="italic text-accent">Studio</em>
           </h1>
           <p className="text-sm sm:text-base text-ink-secondary leading-relaxed">
             Build Band {settingsSummary.targetBand.toFixed(1)}+ precision with 5-minute

@@ -100,10 +100,10 @@ export function AppShell({
                   key={item.href}
                   id={item.id}
                   href={item.href}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition ${
+                  className={`flex items-center gap-2 px-3 h-16 border-b-2 text-sm font-medium transition ${
                     active
-                      ? "bg-accent-soft text-accent font-semibold"
-                      : "text-ink-secondary hover:text-ink hover:bg-subtle"
+                      ? "border-accent text-ink font-semibold"
+                      : "border-transparent text-ink-secondary hover:text-ink hover:border-line-strong"
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -118,7 +118,7 @@ export function AppShell({
               id="theme-toggle-button"
               type="button"
               onClick={toggleTheme}
-              title={dark ? "Switch to Archival Paper (Light)" : "Switch to Night Slate (Dark)"}
+              title={dark ? "Switch to Inkwell Paper (Light)" : "Switch to Inkwell Night (Dark)"}
               className="p-2 rounded-lg border border-line bg-canvas hover:bg-subtle text-ink-secondary hover:text-ink transition cursor-pointer"
             >
               {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
