@@ -1,0 +1,63 @@
+import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db";
+import { checkOutlineWithAI, extractVisualSpecFromImage } from "@/lib/ai/examiner";
+import type { OutlineInput, TaskType } from "@/lib/types";
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as {
+      promptId?: string;
+      taskType?: TaskType;
+      promptText?: string;
+      outline?: OutlineInput;
+    };
+
+    if (!body.outline || !body.promptText) {
+      return NextResponse.json(
+        { error: "Outline fields and prompt text are required." },
+        { status: 400 }
+      );
+    }
+
+    let visualContext: string | null = null;
+    if (body.promptId) {
+      const db = await getDb();
+      const [prompt] = await db
+        .select()
+        .from(schema.prompts)
+        .where(eq(schema.prompts.id, body.promptId));
+
+      if (prompt) {
+        if (prompt.chartSpecJson) {
+          visualContext = prompt.chartSpecJson;
+        } else if (prompt.extractedVisualSpec) {
+          visualContext = prompt.extractedVisualSpec;
+        } else if (prompt.imageDataUrl) {
+          visualContext = await extractVisualSpecFromImage(
+            prompt.imageDataUrl,
+            prompt.promptText
+          );
+          await db
+            .update(schema.prompts)
+            .set({ extractedVisualSpec: visualContext })
+            .where(eq(schema.prompts.id, prompt.id));
+        }
+      }
+    }
+
+    const feedback = await checkOutlineWithAI({
+      taskType: body.taskType === "task1" ? "task1" : "task2",
+      promptText: body.promptText,
+      visualContext,
+      outline: body.outline,
+    });
+
+    return NextResponse.json({ feedback });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Outline validation failed." },
+      { status: 500 }
+    );
+  }
+}
