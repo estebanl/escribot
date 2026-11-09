@@ -193,6 +193,8 @@ export function CoachWorkspace({
 
   // Keep the latest snapshot in a ref so the ticking timer doesn't reset the autosave debounce
   const snapshotRef = useRef<LocalCoachDraft | null>(null);
+  // Set once grading succeeds so the unmount flush can't resurrect the cleared draft
+  const draftClearedRef = useRef(false);
   useEffect(() => {
     snapshotRef.current = {
       essayText,
@@ -206,7 +208,7 @@ export function CoachWorkspace({
 
   function persistLocalDraft(): boolean {
     const snap = snapshotRef.current;
-    if (!snap) return false;
+    if (!snap || draftClearedRef.current) return false;
     try {
       if (!snap.essayText.trim() && !outlineKey(snap.outline).replace(/\u241E/g, "")) {
         window.localStorage.removeItem(storageKey);
@@ -255,6 +257,10 @@ export function CoachWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
+  // Coarse timer bucket so the stored duration refreshes every ~30s without
+  // resetting the debounce on every one-second tick
+  const elapsedBucket = Math.floor(elapsedSeconds / 30);
+
   // Debounced autosave whenever the essay or outline changes
   useEffect(() => {
     if (!autosaveReady || submitting) return;
@@ -267,9 +273,18 @@ export function CoachWorkspace({
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autosaveReady, submitting, essayText, outline, outlineFeedback, validatedOutline]);
+  }, [
+    autosaveReady,
+    submitting,
+    essayText,
+    outline,
+    outlineFeedback,
+    validatedOutline,
+    elapsedBucket,
+  ]);
 
-  // Flush immediately when the tab is hidden or closed
+  // Flush immediately when the tab is hidden or closed, and on unmount
+  // (App Router client navigation fires neither pagehide nor visibilitychange)
   useEffect(() => {
     if (!autosaveReady) return;
     const flush = () => {
@@ -283,6 +298,7 @@ export function CoachWorkspace({
     return () => {
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibility);
+      flush();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autosaveReady, storageKey]);
@@ -438,6 +454,7 @@ export function CoachWorkspace({
       return;
     }
 
+    draftClearedRef.current = true;
     try {
       window.localStorage.removeItem(storageKey);
     } catch {
