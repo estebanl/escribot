@@ -15,6 +15,7 @@ import {
 import type {
   AnnotationCategory,
   ChartSpec,
+  DrillLevel,
   DrillType,
   EvaluationPayload,
   InlineAnnotation,
@@ -1156,12 +1157,196 @@ const BUILTIN_DRILL_TEMPLATES: Record<DrillType, MicroDrillChallenge> = {
   },
 };
 
+
+/**
+ * Beginner templates: short texts, max 2 errors, guided steps, sentence starters,
+ * a word bank, and reachable (~Band 6.0) reference answers in plain English.
+ */
+const BEGINNER_DRILL_TEMPLATES: Record<DrillType, MicroDrillChallenge> = {
+  overview_sprint: {
+    drillType: "overview_sprint",
+    level: "beginner",
+    targetCriterion: "TA_TR",
+    title: "Write a Chart Summary (2 Sentences)",
+    instructions:
+      "Look at the chart. Write 2 short sentences that say what changed in general. Do not write any numbers.",
+    timeLimitSeconds: 300,
+    sourceContext: "Cinema vs. Streaming: How People Watch Films (2015–2035)",
+    chartSpec: {
+      kind: "bar",
+      title: "How People Watch New Films (% of viewers)",
+      xAxisKey: "year",
+      yAxisUnit: "%",
+      series: [
+        { key: "cinema", label: "Cinema", color: "#475569" },
+        { key: "streaming", label: "Streaming at home", color: "#16656e" },
+      ],
+      data: [
+        { year: "2015", cinema: 70, streaming: 30 },
+        { year: "2020", cinema: 55, streaming: 45 },
+        { year: "2025", cinema: 40, streaming: 60 },
+        { year: "2030", cinema: 30, streaming: 70 },
+        { year: "2035", cinema: 25, streaming: 75 },
+      ],
+    },
+    steps: [
+      { prompt: "Look at the bars. Which one goes up? Which one goes down?" },
+      {
+        prompt: "Write one sentence about the general change. Start with “Overall,”.",
+        starter: "Overall, the share of people who ___ increased, while ___ decreased.",
+      },
+      {
+        prompt: "Write one more sentence about which one is bigger at the end.",
+        starter: "By the end of the period, ___ was the most popular way to watch films.",
+      },
+    ],
+    wordBank: [
+      "Overall,",
+      "increased",
+      "decreased",
+      "rose steadily",
+      "fell",
+      "while",
+      "became more popular than",
+      "by the end of the period",
+    ],
+    hints: [
+      "Start your first sentence with “Overall,”.",
+      "Use “while” to compare two things in one sentence.",
+      "No numbers! Say “increased” or “fell”, not “70%”.",
+    ],
+    referenceModelAnswer:
+      "Overall, the share of people who watch new films by streaming at home increased, while the share who go to the cinema decreased. By the end of the period, streaming had become much more popular than the cinema.",
+  },
+  cohesion: {
+    drillType: "cohesion",
+    level: "beginner",
+    targetCriterion: "CC",
+    title: "Make Your Sentences Flow",
+    instructions:
+      "This paragraph has 2 linking words that sound like a list (“Firstly”, “Also”). Rewrite it so the sentences connect more naturally.",
+    timeLimitSeconds: 300,
+    sourceContext: "Short paragraph about public parks",
+    flawedText:
+      "Firstly, parks give people a place to exercise. Also, parks are good for children. Children can play outside and make friends.",
+    steps: [
+      { prompt: "Find the 2 list words: “Firstly” and “Also”." },
+      {
+        prompt: "Remove “Firstly”. Start the paragraph with the main idea instead.",
+        starter: "Parks give people a free place to exercise.",
+      },
+      {
+        prompt: "Connect the next ideas. Use “This…”, “In addition,” or “where”.",
+        starter: "They are also important for children, who can ___",
+      },
+    ],
+    wordBank: ["This", "These spaces", "In addition,", "where", "who", "because", "As a result,"],
+    hints: [
+      "You do not need “Firstly” in a short paragraph. Just start with your idea.",
+      "“This” or “These spaces” can point back to the last sentence.",
+      "You can join two short sentences with “where” or “who”.",
+    ],
+    referenceModelAnswer:
+      "Parks give people a free place to exercise. They are also important for children, who can play outside and make new friends there.",
+  },
+  l1_surgeon: {
+    drillType: "l1_surgeon",
+    level: "beginner",
+    targetCriterion: "L1",
+    title: "Fix 2 Spanish-to-English Mistakes",
+    instructions:
+      "This sentence has 2 common mistakes that Spanish speakers make. Find them and write the correct sentence.",
+    timeLimitSeconds: 300,
+    sourceContext: "One sentence about technology",
+    flawedText: "Actually, the technology is very important in our lives.",
+    steps: [
+      { prompt: "Look at the first word. Does “Actually” mean “actualmente”?" },
+      { prompt: "Look at “the technology”. Do we need “the” when we talk about technology in general?" },
+      {
+        prompt: "Write the correct sentence.",
+        starter: "Nowadays, ___ is very important in our lives.",
+      },
+    ],
+    wordBank: ["Nowadays,", "Currently,", "At present,", "technology", "plays an important role in"],
+    hints: [
+      "“Actually” means “en realidad”. For “actualmente”, use “Nowadays” or “Currently”.",
+      "In English, general ideas have no “the”: “Technology is…”, not “The technology is…”.",
+    ],
+    referenceModelAnswer: "Nowadays, technology plays a very important role in our lives.",
+  },
+  lexical_hedging: {
+    drillType: "lexical_hedging",
+    level: "beginner",
+    targetCriterion: "LR",
+    title: "Make Strong Claims Softer",
+    instructions:
+      "These sentences say “always” and “all”, which sounds too strong. Rewrite them so they are more careful and a little more formal.",
+    timeLimitSeconds: 300,
+    sourceContext: "Two sentences about video games",
+    flawedText: "Video games are always bad for children. All kids who play them get lots of bad habits.",
+    steps: [
+      { prompt: "Find the very strong words: “always”, “All”, “lots of”." },
+      {
+        prompt: "Change them to softer words like “can”, “some”, “many”.",
+        starter: "Video games can be ___ for children.",
+      },
+      {
+        prompt: "Change one informal word (“kids” or “lots of”) to a more formal word.",
+        starter: "Some children who play them for many hours may ___",
+      },
+    ],
+    wordBank: ["can", "may", "some", "many", "often", "children", "a number of", "harmful", "develop"],
+    hints: [
+      "“always” → “can” or “often”. “All” → “Some” or “Many”.",
+      "“kids” → “children”. “lots of” → “a number of” or “several”.",
+    ],
+    referenceModelAnswer:
+      "Video games can be harmful for children. Some children who play them for many hours may develop bad habits.",
+  },
+};
+
+function levelGuidance(level: DrillLevel, currentBand: number, targetBand: number) {
+  if (level === "beginner") {
+    const band = Math.max(currentBand + 1, 5.5);
+    return {
+      band,
+      generation: `The student is a BEGINNER writer (current band about ${currentBand.toFixed(
+        1
+      )}). Use simple everyday topics and simple English (CEFR B1) in the title, instructions, steps and hints. Do NOT use grammar jargon (no "nominalisation", "subordination", "calque", "cohesive device"). Keep any "flawedText" to 1-3 short sentences with at most 2 errors. Give 3 small "steps", each with a short "prompt" and, where useful, a fill-in "starter" sentence frame using "___" for the gaps. Give a "wordBank" of 6-9 useful words or short phrases. The "referenceModelAnswer" must be a simple, correct answer at about Band ${band.toFixed(
+        1
+      )} — NOT an advanced Band 8 answer.`,
+      stepsSchema: `,
+  "steps": [{ "prompt": "...", "starter": "... ___ ..." }],
+  "wordBank": ["...", "..."]`,
+    };
+  }
+  if (level === "intermediate") {
+    const band = Math.max(currentBand + 1, 6.5);
+    return {
+      band,
+      generation: `The student is an INTERMEDIATE writer (current band about ${currentBand.toFixed(
+        1
+      )}). Keep explanations clear and explain any technical term briefly. Give 2-3 short "steps" that break the task into parts. The "referenceModelAnswer" should be at about Band ${band.toFixed(1)}.`,
+      stepsSchema: `,
+  "steps": [{ "prompt": "..." }]`,
+    };
+  }
+  return { band: Math.max(targetBand, 8.0), generation: "", stepsSchema: "" };
+}
+
 export async function generateMicroDrillWithAI(params: {
   drillType: DrillType;
+  level?: DrillLevel;
   vaultHighlights?: string[];
 }): Promise<MicroDrillChallenge> {
   const cfg = await resolveUserAndAIConfig();
-  const fallback = BUILTIN_DRILL_TEMPLATES[params.drillType] || BUILTIN_DRILL_TEMPLATES.cohesion;
+  const level: DrillLevel = params.level || "advanced";
+  const templates = level === "beginner" ? BEGINNER_DRILL_TEMPLATES : BUILTIN_DRILL_TEMPLATES;
+  const fallback: MicroDrillChallenge = {
+    ...(templates[params.drillType] || templates.cohesion),
+    level,
+  };
+  const guidance = levelGuidance(level, cfg.currentBand, cfg.targetBand);
 
   if (!cfg.apiKey || params.drillType === "overview_sprint") {
     // For overview_sprint without key (or fast reliable chart rendering), if key exists we can also generate fresh charts!
@@ -1188,15 +1373,23 @@ export async function generateMicroDrillWithAI(params: {
     jsonMode: true,
     thinkingMode: "disabled",
     timeoutMs: 40_000,
-    systemPrompt: `You design crisp 5-minute Academic IELTS writing micro-drills calibrated for Band ${cfg.targetBand.toFixed(
-      1
-    )}+ (${l1Profile.label}).`,
+    systemPrompt:
+      level === "advanced"
+        ? `You design crisp 5-minute Academic IELTS writing micro-drills calibrated for Band ${cfg.targetBand.toFixed(
+            1
+          )}+ (${l1Profile.label}).`
+        : `You design friendly, scaffolded 5-minute IELTS writing micro-drills for ${level} writers, aiming at about Band ${guidance.band.toFixed(
+            1
+          )} (${l1Profile.label}).`,
     userPrompt: `Create a fresh 5-minute drill of type "${params.drillType}".
+${guidance.generation}
 ${vaultNote}
 ${
   params.drillType === "overview_sprint"
-    ? `Include a "chartSpec" (kind: "line" or "bar" with 3 series and 5 data points) and set "flawedText" to null. Ask the student to write ONLY a 2-sentence Task 1 Overview without raw statistics.`
-    : `Set "chartSpec" to null and provide a 2-3 sentence "flawedText" paragraph exhibiting realistic Band 6.0–6.5 weaknesses for "${params.drillType}" (${
+    ? `Include a "chartSpec" (kind: "line" or "bar" with ${level === "beginner" ? 2 : 3} series and 5 data points) and set "flawedText" to null. Ask the student to write ONLY a 2-sentence Task 1 Overview without raw statistics.`
+    : `Set "chartSpec" to null and provide a ${level === "beginner" ? "1-3 short sentence" : "2-3 sentence"} "flawedText" paragraph exhibiting realistic Band ${
+        level === "beginner" ? "4.5–5.5" : "6.0–6.5"
+      } weaknesses for "${params.drillType}" (${
         params.drillType === "l1_surgeon" ? l1Profile.coachingFocus : "mechanical linkers or informal unhedged claims"
       }).`
 }
@@ -1207,12 +1400,14 @@ Return JSON:
   "targetCriterion": "${fallback.targetCriterion}",
   "title": "...",
   "instructions": "...",
-  "timeLimitSeconds": ${params.drillType === "overview_sprint" ? 240 : 300},
+  "timeLimitSeconds": ${params.drillType === "overview_sprint" && level !== "beginner" ? 240 : 300},
   "sourceContext": "...",
   "chartSpec": null,
   "flawedText": "...",
   "hints": ["...", "..."],
-  "referenceModelAnswer": "Band 8.5 reference rewrite/overview"
+  "referenceModelAnswer": "${
+    level === "advanced" ? "Band 8.5" : `Band ${guidance.band.toFixed(1)}`
+  } reference rewrite/overview"${guidance.stepsSchema}
 }`,
   });
 
@@ -1228,15 +1423,103 @@ Return JSON:
     flawedText: parsed.flawedText || fallback.flawedText,
     hints: parsed.hints?.length ? parsed.hints : fallback.hints,
     referenceModelAnswer: parsed.referenceModelAnswer || fallback.referenceModelAnswer,
+    level,
+    steps: sanitizeSteps(parsed.steps) || fallback.steps,
+    wordBank: sanitizeWordBank(parsed.wordBank) || fallback.wordBank,
+  };
+}
+
+function sanitizeSteps(steps: unknown): MicroDrillChallenge["steps"] | undefined {
+  if (!Array.isArray(steps)) return undefined;
+  const clean = steps
+    .filter((st): st is { prompt: string; starter?: unknown } =>
+      Boolean(st && typeof st === "object" && typeof (st as { prompt?: unknown }).prompt === "string")
+    )
+    .slice(0, 4)
+    .map((st) => ({
+      prompt: st.prompt,
+      starter: typeof st.starter === "string" && st.starter.trim() ? st.starter : undefined,
+    }));
+  return clean.length ? clean : undefined;
+}
+
+function sanitizeWordBank(words: unknown): string[] | undefined {
+  if (!Array.isArray(words)) return undefined;
+  const clean = words.filter((w): w is string => typeof w === "string" && w.trim().length > 0).slice(0, 12);
+  return clean.length ? clean : undefined;
+}
+
+/** Offline (no API key) encouraging feedback for beginner / intermediate drills. */
+function scoreScaffoldedDrillLocally(
+  challenge: MicroDrillChallenge,
+  userResponse: string,
+  level: DrillLevel
+): MicroDrillScore {
+  const words = countEssayWords(userResponse);
+  const lower = userResponse.toLowerCase();
+  const minWords = level === "beginner" ? 8 : 15;
+  const usedWords = (challenge.wordBank || []).filter((w) =>
+    lower.includes(w.toLowerCase().replace(/[,.]$/, ""))
+  );
+  const unfilledGaps = /_{2,}/.test(userResponse);
+  const mechanical = /\b(firstly|secondly|moreover|also,)\b/i.test(userResponse);
+  const hasNumbers = challenge.drillType === "overview_sprint" && /\d/.test(userResponse);
+  const copiedOriginal =
+    Boolean(challenge.flawedText) &&
+    userResponse.trim().toLowerCase() === challenge.flawedText!.trim().toLowerCase();
+
+  let score = 5;
+  if (words >= minWords) score += 2;
+  if (usedWords.length >= 2) score += 1;
+  if (!unfilledGaps && !mechanical && !hasNumbers && !copiedOriginal) score += 1;
+  if (words < minWords / 2) score -= 2;
+  // An answer that still has blank "___" gaps or is just the original text isn't finished yet.
+  if (unfilledGaps || copiedOriginal) score = Math.min(score, 5);
+  score = Math.min(9, Math.max(3, score));
+
+  const oneThingToFix = unfilledGaps
+    ? "Fill in the “___” gaps in the sentence starter with your own words."
+    : copiedOriginal
+    ? "Your answer is the same as the original. Try changing the words the steps point to."
+    : hasNumbers
+    ? "Remove the numbers. A summary talks about the general change, not exact figures."
+    : mechanical
+    ? "Try removing list words like “Firstly” or “Also”, and start with your idea."
+    : words < minWords
+    ? `Write a little more — aim for at least ${minWords} words.`
+    : "Compare your answer with the example and pick one phrase to borrow next time.";
+
+  return {
+    scoreOutOf10: score,
+    estimatedBandImpact: score >= 7 ? "Great progress — keep going!" : "Good start — you are getting there",
+    feedback:
+      (score >= 7 ? "Nice work! Your answer is clear and complete. " : "Good start! ") +
+      (usedWords.length
+        ? `You used useful words like “${usedWords.slice(0, 2).join("”, “")}”. `
+        : "Try using 2 or 3 words from the word bank next time. ") +
+      "Compare your answer with the example below. (Add an AI key in Settings for personal feedback.)",
+    improvedVersion: challenge.referenceModelAnswer,
+    keyTakeaway: challenge.hints[0] ?? "Short, clear sentences are better than long, confusing ones.",
+    oneThingToFix,
   };
 }
 
 export async function scoreMicroDrillWithAI(params: {
   challenge: MicroDrillChallenge;
   userResponse: string;
+  level?: DrillLevel;
 }): Promise<MicroDrillScore> {
   const cfg = await resolveUserAndAIConfig();
   const { challenge, userResponse } = params;
+  const level: DrillLevel = params.level || challenge.level || "advanced";
+
+  if (!cfg.apiKey && level !== "advanced") {
+    return scoreScaffoldedDrillLocally(challenge, userResponse, level);
+  }
+
+  if (level !== "advanced") {
+    return scoreScaffoldedDrillWithAI(cfg, challenge, userResponse, level);
+  }
 
   if (!cfg.apiKey) {
     const words = countEssayWords(userResponse);
@@ -1293,6 +1576,72 @@ Return JSON:
   });
 
   return extractJsonObject<MicroDrillScore>(raw);
+}
+
+async function scoreScaffoldedDrillWithAI(
+  cfg: Awaited<ReturnType<typeof resolveUserAndAIConfig>>,
+  challenge: MicroDrillChallenge,
+  userResponse: string,
+  level: DrillLevel
+): Promise<MicroDrillScore> {
+  const { band } = levelGuidance(level, cfg.currentBand, cfg.targetBand);
+  const steps = challenge.steps?.length
+    ? `GUIDED STEPS:\n${challenge.steps.map((st, i) => `${i + 1}. ${st.prompt}`).join("\n")}\n`
+    : "";
+
+  const raw = await callLLM({
+    provider: cfg.provider,
+    apiKey: cfg.apiKey!,
+    model: cfg.fastModel,
+    fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+    feature: "drill_score",
+    jsonMode: true,
+    thinkingMode: "disabled",
+    timeoutMs: 35_000,
+    systemPrompt:
+      level === "beginner"
+        ? "You are a warm, patient writing coach for beginner English writers. Use simple English (CEFR B1) and short sentences. Never use grammar jargon. Always praise one real strength first, then give ONE clear fix."
+        : "You are a clear, encouraging IELTS writing coach for intermediate students. Explain any technical term in plain words. Praise one strength, then give the most important fix.",
+    userPrompt: `DRILL: ${challenge.title} (${challenge.drillType}, level: ${level})
+INSTRUCTIONS: ${challenge.instructions}
+${steps}${challenge.flawedText ? `ORIGINAL PASSAGE:\n${challenge.flawedText}\n` : ""}
+${challenge.chartSpec ? `CHART DATA:\n${JSON.stringify(challenge.chartSpec)}\n` : ""}
+EXAMPLE ANSWER (about Band ${band.toFixed(1)}):
+${challenge.referenceModelAnswer}
+
+STUDENT SUBMISSION:
+"""
+${userResponse}
+"""
+
+Score kindly but honestly for a ${level} writer (do not compare with Band 8 writing; reward effort and correct basics).
+
+Return JSON:
+{
+  "scoreOutOf10": 7,
+  "estimatedBandImpact": "Short encouraging progress label, e.g. 'Moving toward Band ${band.toFixed(1)}'",
+  "feedback": "2 short, simple sentences: one real strength, then what to improve.",
+  "oneThingToFix": "The single most important change, in one simple sentence.",
+  "stepFeedback": ["One short line per guided step: done well / try this"],
+  "improvedVersion": "The student's OWN answer with only the necessary fixes (keep their words and ideas; about Band ${band.toFixed(
+    1
+  )}, not advanced)",
+  "keyTakeaway": "1 simple rule to remember, in under 15 words"
+}`,
+  });
+
+  const parsed = extractJsonObject<Partial<MicroDrillScore>>(raw);
+  return {
+    scoreOutOf10: typeof parsed.scoreOutOf10 === "number" ? parsed.scoreOutOf10 : 6,
+    estimatedBandImpact: parsed.estimatedBandImpact || "Good progress",
+    feedback: parsed.feedback || "Good effort! Compare your answer with the example below.",
+    improvedVersion: parsed.improvedVersion || challenge.referenceModelAnswer,
+    keyTakeaway: parsed.keyTakeaway || challenge.hints[0] || "",
+    oneThingToFix: parsed.oneThingToFix,
+    stepFeedback: Array.isArray(parsed.stepFeedback)
+      ? parsed.stepFeedback.filter((x): x is string => typeof x === "string")
+      : undefined,
+  };
 }
 
 /* ============================================================================

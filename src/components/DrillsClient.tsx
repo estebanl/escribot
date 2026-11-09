@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Clock,
   Lightbulb,
@@ -10,10 +10,12 @@ import {
   Send,
   Sparkles,
   CheckCircle2,
+  Target,
 } from "lucide-react";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
 import { countEssayWords } from "@/lib/ielts-utils";
 import type {
+  DrillLevel,
   DrillType,
   MicroDrillChallenge,
   MicroDrillScore,
@@ -25,6 +27,8 @@ const DRILL_CARDS: Array<{
   title: string;
   duration: string;
   description: string;
+  beginnerTitle: string;
+  beginnerDescription: string;
 }> = [
   {
     type: "overview_sprint",
@@ -33,6 +37,9 @@ const DRILL_CARDS: Array<{
     duration: "4 min",
     description:
       "Read a fresh data chart and draft ONLY a 2-sentence macro Overview capturing main trends and extremes without raw statistics.",
+    beginnerTitle: "Write a Chart Summary",
+    beginnerDescription:
+      "Look at a simple chart and write 2 sentences about the big change. Sentence starters help you begin.",
   },
   {
     type: "cohesion",
@@ -41,6 +48,9 @@ const DRILL_CARDS: Array<{
     duration: "5 min",
     description:
       "Eliminate robotic 'Firstly / Moreover / On the other hand' transitions using demonstrative nominalisation and thematic links.",
+    beginnerTitle: "Make Your Sentences Flow",
+    beginnerDescription:
+      "Replace list words like 'Firstly' and 'Also' so your sentences connect naturally.",
   },
   {
     type: "l1_surgeon",
@@ -49,6 +59,9 @@ const DRILL_CARDS: Array<{
     duration: "5 min",
     description:
       "Spot and repair false friends ('actually' vs 'currently'), comma-spliced 'however' clauses, and preposition/article calques.",
+    beginnerTitle: "Fix Common Spanish-Speaker Mistakes",
+    beginnerDescription:
+      "Find 2 small mistakes, like 'actually' vs 'nowadays', and write the correct sentence.",
   },
   {
     type: "lexical_hedging",
@@ -57,14 +70,47 @@ const DRILL_CARDS: Array<{
     duration: "5 min",
     description:
       "Transform sweeping, informal Band 6 claims into nuanced, academically hedged C1/C2 arguments.",
+    beginnerTitle: "Make Strong Claims Softer",
+    beginnerDescription:
+      "Change words like 'always' and 'all' into careful words like 'can' and 'some'.",
   },
 ];
 
+const LEVEL_OPTIONS: Array<{ value: DrillLevel; label: string }> = [
+  { value: "beginner", label: "Beginner" },
+  { value: "intermediate", label: "Intermediate" },
+  { value: "advanced", label: "Advanced" },
+];
+
+const LEVEL_STORAGE_KEY = "fluentescritor:drill-level";
+
+function readStoredLevel(): DrillLevel | null {
+  try {
+    const v = window.localStorage.getItem(LEVEL_STORAGE_KEY);
+    return v === "beginner" || v === "intermediate" || v === "advanced" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeLevel(level: DrillLevel) {
+  try {
+    window.localStorage.setItem(LEVEL_STORAGE_KEY, level);
+  } catch {
+    /* storage unavailable — the choice just won't persist */
+  }
+}
+
 export function DrillsClient({
   recommendedDrill,
+  defaultLevel,
+  levelForcedByUrl = false,
 }: {
   recommendedDrill: DrillType;
+  defaultLevel: DrillLevel;
+  levelForcedByUrl?: boolean;
 }) {
+  const [level, setLevel] = useState<DrillLevel>(defaultLevel);
   const [selectedType, setSelectedType] = useState<DrillType>(recommendedDrill);
   const [loadingChallenge, setLoadingChallenge] = useState(false);
   const [drillId, setDrillId] = useState<string | null>(null);
@@ -75,6 +121,45 @@ export function DrillsClient({
   const [scoring, setScoring] = useState(false);
   const [scoreResult, setScoreResult] = useState<MicroDrillScore | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const isBeginner = level === "beginner";
+  const isAdvanced = level === "advanced";
+
+  useEffect(() => {
+    if (levelForcedByUrl) return;
+    const stored = readStoredLevel();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is only readable after hydration
+    if (stored) setLevel(stored);
+  }, [levelForcedByUrl]);
+
+  function changeLevel(next: DrillLevel) {
+    setLevel(next);
+    storeLevel(next);
+    // A drill generated for another level no longer matches; clear it.
+    setChallenge(null);
+    setScoreResult(null);
+    setResponse("");
+    setError(null);
+  }
+
+  function insertAtCursor(text: string) {
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? response.length;
+    const end = el?.selectionEnd ?? response.length;
+    const before = response.slice(0, start);
+    const after = response.slice(end);
+    const needsSpace = before.length > 0 && !/\s$/.test(before);
+    const insert = (needsSpace ? " " : "") + text;
+    const next = before + insert + after;
+    setResponse(next);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const caret = before.length + insert.length;
+      el.setSelectionRange(caret, caret);
+    });
+  }
 
   useEffect(() => {
     if (!challenge || scoreResult || secondsLeft <= 0) return;
@@ -89,13 +174,13 @@ export function DrillsClient({
     setLoadingChallenge(true);
     setScoreResult(null);
     setResponse("");
-    setShowHints(false);
+    setShowHints(level === "beginner");
     setError(null);
     try {
       const res = await fetch("/api/drills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "generate", drillType: type }),
+        body: JSON.stringify({ action: "generate", drillType: type, level }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -125,6 +210,7 @@ export function DrillsClient({
           drillId,
           challenge,
           userResponse: response,
+          level: challenge.level ?? level,
         }),
       });
       const data = await res.json();
@@ -153,10 +239,43 @@ export function DrillsClient({
           5-Minute Targeted Micro-Drills
         </h1>
         <p className="text-sm text-ink-secondary max-w-2xl">
-          Isolate and repair specific Band 6.5 bottlenecks—Task 1 Overviews, mechanical
-          linkers, L1 punctuation/cognates, and academic hedging—in focused 5-minute
-          sprints.
+          {isBeginner
+            ? "Short, guided writing practice. Each drill gives you small steps, sentence starters and useful words, so you never start from a blank page."
+            : "Isolate and repair specific Band 6.5 bottlenecks—Task 1 Overviews, mechanical linkers, L1 punctuation/cognates, and academic hedging—in focused 5-minute sprints."}
         </p>
+        <div className="flex flex-wrap items-center gap-3 pt-2">
+          <span className="text-xs font-mono uppercase text-ink-muted">Level</span>
+          <div
+            role="radiogroup"
+            aria-label="Drill level"
+            className="inline-flex rounded-xl border border-line p-1 bg-canvas"
+          >
+            {LEVEL_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                id={`drill-level-${opt.value}`}
+                type="button"
+                role="radio"
+                aria-checked={level === opt.value}
+                onClick={() => changeLevel(opt.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  level === opt.value
+                    ? "bg-accent text-accent-fg"
+                    : "text-ink-secondary hover:bg-subtle"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-ink-muted">
+            {isBeginner
+              ? "Simple texts, step-by-step help, friendly feedback."
+              : isAdvanced
+              ? "Band 8+ academic rewrites."
+              : "Standard drills with a few guiding steps."}
+          </span>
+        </div>
       </header>
 
       {/* Drill Selector Cards */}
@@ -174,19 +293,19 @@ export function DrillsClient({
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="px-2 py-0.5 rounded bg-subtle text-ink-secondary text-[11px] font-mono font-semibold">
-                    {card.badge} · {card.duration}
+                    {card.badge} · {isBeginner ? "5 min" : card.duration}
                   </span>
-                  {isRec && (
+                  {isRec && !isBeginner && (
                     <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-accent-soft text-accent font-semibold">
                       Recommended Focus
                     </span>
                   )}
                 </div>
                 <h2 className="font-serif text-lg font-semibold text-ink">
-                  {card.title}
+                  {isBeginner ? card.beginnerTitle : card.title}
                 </h2>
                 <p className="text-xs text-ink-secondary leading-relaxed">
-                  {card.description}
+                  {isBeginner ? card.beginnerDescription : card.description}
                 </p>
               </div>
 
@@ -202,7 +321,7 @@ export function DrillsClient({
                 ) : (
                   <Play className="w-3.5 h-3.5" />
                 )}
-                <span>Start {card.duration} Sprint</span>
+                <span>Start {isBeginner ? "5 min" : card.duration} Sprint</span>
               </button>
             </div>
           );
@@ -261,7 +380,7 @@ export function DrillsClient({
           {challenge.flawedText && (
             <div className="p-4 rounded-xl bg-subtle border border-line space-y-1">
               <span className="text-[10px] font-mono uppercase text-ink-muted">
-                Passage to Upgrade
+                {isAdvanced ? "Passage to Upgrade" : "Text to Improve"}
               </span>
               <p className="editorial-prose text-ink">{challenge.flawedText}</p>
             </div>
@@ -275,7 +394,15 @@ export function DrillsClient({
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline cursor-pointer"
               >
                 <Lightbulb className="w-3.5 h-3.5" />
-                <span>{showHints ? "Hide Coaching Hints" : "Need a Quick Hint?"}</span>
+                <span>
+                  {showHints
+                    ? isBeginner
+                      ? "Hide Tips"
+                      : "Hide Coaching Hints"
+                    : isBeginner
+                    ? "Show Tips"
+                    : "Need a Quick Hint?"}
+                </span>
               </button>
               {showHints && (
                 <ul className="mt-2 space-y-1 text-xs text-ink-secondary list-disc list-inside bg-canvas p-3 rounded-lg border border-line">
@@ -287,17 +414,80 @@ export function DrillsClient({
             </div>
           )}
 
+          {challenge.steps && challenge.steps.length > 0 && (
+            <div className="p-4 rounded-xl border border-line space-y-3">
+              <span className="text-[10px] font-mono uppercase text-accent font-semibold">
+                Step by Step
+              </span>
+              <ol className="space-y-3">
+                {challenge.steps.map((step, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-accent-soft text-accent text-xs font-bold flex items-center justify-center">
+                      {i + 1}
+                    </span>
+                    <div className="space-y-1.5 min-w-0">
+                      <p className="text-sm text-ink leading-relaxed">{step.prompt}</p>
+                      {step.starter && (
+                        <button
+                          type="button"
+                          onClick={() => insertAtCursor(step.starter!)}
+                          title="Insert this sentence starter into your answer"
+                          className="text-left text-xs px-2.5 py-1.5 rounded-lg bg-subtle border border-line hover:border-accent text-ink-secondary cursor-pointer break-words"
+                        >
+                          <span className="font-semibold text-accent">+ Use starter: </span>
+                          {step.starter}
+                        </button>
+                      )}
+                      {scoreResult?.stepFeedback?.[i] && (
+                        <p className="text-xs text-ink-secondary italic">
+                          {scoreResult.stepFeedback[i]}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {challenge.wordBank && challenge.wordBank.length > 0 && (
+            <div className="space-y-2">
+              <span className="text-[10px] font-mono uppercase text-ink-muted">
+                Useful Words · click to add
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {challenge.wordBank.map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => insertAtCursor(w)}
+                    className="px-2.5 py-1 rounded-full border border-line bg-canvas hover:bg-accent-soft hover:text-accent text-xs text-ink cursor-pointer"
+                  >
+                    {w}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-mono text-ink-muted">
-              <span>Your Upgraded Academic Prose</span>
+              <span>{isAdvanced ? "Your Upgraded Academic Prose" : "Your Answer"}</span>
               <span>{countEssayWords(response)} words</span>
             </div>
             <textarea
               id="micro-drill-textarea"
+              ref={textareaRef}
               rows={4}
               value={response}
               onChange={(e) => setResponse(e.target.value)}
-              placeholder="Write your concise Band 8.0+ version here..."
+              placeholder={
+                isAdvanced
+                  ? "Write your concise Band 8.0+ version here..."
+                  : challenge.steps?.some((st) => st.starter)
+                  ? "Start with one of the sentence starters above, then fill in the ___ gaps..."
+                  : "Write your answer here. Short, clear sentences are fine!"
+              }
               className="w-full p-4 rounded-xl bg-canvas border border-line-strong editorial-prose text-ink focus:outline-none focus:border-accent"
             />
           </div>
@@ -315,7 +505,9 @@ export function DrillsClient({
               ) : (
                 <Send className="w-3.5 h-3.5" />
               )}
-              <span>{scoring ? "Checking..." : "Check My Rewrite"}</span>
+              <span>
+                {scoring ? "Checking..." : isAdvanced ? "Check My Rewrite" : "Check My Answer"}
+              </span>
             </button>
           </div>
 
@@ -333,22 +525,36 @@ export function DrillsClient({
                 </span>
               </div>
 
+              {scoreResult.oneThingToFix && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-warm-soft text-sm text-ink">
+                  <Target className="w-4 h-4 text-warm shrink-0 mt-0.5" />
+                  <span>
+                    <span className="font-semibold">One thing to fix: </span>
+                    {scoreResult.oneThingToFix}
+                  </span>
+                </div>
+              )}
+
               <p className="text-sm text-ink-secondary leading-relaxed">
                 {scoreResult.feedback}
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {scoreResult.improvedVersion.trim() !== challenge.referenceModelAnswer.trim() && (
                 <div className="p-3.5 rounded-xl bg-subtle space-y-1">
                   <span className="text-[10px] font-mono uppercase text-accent font-semibold">
-                    Polished Band 8.5 Version of Your Draft
+                    {isAdvanced
+                      ? "Polished Band 8.5 Version of Your Draft"
+                      : "A Better Version of Your Answer"}
                   </span>
                   <p className="editorial-prose text-sm text-ink">
                     {scoreResult.improvedVersion}
                   </p>
                 </div>
+                )}
                 <div className="p-3.5 rounded-xl bg-subtle space-y-1">
                   <span className="text-[10px] font-mono uppercase text-ink-muted font-semibold">
-                    Examiner Reference Benchmark
+                    {isAdvanced ? "Examiner Reference Benchmark" : "Example Answer"}
                   </span>
                   <p className="editorial-prose text-sm text-ink">
                     {challenge.referenceModelAnswer}
@@ -358,7 +564,9 @@ export function DrillsClient({
 
               <div className="flex items-center gap-2 text-xs text-ink font-medium pt-2 border-t border-line">
                 <Sparkles className="w-4 h-4 text-accent shrink-0" />
-                <span>Rule to keep: {scoreResult.keyTakeaway}</span>
+                <span>
+                  {isAdvanced ? "Rule to keep" : "Remember"}: {scoreResult.keyTakeaway}
+                </span>
               </div>
             </div>
           )}

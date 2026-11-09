@@ -3,7 +3,8 @@ import { desc, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
 import { generateMicroDrillWithAI, scoreMicroDrillWithAI } from "@/lib/ai/examiner";
-import type { DrillType, MicroDrillChallenge } from "@/lib/types";
+import { isDrillLevel } from "@/lib/ielts-utils";
+import type { DrillLevel, DrillType, MicroDrillChallenge } from "@/lib/types";
 
 export async function GET() {
   try {
@@ -26,15 +27,17 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as
-      | { action: "generate"; drillType: DrillType }
+      | { action: "generate"; drillType: DrillType; level?: DrillLevel }
       | {
           action: "score";
           drillId: string;
           challenge: MicroDrillChallenge;
           userResponse: string;
+          level?: DrillLevel;
         };
 
     const db = await getDb();
+    const level: DrillLevel = isDrillLevel(body.level) ? body.level : "advanced";
 
     if (body.action === "generate") {
       const vaultRows = await db
@@ -49,7 +52,9 @@ export async function POST(request: Request) {
 
       const challenge = await generateMicroDrillWithAI({
         drillType: body.drillType || "cohesion",
-        vaultHighlights,
+        level,
+        // Beginners get drills built from simple texts, not their advanced Vault phrases.
+        vaultHighlights: level === "beginner" ? [] : vaultHighlights,
       });
 
       const id = `drill-${crypto.randomUUID().slice(0, 9)}`;
@@ -80,6 +85,8 @@ export async function POST(request: Request) {
       const score = await scoreMicroDrillWithAI({
         challenge: body.challenge,
         userResponse: body.userResponse.trim(),
+        // Fall back to the level the challenge was generated at.
+        level: isDrillLevel(body.level) ? body.level : body.challenge?.level,
       });
 
       const now = new Date().toISOString();

@@ -246,8 +246,17 @@ export type DrillType =
   | "l1_surgeon"
   | "lexical_hedging";
 
+export type DrillLevel = "beginner" | "intermediate" | "advanced";
+
+export interface MicroDrillStep {
+  prompt: string;
+  /** Optional fill-in sentence frame the student can insert, e.g. "Overall, ___ increased." */
+  starter?: string;
+}
+
 export interface MicroDrillChallenge {
   drillType: DrillType;
+  level?: DrillLevel;
   targetCriterion: AnnotationCategory;
   title: string;
   instructions: string;
@@ -257,6 +266,10 @@ export interface MicroDrillChallenge {
   flawedText?: string;
   hints: string[];
   referenceModelAnswer: string;
+  /** Guided, bite-sized steps (beginner scaffolding). */
+  steps?: MicroDrillStep[];
+  /** Useful words/phrases the student can click to insert. */
+  wordBank?: string[];
 }
 
 export interface MicroDrillScore {
@@ -265,4 +278,8 @@ export interface MicroDrillScore {
   feedback: string;
   improvedVersion: string;
   keyTakeaway: string;
+  /** The single most important fix, in plain language. */
+  oneThingToFix?: string;
+  /** Short feedback per guided step. */
+  stepFeedback?: string[];
 }
