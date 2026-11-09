@@ -1,4 +1,4 @@
-import type { NativeLanguageCode, TaskType } from "./types";
+import type { DrillLevel, NativeLanguageCode, TaskType } from "./types";
 
 /**
  * Official IELTS rounding to nearest 0.5 band:
@@ -15,6 +15,18 @@ export function roundIeltsBand(value: number): number {
  */
 export function computeWeightedExamBand(task1Band: number, task2Band: number): number {
   return roundIeltsBand((task1Band + task2Band * 2) / 3);
+}
+
+/** Maps a student's current band to a sensible default drill difficulty. */
+export function levelFromBand(band: number | null | undefined): DrillLevel {
+  if (band == null || Number.isNaN(band)) return "intermediate";
+  if (band <= 5.5) return "beginner";
+  if (band <= 6.5) return "intermediate";
+  return "advanced";
+}
+
+export function isDrillLevel(value: unknown): value is DrillLevel {
+  return value === "beginner" || value === "intermediate" || value === "advanced";
 }
 
 export function countEssayWords(text: string): number {
