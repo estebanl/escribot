@@ -109,11 +109,25 @@ export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
 
   const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openrouter;
 
+  let graderModel = settings?.graderModel || defaults.graderModel;
+  let fastModel = settings?.fastModel || defaults.fastModel;
+  let visionModel = settings?.visionModel || defaults.visionModel;
+
+  if (provider !== "openrouter") {
+    if (graderModel.includes("/")) graderModel = defaults.graderModel;
+    if (fastModel.includes("/")) fastModel = defaults.fastModel;
+    if (visionModel.includes("/")) visionModel = defaults.visionModel;
+  } else {
+    if (!graderModel.includes("/")) graderModel = defaults.graderModel;
+    if (!fastModel.includes("/")) fastModel = defaults.fastModel;
+    if (!visionModel.includes("/")) visionModel = defaults.visionModel;
+  }
+
   return {
     provider,
-    graderModel: settings?.graderModel || defaults.graderModel,
-    fastModel: settings?.fastModel || defaults.fastModel,
-    visionModel: settings?.visionModel || defaults.visionModel,
+    graderModel,
+    fastModel,
+    visionModel,
     apiKey: allKeys[provider] || null,
     allKeys,
     currentBand: settings?.currentBand ?? 6.5,
@@ -295,22 +309,23 @@ export async function callLLMWithMeta(
       const actualModel = data.model || model;
       const costUsd = typeof data.usage?.cost === "number" ? data.usage.cost : undefined;
 
-      // Log usage to ai_usage table asynchronously (non-blocking)
-      getDb()
-        .then((database) =>
-          database.insert(schema.aiUsage).values({
-            id: `use-${crypto.randomUUID().slice(0, 10)}`,
-            feature: feature || "general",
-            provider: "openrouter",
-            modelUsed: actualModel,
-            promptTokens: data.usage?.prompt_tokens ?? null,
-            completionTokens: data.usage?.completion_tokens ?? null,
-            totalTokens: data.usage?.total_tokens ?? null,
-            costUsd: costUsd ?? null,
-            createdAt: new Date().toISOString(),
-          })
-        )
-        .catch(() => {});
+      // Await usage logging so serverless / edge environments persist spend before execution ends
+      try {
+        const database = await getDb();
+        await database.insert(schema.aiUsage).values({
+          id: `use-${crypto.randomUUID().slice(0, 10)}`,
+          feature: feature || "general",
+          provider: "openrouter",
+          modelUsed: actualModel,
+          promptTokens: data.usage?.prompt_tokens ?? null,
+          completionTokens: data.usage?.completion_tokens ?? null,
+          totalTokens: data.usage?.total_tokens ?? null,
+          costUsd: costUsd ?? null,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (logErr) {
+        console.warn("Failed to record OpenRouter AI usage in database:", logErr);
+      }
 
       return {
         content,

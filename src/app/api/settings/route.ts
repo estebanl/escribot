@@ -84,6 +84,20 @@ export async function GET() {
 
     const defaults = PROVIDER_DEFAULTS[activeProvider] || PROVIDER_DEFAULTS.openrouter;
 
+    let graderModel = row?.graderModel || defaults.graderModel;
+    let fastModel = row?.fastModel || defaults.fastModel;
+    let visionModel = row?.visionModel || defaults.visionModel;
+
+    if (activeProvider !== "openrouter") {
+      if (graderModel.includes("/")) graderModel = defaults.graderModel;
+      if (fastModel.includes("/")) fastModel = defaults.fastModel;
+      if (visionModel.includes("/")) visionModel = defaults.visionModel;
+    } else {
+      if (!graderModel.includes("/")) graderModel = defaults.graderModel;
+      if (!fastModel.includes("/")) fastModel = defaults.fastModel;
+      if (!visionModel.includes("/")) visionModel = defaults.visionModel;
+    }
+
     return NextResponse.json({
       settings: {
         currentBand: row?.currentBand ?? 6.5,
@@ -92,9 +106,9 @@ export async function GET() {
         nativeLanguage: (row?.nativeLanguage as NativeLanguageCode) || "es",
         l1CoachingEnabled: row?.l1CoachingEnabled ?? true,
         activeProvider,
-        graderModel: row?.graderModel || defaults.graderModel,
-        fastModel: row?.fastModel || defaults.fastModel,
-        visionModel: row?.visionModel || defaults.visionModel,
+        graderModel,
+        fastModel,
+        visionModel,
       },
       keyStatus,
       activeProviderReady: activeReady,
@@ -151,6 +165,20 @@ export async function PUT(request: Request) {
       body.activeProvider || (existing?.activeProvider as AIProviderId) || "openrouter";
     const defaults = PROVIDER_DEFAULTS[activeProvider] || PROVIDER_DEFAULTS.openrouter;
 
+    let graderModel = body.graderModel?.trim() || defaults.graderModel;
+    let fastModel = body.fastModel?.trim() || defaults.fastModel;
+    let visionModel = body.visionModel?.trim() || defaults.visionModel;
+
+    if (activeProvider !== "openrouter") {
+      if (graderModel.includes("/")) graderModel = defaults.graderModel;
+      if (fastModel.includes("/")) fastModel = defaults.fastModel;
+      if (visionModel.includes("/")) visionModel = defaults.visionModel;
+    } else {
+      if (!graderModel.includes("/")) graderModel = defaults.graderModel;
+      if (!fastModel.includes("/")) fastModel = defaults.fastModel;
+      if (!visionModel.includes("/")) visionModel = defaults.visionModel;
+    }
+
     await db
       .update(schema.userSettings)
       .set({
@@ -170,9 +198,9 @@ export async function PUT(request: Request) {
             ? body.l1CoachingEnabled
             : existing?.l1CoachingEnabled ?? true,
         activeProvider,
-        graderModel: body.graderModel?.trim() || defaults.graderModel,
-        fastModel: body.fastModel?.trim() || defaults.fastModel,
-        visionModel: body.visionModel?.trim() || defaults.visionModel,
+        graderModel,
+        fastModel,
+        visionModel,
         encryptedApiKeys: JSON.stringify(encryptedMap),
         updatedAt: new Date().toISOString(),
       })

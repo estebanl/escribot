@@ -145,10 +145,23 @@ async function ensureSchemaAndSeed(client: Client, db: LibSQLDatabase<typeof sch
     const userSettingsInfo = await client.execute("PRAGMA table_info(user_settings)");
     const userCols = new Set(userSettingsInfo.rows.map((r) => String(r.name)));
     if (!userCols.has("vision_model")) {
-      await client.execute(
-        "ALTER TABLE user_settings ADD COLUMN vision_model TEXT NOT NULL DEFAULT 'deepseek/deepseek-v4.1-flash-1017'"
-      );
+      await client.execute("ALTER TABLE user_settings ADD COLUMN vision_model TEXT");
     }
+
+    // Ensure vision_model uses the active provider's native default (avoids assigning OpenRouter slugs to direct providers)
+    await client.execute(`
+      UPDATE user_settings
+      SET vision_model = CASE active_provider
+        WHEN 'deepseek' THEN 'deepseek-flash'
+        WHEN 'gemini' THEN 'gemini-2.5-flash'
+        WHEN 'openai' THEN 'gpt-4.1'
+        WHEN 'anthropic' THEN 'claude-sonnet-4-5'
+        ELSE 'deepseek/deepseek-v4.1-flash-1017'
+      END
+      WHERE vision_model IS NULL
+         OR vision_model = ''
+         OR (active_provider != 'openrouter' AND vision_model LIKE '%/%')
+    `);
   } catch {
     // Ignore if table doesn't support pragma
   }
