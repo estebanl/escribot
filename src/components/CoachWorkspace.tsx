@@ -17,6 +17,10 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  Bookmark,
+  BookmarkCheck,
+  Target,
+  History,
 } from "lucide-react";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
 import { countEssayWords, getMinimumWords, getRecommendedMinutes } from "@/lib/ielts-utils";
@@ -40,14 +44,83 @@ export interface RestoredCoachDraft {
   outlineFeedback?: OutlineFeedback | null;
 }
 
+/** Examiner priorities carried over from the student's most recent graded draft of this task type. */
+export interface PreviousFocus {
+  overallBand: number;
+  topPriorities: string[];
+  fromVersion: number;
+  /** True when the priorities come from an earlier version of this same essay. */
+  isRedraft: boolean;
+}
+
+type ToolName = ToolkitResponse["tool"];
+
+/** A toolkit result plus the exact text the coach inspected, so feedback stays anchored to the draft. */
+interface ToolkitEntry extends ToolkitResponse {
+  checkedText: string;
+}
+
+interface LocalCoachDraft {
+  essayText: string;
+  outline: OutlineInput;
+  outlineFeedback: OutlineFeedback | null;
+  validatedOutline: OutlineInput | null;
+  elapsedSeconds: number;
+  savedAt: string;
+}
+
+const AUTOSAVE_DEBOUNCE_MS = 1500;
+
+function outlineKey(o: OutlineInput | null | undefined): string {
+  if (!o) return "";
+  return [o.thesisOrOverview, o.body1Plan, o.body2Plan]
+    .map((v) => (v || "").trim())
+    .join("␞");
+}
+
+/**
+ * Returns the paragraph containing the caret (paragraphs are separated by blank lines),
+ * falling back to the last non-empty paragraph.
+ */
+function paragraphAtCursor(text: string, cursor: number | null | undefined): string {
+  const separator = /\n\s*\n/g;
+  const paragraphs: Array<{ start: number; end: number }> = [];
+  let start = 0;
+  let match: RegExpExecArray | null;
+  while ((match = separator.exec(text)) !== null) {
+    paragraphs.push({ start, end: match.index });
+    start = match.index + match[0].length;
+  }
+  paragraphs.push({ start, end: text.length });
+
+  if (typeof cursor === "number") {
+    const hit = paragraphs.find((p) => cursor >= p.start && cursor <= p.end);
+    const hitText = hit ? text.slice(hit.start, hit.end).trim() : "";
+    if (hitText) return hitText;
+  }
+  for (let i = paragraphs.length - 1; i >= 0; i--) {
+    const candidate = text.slice(paragraphs[i].start, paragraphs[i].end).trim();
+    if (candidate) return candidate;
+  }
+  return "";
+}
+
+function toolCriterion(tool: ToolName): string {
+  if (tool === "l1_check") return "L1";
+  if (tool === "paragraph_check") return "CC";
+  return "LR";
+}
+
 export function CoachWorkspace({
   sessionId,
   prompt,
   initialDraft,
+  previousFocus,
 }: {
   sessionId: string;
   prompt: PromptRecord;
   initialDraft?: RestoredCoachDraft | null;
+  previousFocus?: PreviousFocus | null;
 }) {
   const router = useRouter();
   const taskType = (prompt.taskType === "task1" ? "task1" : "task2") as TaskType;
@@ -70,6 +143,12 @@ export function CoachWorkspace({
     initialDraft?.outlineFeedback || null
   );
   const [checkingOutline, setCheckingOutline] = useState(false);
+  // Outline snapshot the current feedback was produced for (to flag stale feedback after edits)
+  const [validatedOutline, setValidatedOutline] = useState<OutlineInput | null>(
+    initialDraft?.outlineFeedback ? initialDraft.outline || null : null
+  );
+  const [doneTweaks, setDoneTweaks] = useState<Set<number>>(() => new Set());
+  const [doneFocus, setDoneFocus] = useState<Set<number>>(() => new Set());
 
   // Step 2: Distraction-free Essay Editor state
   const [essayText, setEssayText] = useState(initialDraft?.essayText || "");
@@ -81,9 +160,21 @@ export function CoachWorkspace({
   // On-demand Coach Toolkit state (NO autocomplete)
   const [selectedSnippet, setSelectedSnippet] = useState("");
   const [toolkitLoading, setToolkitLoading] = useState<string | null>(null);
-  const [toolkitResult, setToolkitResult] = useState<ToolkitResponse | null>(null);
-  const [toolkitHistory, setToolkitHistory] = useState<ToolkitResponse[]>([]);
-  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [toolkitResult, setToolkitResult] = useState<ToolkitEntry | null>(null);
+  const [toolkitHistory, setToolkitHistory] = useState<ToolkitEntry[]>([]);
+  const [showEarlierChecks, setShowEarlierChecks] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Save-to-Vault state (keys identify individual suggestions / collocations)
+  const [savedVaultKeys, setSavedVaultKeys] = useState<Set<string>>(() => new Set());
+  const [savingVaultKey, setSavingVaultKey] = useState<string | null>(null);
+  const [vaultError, setVaultError] = useState<string | null>(null);
+
+  // Local autosave state
+  const storageKey = `fe-coach-draft:${sessionId}:${prompt.id}`;
+  const [autosaveReady, setAutosaveReady] = useState(false);
+  const [restoredNotice, setRestoredNotice] = useState(false);
+  const [lastLocalSave, setLastLocalSave] = useState<string | null>(null);
 
   // Final evaluation submission state
   const [submitting, setSubmitting] = useState(false);
@@ -100,6 +191,130 @@ export function CoachWorkspace({
     return () => clearInterval(id);
   }, [timerPaused, submitting]);
 
+  // Keep the latest snapshot in a ref so the ticking timer doesn't reset the autosave debounce
+  const snapshotRef = useRef<LocalCoachDraft | null>(null);
+  useEffect(() => {
+    snapshotRef.current = {
+      essayText,
+      outline,
+      outlineFeedback,
+      validatedOutline,
+      elapsedSeconds,
+      savedAt: new Date().toISOString(),
+    };
+  }, [essayText, outline, outlineFeedback, validatedOutline, elapsedSeconds]);
+
+  function persistLocalDraft(): boolean {
+    const snap = snapshotRef.current;
+    if (!snap) return false;
+    try {
+      if (!snap.essayText.trim() && !outlineKey(snap.outline).replace(/\u241E/g, "")) {
+        window.localStorage.removeItem(storageKey);
+        return false;
+      }
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({ ...snap, savedAt: new Date().toISOString() })
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Restore unsaved local work (localStorage is only readable after hydration)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) {
+        const local = JSON.parse(raw) as Partial<LocalCoachDraft>;
+        const serverEssay = initialDraft?.essayText || "";
+        const serverOutline = outlineKey(initialDraft?.outline);
+        const differs =
+          typeof local.essayText === "string" &&
+          (local.essayText !== serverEssay || outlineKey(local.outline) !== serverOutline);
+        if (differs) {
+          /* eslint-disable react-hooks/set-state-in-effect -- localStorage is only readable after hydration */
+          setEssayText(local.essayText || "");
+          if (local.outline) setOutline(local.outline);
+          setOutlineFeedback(local.outlineFeedback ?? null);
+          setValidatedOutline(local.validatedOutline ?? null);
+          if (typeof local.elapsedSeconds === "number") {
+            setElapsedSeconds(Math.max(local.elapsedSeconds, initialDraft?.secondsSpent || 0));
+          }
+          if (local.outline?.thesisOrOverview) setOutlineOpen(true);
+          setRestoredNotice(true);
+          /* eslint-enable react-hooks/set-state-in-effect */
+        }
+      }
+    } catch {
+      // Corrupt or blocked storage: start from the server draft
+    }
+    setAutosaveReady(true);
+    // Run once on mount for this session/prompt
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+
+  // Debounced autosave whenever the essay or outline changes
+  useEffect(() => {
+    if (!autosaveReady || submitting) return;
+    const id = setTimeout(() => {
+      if (persistLocalDraft()) {
+        setLastLocalSave(
+          new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        );
+      }
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosaveReady, submitting, essayText, outline, outlineFeedback, validatedOutline]);
+
+  // Flush immediately when the tab is hidden or closed
+  useEffect(() => {
+    if (!autosaveReady) return;
+    const flush = () => {
+      persistLocalDraft();
+    };
+    window.addEventListener("pagehide", flush);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosaveReady, storageKey]);
+
+  function discardRestoredDraft() {
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // ignore
+    }
+    setEssayText(initialDraft?.essayText || "");
+    setOutline(
+      initialDraft?.outline || {
+        thesisOrOverview: "",
+        body1Plan: "",
+        body2Plan: "",
+        targetKeyTerms: "",
+      }
+    );
+    setOutlineFeedback(initialDraft?.outlineFeedback || null);
+    setValidatedOutline(initialDraft?.outlineFeedback ? initialDraft.outline || null : null);
+    setElapsedSeconds(initialDraft?.secondsSpent || 0);
+    setRestoredNotice(false);
+    setLastLocalSave(null);
+  }
+
+  const outlineIsStale =
+    Boolean(outlineFeedback) && outlineKey(outline) !== outlineKey(validatedOutline);
+
+  // The visible result is always the newest history entry, so "earlier" excludes it while shown
+  const earlierChecks = toolkitResult ? toolkitHistory.slice(0, -1) : toolkitHistory;
+
   const wordCount = countEssayWords(essayText);
   const wordProgress = Math.min(100, Math.round((wordCount / minWords) * 100));
 
@@ -108,9 +323,8 @@ export function CoachWorkspace({
     if (!el) return;
     const start = el.selectionStart;
     const end = el.selectionEnd;
-    if (end > start) {
-      setSelectedSnippet(essayText.slice(start, end).trim());
-    }
+    // A collapsed selection means "inspect the paragraph at the cursor" instead of a stale snippet
+    setSelectedSnippet(end > start ? essayText.slice(start, end).trim() : "");
   }
 
   async function handleValidateOutline() {
@@ -133,21 +347,18 @@ export function CoachWorkspace({
         setError(outcome.error);
       } else {
         setOutlineFeedback(outcome.data.feedback);
+        setValidatedOutline({ ...outline });
+        setDoneTweaks(new Set());
       }
     } finally {
       setCheckingOutline(false);
     }
   }
 
-  async function handleRunToolkit(tool: "collocations" | "l1_check" | "paragraph_check") {
+  async function handleRunToolkit(tool: ToolName) {
     const targetText =
       selectedSnippet.trim() ||
-      essayText
-        .split(/\n\s*\n/)
-        .filter(Boolean)
-        .pop()
-        ?.trim() ||
-      "";
+      paragraphAtCursor(essayText, editorRef.current?.selectionStart);
 
     if (!targetText) {
       setError(
@@ -177,8 +388,9 @@ export function CoachWorkspace({
       if (!outcome.ok) {
         setError(outcome.error);
       } else {
-        setToolkitResult(outcome.data.result);
-        setToolkitHistory((prev) => [...prev, outcome.data.result]);
+        const entry: ToolkitEntry = { ...outcome.data.result, checkedText: targetText };
+        setToolkitResult(entry);
+        setToolkitHistory((prev) => [...prev, entry]);
       }
     } finally {
       setToolkitLoading(null);
@@ -226,7 +438,139 @@ export function CoachWorkspace({
       return;
     }
 
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // ignore
+    }
     router.push(`/session/${sessionId}`);
+  }
+
+  function copyText(key: string, text: string) {
+    navigator.clipboard?.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500);
+  }
+
+  async function saveToVault(
+    key: string,
+    item: {
+      itemType: "error" | "collocation";
+      criterion: string;
+      originalText: string;
+      upgradedText: string;
+      explanation: string;
+    }
+  ) {
+    if (savedVaultKeys.has(key) || savingVaultKey) return;
+    setSavingVaultKey(key);
+    setVaultError(null);
+    try {
+      const outcome = await safePostJson<{ item: unknown }>(
+        "/api/vault",
+        item,
+        "saving to your Vault"
+      );
+      if (!outcome.ok) {
+        setVaultError(outcome.error);
+      } else {
+        setSavedVaultKeys((prev) => new Set(prev).add(key));
+      }
+    } finally {
+      setSavingVaultKey(null);
+    }
+  }
+
+  function toggleInSet(setter: (fn: (prev: Set<number>) => Set<number>) => void, idx: number) {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }
+
+  function renderVaultButton(
+    key: string,
+    item: Parameters<typeof saveToVault>[1]
+  ) {
+    const saved = savedVaultKeys.has(key);
+    const saving = savingVaultKey === key;
+    return (
+      <button
+        type="button"
+        disabled={saved || Boolean(savingVaultKey)}
+        onClick={() => saveToVault(key, item)}
+        title={saved ? "Saved to your Vault" : "Save to Vault for spaced review"}
+        aria-label={saved ? "Saved to Vault" : "Save to Vault"}
+        className="p-1.5 rounded hover:bg-surface text-ink-secondary shrink-0 cursor-pointer disabled:cursor-default"
+      >
+        {saving ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : saved ? (
+          <BookmarkCheck className="w-3.5 h-3.5 text-accent" />
+        ) : (
+          <Bookmark className="w-3.5 h-3.5" />
+        )}
+      </button>
+    );
+  }
+
+  function renderToolkitEntry(entry: ToolkitEntry, entryIdx: number, compact: boolean) {
+    return (
+      <div className="space-y-2.5">
+        <div className="p-2 rounded-lg border-l-2 border-accent/60 bg-subtle/50">
+          <span className="text-[10px] font-mono uppercase text-ink-muted">Checked text</span>
+          <p className="text-[11px] text-ink-secondary italic line-clamp-3">
+            &ldquo;{entry.checkedText}&rdquo;
+          </p>
+        </div>
+        {!compact && (
+          <p className="text-ink-secondary leading-relaxed">{entry.analysis}</p>
+        )}
+        <div className="space-y-2 pt-1">
+          {entry.suggestions.map((sug, idx) => {
+            const key = `tk-${entryIdx}-${idx}`;
+            return (
+              <div
+                key={key}
+                className="p-2.5 rounded-lg bg-subtle flex items-start justify-between gap-3"
+              >
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-mono uppercase font-semibold text-accent">
+                    {sug.label}
+                  </span>
+                  <p className="text-ink font-medium">{sug.rewrittenOrPhrase}</p>
+                  <p className="text-[11px] text-ink-secondary">{sug.rationale}</p>
+                </div>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => copyText(key, sug.rewrittenOrPhrase)}
+                    title="Copy phrase"
+                    aria-label="Copy phrase"
+                    className="p-1.5 rounded hover:bg-surface text-ink-secondary shrink-0 cursor-pointer"
+                  >
+                    {copiedKey === key ? (
+                      <Check className="w-3.5 h-3.5 text-accent" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  {renderVaultButton(key, {
+                    itemType: entry.tool === "collocations" ? "collocation" : "error",
+                    criterion: toolCriterion(entry.tool),
+                    originalText: entry.checkedText.slice(0, 600),
+                    upgradedText: sug.rewrittenOrPhrase,
+                    explanation: sug.rationale,
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   const mm = String(Math.floor(elapsedSeconds / 60)).padStart(2, "0");
@@ -334,6 +678,50 @@ export function CoachWorkspace({
         </div>
       )}
 
+      {restoredNotice && (
+        <div
+          role="status"
+          className="p-3 rounded-xl border border-accent/35 bg-accent-soft/50 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm text-ink"
+        >
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-accent shrink-0" />
+            <span>Restored your unsaved draft from this device.</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setRestoredNotice(false)}
+              className="text-xs font-medium text-accent hover:underline cursor-pointer"
+            >
+              Keep
+            </button>
+            <button
+              type="button"
+              onClick={discardRestoredDraft}
+              className="text-xs font-medium text-ink-muted hover:text-ink hover:underline cursor-pointer"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
+
+      {vaultError && (
+        <div
+          role="alert"
+          className="p-3 rounded-xl border border-red-400 bg-red-500/10 text-red-600 dark:text-red-300 flex items-center justify-between gap-3 text-xs sm:text-sm"
+        >
+          <span>{vaultError}</span>
+          <button
+            type="button"
+            onClick={() => setVaultError(null)}
+            className="text-xs font-medium hover:underline cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Split Studio Workspace */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Prompt + Visual + 5-Min Interactive Outline Check */}
@@ -352,6 +740,50 @@ export function CoachWorkspace({
               />
             )}
           </section>
+
+          {previousFocus && previousFocus.topPriorities.length > 0 && (
+            <section className="editorial-surface rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-warm" />
+                  <h2 className="font-serif text-base font-semibold text-ink">
+                    Your Focus for This Draft
+                  </h2>
+                </div>
+                <span className="text-[11px] font-mono text-ink-muted">
+                  {previousFocus.isRedraft
+                    ? `From v${previousFocus.fromVersion}`
+                    : "Last graded essay"}{" "}
+                  · Band {previousFocus.overallBand.toFixed(1)}
+                </span>
+              </div>
+              <p className="text-xs text-ink-secondary leading-relaxed">
+                {previousFocus.isRedraft
+                  ? "The examiner's highest-leverage fixes from your previous version. Tick each one off as you address it."
+                  : "Carry these examiner priorities from your last graded essay of this task type into this one."}
+              </p>
+              <ol className="space-y-1.5">
+                {previousFocus.topPriorities.map((p, idx) => {
+                  const done = doneFocus.has(idx);
+                  return (
+                    <li key={idx}>
+                      <label className="flex items-start gap-2 p-2 rounded-lg bg-subtle/60 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={done}
+                          onChange={() => toggleInSet(setDoneFocus, idx)}
+                          className="mt-0.5"
+                        />
+                        <span className={done ? "text-ink-muted line-through" : "text-ink"}>
+                          {p}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          )}
 
           {/* 5-Minute Plan-First Outline Check */}
           <section className="editorial-surface rounded-2xl p-5 space-y-4">
@@ -477,6 +909,23 @@ export function CoachWorkspace({
                       </span>
                     </div>
 
+                    {outlineIsStale && (
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-warm-soft text-[11px] text-ink">
+                        <span className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-warm shrink-0" />
+                          Outline changed since this check.
+                        </span>
+                        <button
+                          type="button"
+                          disabled={checkingOutline || !outline.thesisOrOverview.trim()}
+                          onClick={handleValidateOutline}
+                          className="font-semibold text-accent hover:underline cursor-pointer disabled:opacity-50"
+                        >
+                          Re-validate
+                        </button>
+                      </div>
+                    )}
+
                     <p className="text-ink font-medium">{outlineFeedback.verdictSummary}</p>
                     <p className="text-ink-secondary">
                       <strong>Overview/Thesis:</strong>{" "}
@@ -485,6 +934,39 @@ export function CoachWorkspace({
                     <p className="text-ink-secondary">
                       <strong>Paragraphing:</strong> {outlineFeedback.bodyGroupingCheck}
                     </p>
+
+                    {outlineFeedback.actionableTweaks?.length > 0 && (
+                      <div className="pt-2 border-t border-line space-y-1.5">
+                        <p className="text-[11px] font-mono uppercase text-ink-muted">
+                          Fix Before You Write ({doneTweaks.size}/
+                          {outlineFeedback.actionableTweaks.length})
+                        </p>
+                        <ol className="space-y-1">
+                          {outlineFeedback.actionableTweaks.map((tweak, idx) => {
+                            const done = doneTweaks.has(idx);
+                            return (
+                              <li key={idx}>
+                                <label className="flex items-start gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={done}
+                                    onChange={() => toggleInSet(setDoneTweaks, idx)}
+                                    className="mt-0.5"
+                                  />
+                                  <span
+                                    className={
+                                      done ? "text-ink-muted line-through" : "text-ink"
+                                    }
+                                  >
+                                    {idx + 1}. {tweak}
+                                  </span>
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </div>
+                    )}
 
                     {outlineFeedback.suggestedAcademicCollocations?.length > 0 && (
                       <div className="pt-2 border-t border-line space-y-1.5">
@@ -503,6 +985,28 @@ export function CoachWorkspace({
                               <p className="text-[11px] text-ink-secondary">
                                 {c.usageNote}
                               </p>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => copyText(`col-${idx}`, c.phrase)}
+                                title="Copy phrase"
+                                aria-label="Copy phrase"
+                                className="p-1.5 rounded hover:bg-surface text-ink-secondary cursor-pointer"
+                              >
+                                {copiedKey === `col-${idx}` ? (
+                                  <Check className="w-3.5 h-3.5 text-accent" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              {renderVaultButton(`col-${c.phrase}`, {
+                                itemType: "collocation",
+                                criterion: "LR",
+                                originalText: c.phrase,
+                                upgradedText: c.phrase,
+                                explanation: c.usageNote,
+                              })}
                             </div>
                           </div>
                         ))}
@@ -529,6 +1033,14 @@ export function CoachWorkspace({
                     style={{ width: `${wordProgress}%` }}
                   />
                 </div>
+                {lastLocalSave && (
+                  <span
+                    className="text-[11px] text-ink-muted"
+                    title="Your draft is saved on this device until you submit it for grading"
+                  >
+                    Saved locally · {lastLocalSave}
+                  </span>
+                )}
               </div>
 
               <button
@@ -570,7 +1082,7 @@ export function CoachWorkspace({
                     ? `(Selected: "${selectedSnippet.slice(0, 28)}${
                         selectedSnippet.length > 28 ? "…" : ""
                       }")`
-                    : "(Inspects highlighted phrase or current paragraph)"}
+                    : "(Inspects the paragraph your cursor is in)"}
                 </span>
               </div>
 
@@ -635,41 +1147,37 @@ export function CoachWorkspace({
                       Dismiss
                     </button>
                   </div>
-                  <p className="text-ink-secondary leading-relaxed">
-                    {toolkitResult.analysis}
-                  </p>
-                  <div className="space-y-2 pt-1">
-                    {toolkitResult.suggestions.map((sug, idx) => (
-                      <div
-                        key={idx}
-                        className="p-2.5 rounded-lg bg-subtle flex items-start justify-between gap-3"
-                      >
-                        <div className="space-y-0.5">
-                          <span className="text-[10px] font-mono uppercase font-semibold text-accent">
-                            {sug.label}
-                          </span>
-                          <p className="text-ink font-medium">{sug.rewrittenOrPhrase}</p>
-                          <p className="text-[11px] text-ink-secondary">{sug.rationale}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard?.writeText(sug.rewrittenOrPhrase);
-                            setCopiedIdx(idx);
-                            setTimeout(() => setCopiedIdx(null), 1500);
-                          }}
-                          title="Copy phrase"
-                          className="p-1.5 rounded hover:bg-surface text-ink-secondary shrink-0 cursor-pointer"
-                        >
-                          {copiedIdx === idx ? (
-                            <Check className="w-3.5 h-3.5 text-accent" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  {renderToolkitEntry(toolkitResult, toolkitHistory.length - 1, false)}
+                </div>
+              )}
+
+              {earlierChecks.length > 0 && (
+                <div className="rounded-xl border border-line">
+                  <button
+                    type="button"
+                    onClick={() => setShowEarlierChecks((v) => !v)}
+                    aria-expanded={showEarlierChecks}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-ink-secondary hover:text-ink cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5" />
+                      Earlier checks ({earlierChecks.length})
+                    </span>
+                    <span>{showEarlierChecks ? "Hide" : "Show"}</span>
+                  </button>
+                  {showEarlierChecks && (
+                    <div className="px-3 pb-3 space-y-4 text-xs">
+                      {earlierChecks
+                        .map((entry, idx) => ({ entry, idx }))
+                        .reverse()
+                        .map(({ entry, idx }) => (
+                          <div key={idx} className="pt-3 border-t border-line space-y-2">
+                            <h4 className="font-semibold text-ink">{entry.headline}</h4>
+                            {renderToolkitEntry(entry, idx, true)}
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

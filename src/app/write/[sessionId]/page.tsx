@@ -3,7 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { isPasscodeRequired } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
-import { CoachWorkspace } from "@/components/CoachWorkspace";
+import { CoachWorkspace, type PreviousFocus } from "@/components/CoachWorkspace";
 import { InsperaSimulator } from "@/components/InsperaSimulator";
 import type { OutlineFeedback, OutlineInput, SessionMode } from "@/lib/types";
 
@@ -68,11 +68,49 @@ export default async function WriteSessionPage({
       (d) => d.promptId === activePrompt.id
     );
 
+    // Surface the examiner's top priorities from the most recent graded draft of the same task type,
+    // preferring this session + prompt (redraft), so the student practises exactly what held them back.
+    const gradedSameTask = await db
+      .select({
+        sessionId: schema.drafts.sessionId,
+        promptId: schema.drafts.promptId,
+        version: schema.drafts.version,
+        overallBand: schema.evaluations.overallBand,
+        topPrioritiesJson: schema.evaluations.topPrioritiesJson,
+      })
+      .from(schema.evaluations)
+      .innerJoin(schema.drafts, eq(schema.evaluations.draftId, schema.drafts.id))
+      .where(eq(schema.drafts.taskType, activePrompt.taskType))
+      .orderBy(desc(schema.evaluations.createdAt))
+      .limit(25);
+
+    const focusSource =
+      gradedSameTask.find(
+        (g) => g.sessionId === session.id && g.promptId === activePrompt.id
+      ) || gradedSameTask[0];
+    const focusPriorities = focusSource
+      ? (safeParseJson<string[]>(focusSource.topPrioritiesJson) || []).filter(
+          (p) => typeof p === "string" && p.trim()
+        )
+      : [];
+    const previousFocus: PreviousFocus | null =
+      focusSource && focusPriorities.length > 0
+        ? {
+            overallBand: focusSource.overallBand,
+            topPriorities: focusPriorities,
+            fromVersion: focusSource.version,
+            isRedraft:
+              focusSource.sessionId === session.id &&
+              focusSource.promptId === activePrompt.id,
+          }
+        : null;
+
     return (
       <AppShell passcodeActive={isPasscodeRequired()}>
         <CoachWorkspace
           sessionId={session.id}
           prompt={activePrompt}
+          previousFocus={previousFocus}
           initialDraft={
             latestSaved
               ? {
