@@ -150,29 +150,23 @@ async function ensureSchemaAndSeed(client: Client, db: LibSQLDatabase<typeof sch
   }
 
   // Ensure curated prompts exist
-  const [{ value: promptCount }] = await db
-    .select({ value: count() })
-    .from(schema.prompts);
-
-  if (promptCount === 0) {
-    for (const p of CURATED_IELTS_PROMPTS) {
-      await db
-        .insert(schema.prompts)
-        .values({
-          id: p.id,
-          taskType: p.taskType,
-          category: p.category,
-          topic: p.topic,
-          title: p.title,
-          promptText: p.promptText,
-          chartSpecJson: p.chartSpec ? JSON.stringify(p.chartSpec) : null,
-          imageDataUrl: null,
-          extractedVisualSpec: null,
-          source: "curated",
-          createdAt: now,
-        })
-        .onConflictDoNothing();
-    }
+  for (const p of CURATED_IELTS_PROMPTS) {
+    await db
+      .insert(schema.prompts)
+      .values({
+        id: p.id,
+        taskType: p.taskType,
+        category: p.category,
+        topic: p.topic,
+        title: p.title,
+        promptText: p.promptText,
+        chartSpecJson: p.chartSpec ? JSON.stringify(p.chartSpec) : null,
+        imageDataUrl: p.imageDataUrl || null,
+        extractedVisualSpec: null,
+        source: "curated",
+        createdAt: now,
+      })
+      .onConflictDoNothing();
   }
 
   // Seed starter L1 & Band 8+ Academic Vault items if empty

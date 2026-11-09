@@ -127,9 +127,17 @@ export interface ComparisonMapSpec {
   periodA: string;
   periodB: string;
   waterway?: "coastal_south" | "river_vertical" | "none";
-  mainRoad?: "horizontal" | "vertical" | "ring";
+  mainRoad?: "horizontal" | "vertical" | "ring" | "none";
   featuresA: MapZoneFeature[];
   featuresB: MapZoneFeature[];
+}
+
+export interface CompositeChartSpec {
+  kind: "composite";
+  title: string;
+  subtitle?: string;
+  visuals: Array<PieChartSpec | TableChartSpec | CartesianChartSpec>;
+  sourceNote?: string;
 }
 
 export type ChartSpec =
@@ -137,7 +145,8 @@ export type ChartSpec =
   | PieChartSpec
   | TableChartSpec
   | ProcessDiagramSpec
-  | ComparisonMapSpec;
+  | ComparisonMapSpec
+  | CompositeChartSpec;
 
 /* ---------- Coaching, Outline & Rubric Evaluation Types ---------- */
 

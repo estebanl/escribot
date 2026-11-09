@@ -17,7 +17,7 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { ArrowRight, RotateCw, ZoomIn, X, Compass } from "lucide-react";
+import { ArrowRight, RotateCw, ZoomIn, X, Compass, BarChart2, FileText } from "lucide-react";
 import type {
   ChartSpec,
   ComparisonMapSpec,
@@ -166,85 +166,22 @@ function MapGridCard({
   );
 }
 
-export function TaskVisualRenderer({
-  chartSpecJson,
-  chartSpecDirect,
-  imageDataUrl,
+function SpecContent({
+  spec,
   compact = false,
+  isNested = false,
 }: {
-  chartSpecJson?: string | null;
-  chartSpecDirect?: ChartSpec | null;
-  imageDataUrl?: string | null;
+  spec: ChartSpec;
   compact?: boolean;
+  isNested?: boolean;
 }) {
-  const [zoomed, setZoomed] = useState(false);
-
-  if (imageDataUrl) {
-    return (
-      <div className="mt-4">
-        <div className="relative rounded-xl border border-line bg-white p-3 overflow-hidden group">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageDataUrl}
-            alt="Uploaded Academic IELTS Task 1 chart or diagram"
-            className="w-full max-h-[420px] object-contain mx-auto rounded"
-          />
-          <button
-            type="button"
-            onClick={() => setZoomed(true)}
-            className="absolute top-4 right-4 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900/80 text-white text-xs font-medium hover:bg-slate-900 transition cursor-pointer"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-            <span>Inspect Full Size</span>
-          </button>
-        </div>
-
-        {zoomed && (
-          <div
-            onClick={() => setZoomed(false)}
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="relative max-w-5xl w-full bg-white rounded-2xl p-4 shadow-2xl"
-            >
-              <button
-                type="button"
-                onClick={() => setZoomed(false)}
-                className="absolute top-3 right-3 p-2 rounded-full bg-slate-900 text-white hover:bg-slate-700 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imageDataUrl}
-                alt="Zoomed Task 1 visual"
-                className="w-full max-h-[84vh] object-contain mx-auto"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  let spec: ChartSpec | null = chartSpecDirect || null;
-  if (!spec && chartSpecJson) {
-    try {
-      spec = JSON.parse(chartSpecJson) as ChartSpec;
-    } catch {
-      spec = null;
-    }
-  }
-
-  if (!spec) return null;
-
   const height = compact ? 235 : 305;
+  const marginClass = isNested ? "" : "mt-4";
 
   /* ---------- 1. LINE / BAR / MIXED CHARTS ---------- */
   if (spec.kind === "line" || spec.kind === "bar" || spec.kind === "mixed") {
     return (
-      <div className="mt-4 rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs">
+      <div className={`${marginClass} rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs`}>
         <div className="mb-3">
           <h3 className="font-sans text-sm font-bold text-slate-900">{spec.title}</h3>
           {spec.subtitle && (
@@ -378,7 +315,7 @@ export function TaskVisualRenderer({
   /* ---------- 2. DUAL / COMPARATIVE PIE CHARTS ---------- */
   if (spec.kind === "pie") {
     return (
-      <div className="mt-4 rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs">
+      <div className={`${marginClass} rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs`}>
         <h3 className="font-sans text-sm font-bold text-slate-900">{spec.title}</h3>
         {spec.subtitle && (
           <p className="text-xs text-slate-600 mt-0.5 mb-3">{spec.subtitle}</p>
@@ -456,7 +393,7 @@ export function TaskVisualRenderer({
   /* ---------- 3. DATA TABLE ---------- */
   if (spec.kind === "table") {
     return (
-      <div className="mt-4 rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs overflow-x-auto">
+      <div className={`${marginClass} rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs overflow-x-auto`}>
         <h3 className="font-sans text-sm font-bold text-slate-900">{spec.title}</h3>
         {spec.unitNote && (
           <p className="text-xs text-slate-600 mt-0.5 mb-3">{spec.unitNote}</p>
@@ -505,7 +442,7 @@ export function TaskVisualRenderer({
   /* ---------- 4. PROCESS / LIFECYCLE DIAGRAM ---------- */
   if (spec.kind === "process") {
     return (
-      <div className="mt-4 rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs">
+      <div className={`${marginClass} rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs`}>
         <div className="flex items-start justify-between gap-2 mb-3">
           <div>
             <h3 className="font-sans text-sm font-bold text-slate-900">{spec.title}</h3>
@@ -558,7 +495,7 @@ export function TaskVisualRenderer({
   /* ---------- 5. TWO-PERIOD COMPARISON MAP ---------- */
   if (spec.kind === "map") {
     return (
-      <div className="mt-4 rounded-xl border border-slate-300 bg-slate-50 text-slate-900 p-4 shadow-xs space-y-3">
+      <div className={`${marginClass} rounded-xl border border-slate-300 bg-slate-50 text-slate-900 p-4 shadow-xs space-y-3`}>
         <div>
           <h3 className="font-sans text-sm font-bold text-slate-900">{spec.title}</h3>
           {spec.subtitle && (
@@ -582,5 +519,159 @@ export function TaskVisualRenderer({
     );
   }
 
+  /* ---------- 6. COMPOSITE VISUAL (COMBINED CHARTS & TABLES) ---------- */
+  if (spec.kind === "composite") {
+    return (
+      <div className={`${marginClass} rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs space-y-4`}>
+        <div>
+          <h3 className="font-sans text-sm font-bold text-slate-900">{spec.title}</h3>
+          {spec.subtitle && (
+            <p className="text-xs text-slate-600 mt-0.5">{spec.subtitle}</p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          {spec.visuals.map((subVisual, idx) => (
+            <div key={idx} className="w-full">
+              <SpecContent spec={subVisual} compact={compact} isNested />
+            </div>
+          ))}
+        </div>
+
+        {spec.sourceNote && (
+          <p className="text-[11px] text-slate-500 mt-2 font-mono">{spec.sourceNote}</p>
+        )}
+      </div>
+    );
+  }
+
   return null;
+}
+
+export function TaskVisualRenderer({
+  chartSpecJson,
+  chartSpecDirect,
+  imageDataUrl,
+  compact = false,
+  isNested = false,
+}: {
+  chartSpecJson?: string | null;
+  chartSpecDirect?: ChartSpec | null;
+  imageDataUrl?: string | null;
+  compact?: boolean;
+  isNested?: boolean;
+}) {
+  const [zoomed, setZoomed] = useState(false);
+  const [activeTab, setActiveTab] = useState<"spec" | "image">("spec");
+
+  let spec: ChartSpec | null = chartSpecDirect || null;
+  if (!spec && chartSpecJson) {
+    try {
+      spec = JSON.parse(chartSpecJson) as ChartSpec;
+    } catch {
+      spec = null;
+    }
+  }
+
+  if (!imageDataUrl && !spec) return null;
+
+  const renderImage = () => (
+    <div className={isNested ? "" : "mt-4"}>
+      <div className="relative rounded-xl border border-line bg-white p-3 overflow-hidden group">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageDataUrl!}
+          alt="Academic IELTS Task 1 official prompt visual or diagram"
+          className="w-full max-h-[420px] object-contain mx-auto rounded"
+        />
+        <button
+          type="button"
+          onClick={() => setZoomed(true)}
+          className="absolute top-4 right-4 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900/80 text-white text-xs font-medium hover:bg-slate-900 transition cursor-pointer"
+        >
+          <ZoomIn className="w-3.5 h-3.5" />
+          <span>Inspect Full Size</span>
+        </button>
+      </div>
+
+      {zoomed && (
+        <div
+          onClick={() => setZoomed(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-5xl w-full bg-white rounded-2xl p-4 shadow-2xl"
+          >
+            <button
+              type="button"
+              onClick={() => setZoomed(false)}
+              className="absolute top-3 right-3 p-2 rounded-full bg-slate-900 text-white hover:bg-slate-700 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageDataUrl!}
+              alt="Zoomed Task 1 visual"
+              className="w-full max-h-[84vh] object-contain mx-auto"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // If only image is available
+  if (imageDataUrl && !spec) {
+    return renderImage();
+  }
+
+  // If only spec is available
+  if (!imageDataUrl && spec) {
+    return <SpecContent spec={spec} compact={compact} isNested={isNested} />;
+  }
+
+  // If BOTH are available (e.g. Cambridge IELTS 21 prompts)
+  return (
+    <div className={isNested ? "" : "mt-4"}>
+      <div className="flex items-center justify-between gap-2 mb-2 px-1">
+        <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 font-semibold">
+          Task 1 Visual Material
+        </span>
+        <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-100 border border-slate-200">
+          <button
+            type="button"
+            onClick={() => setActiveTab("spec")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition cursor-pointer ${
+              activeTab === "spec"
+                ? "bg-white text-slate-900 shadow-xs font-semibold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <BarChart2 className="w-3.5 h-3.5 text-teal-700" />
+            <span>Interactive Visual</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("image")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition cursor-pointer ${
+              activeTab === "image"
+                ? "bg-white text-slate-900 shadow-xs font-semibold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5 text-slate-600" />
+            <span>Original Exam Paper</span>
+          </button>
+        </div>
+      </div>
+
+      {activeTab === "image" ? (
+        renderImage()
+      ) : (
+        <SpecContent spec={spec!} compact={compact} isNested={true} />
+      )}
+    </div>
+  );
 }
