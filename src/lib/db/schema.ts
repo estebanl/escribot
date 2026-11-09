@@ -9,9 +9,12 @@ export const userSettings = sqliteTable("user_settings", {
   l1CoachingEnabled: integer("l1_coaching_enabled", { mode: "boolean" })
     .notNull()
     .default(true),
-  activeProvider: text("active_provider").notNull().default("deepseek"),
-  graderModel: text("grader_model").notNull().default("deepseek-v4-pro"),
-  fastModel: text("fast_model").notNull().default("deepseek-flash"),
+  activeProvider: text("active_provider").notNull().default("openrouter"),
+  graderModel: text("grader_model").notNull().default("anthropic/claude-sonnet-5.5"),
+  fastModel: text("fast_model").notNull().default("deepseek/deepseek-v4.1-flash-1017"),
+  visionModel: text("vision_model")
+    .notNull()
+    .default("deepseek/deepseek-v4.1-flash-1017"),
   encryptedApiKeys: text("encrypted_api_keys").notNull().default("{}"),
   updatedAt: text("updated_at").notNull(),
 });
@@ -74,6 +77,7 @@ export const evaluations = sqliteTable("evaluations", {
   topPrioritiesJson: text("top_priorities_json").notNull(),
   providerUsed: text("provider_used").notNull(),
   modelUsed: text("model_used").notNull(),
+  costUsd: real("cost_usd"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -101,4 +105,16 @@ export const microDrills = sqliteTable("micro_drills", {
   scoreJson: text("score_json"),
   createdAt: text("created_at").notNull(),
   completedAt: text("completed_at"),
+});
+
+export const aiUsage = sqliteTable("ai_usage", {
+  id: text("id").primaryKey(),
+  feature: text("feature").notNull(), // "rubric_score" | "annotations_rewrite" | "outline_check" | "toolkit" | "prompt_generation" | "drill_generate" | "drill_score" | "vision_extract"
+  provider: text("provider").notNull(),
+  modelUsed: text("model_used").notNull(),
+  promptTokens: integer("prompt_tokens"),
+  completionTokens: integer("completion_tokens"),
+  totalTokens: integer("total_tokens"),
+  costUsd: real("cost_usd"),
+  createdAt: text("created_at").notNull(),
 });

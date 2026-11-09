@@ -26,9 +26,10 @@ async function ensureSchemaAndSeed(client: Client, db: LibSQLDatabase<typeof sch
       exam_date TEXT,
       native_language TEXT NOT NULL DEFAULT 'es',
       l1_coaching_enabled INTEGER NOT NULL DEFAULT 1,
-      active_provider TEXT NOT NULL DEFAULT 'deepseek',
-      grader_model TEXT NOT NULL DEFAULT 'deepseek-v4-pro',
-      fast_model TEXT NOT NULL DEFAULT 'deepseek-flash',
+      active_provider TEXT NOT NULL DEFAULT 'openrouter',
+      grader_model TEXT NOT NULL DEFAULT 'anthropic/claude-sonnet-5.5',
+      fast_model TEXT NOT NULL DEFAULT 'deepseek/deepseek-v4.1-flash-1017',
+      vision_model TEXT NOT NULL DEFAULT 'deepseek/deepseek-v4.1-flash-1017',
       encrypted_api_keys TEXT NOT NULL DEFAULT '{}',
       updated_at TEXT NOT NULL
     );
@@ -91,6 +92,7 @@ async function ensureSchemaAndSeed(client: Client, db: LibSQLDatabase<typeof sch
       top_priorities_json TEXT NOT NULL,
       provider_used TEXT NOT NULL,
       model_used TEXT NOT NULL,
+      cost_usd REAL,
       created_at TEXT NOT NULL
     );
 
@@ -120,10 +122,59 @@ async function ensureSchemaAndSeed(client: Client, db: LibSQLDatabase<typeof sch
       completed_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS ai_usage (
+      id TEXT PRIMARY KEY,
+      feature TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model_used TEXT NOT NULL,
+      prompt_tokens INTEGER,
+      completion_tokens INTEGER,
+      total_tokens INTEGER,
+      cost_usd REAL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_drafts_session ON drafts(session_id);
     CREATE INDEX IF NOT EXISTS idx_evals_draft ON evaluations(draft_id);
     CREATE INDEX IF NOT EXISTS idx_prompts_task ON prompts(task_type);
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage(created_at);
   `);
+
+  // Idempotent column migrations for existing databases
+  try {
+    const userSettingsInfo = await client.execute("PRAGMA table_info(user_settings)");
+    const userCols = new Set(userSettingsInfo.rows.map((r) => String(r.name)));
+    if (!userCols.has("vision_model")) {
+      await client.execute("ALTER TABLE user_settings ADD COLUMN vision_model TEXT");
+    }
+
+    // Ensure vision_model uses the active provider's native default (avoids assigning OpenRouter slugs to direct providers)
+    await client.execute(`
+      UPDATE user_settings
+      SET vision_model = CASE active_provider
+        WHEN 'deepseek' THEN 'deepseek-flash'
+        WHEN 'gemini' THEN 'gemini-2.5-flash'
+        WHEN 'openai' THEN 'gpt-4.1'
+        WHEN 'anthropic' THEN 'claude-sonnet-4-5'
+        ELSE 'deepseek/deepseek-v4.1-flash-1017'
+      END
+      WHERE vision_model IS NULL
+         OR vision_model = ''
+         OR (active_provider != 'openrouter' AND vision_model LIKE '%/%')
+    `);
+  } catch {
+    // Ignore if table doesn't support pragma
+  }
+
+  try {
+    const evalsInfo = await client.execute("PRAGMA table_info(evaluations)");
+    const evalCols = new Set(evalsInfo.rows.map((r) => String(r.name)));
+    if (!evalCols.has("cost_usd")) {
+      await client.execute("ALTER TABLE evaluations ADD COLUMN cost_usd REAL");
+    }
+  } catch {
+    // Ignore if table doesn't support pragma
+  }
 
   const now = new Date().toISOString();
 
@@ -141,9 +192,10 @@ async function ensureSchemaAndSeed(client: Client, db: LibSQLDatabase<typeof sch
       examDate: null,
       nativeLanguage: "es",
       l1CoachingEnabled: true,
-      activeProvider: "deepseek",
-      graderModel: "deepseek-v4-pro",
-      fastModel: "deepseek-flash",
+      activeProvider: "openrouter",
+      graderModel: "anthropic/claude-sonnet-5.5",
+      fastModel: "deepseek/deepseek-v4.1-flash-1017",
+      visionModel: "deepseek/deepseek-v4.1-flash-1017",
       encryptedApiKeys: "{}",
       updatedAt: now,
     });

@@ -41,6 +41,9 @@ export function AnalyticsClient({
   weakestCriterion,
   trendPoints,
   sessionRows,
+  monthlySpendUsd = 0,
+  usageCallsCount = 0,
+  featureSpend = {},
 }: {
   targetBand: number;
   totalEssaysGraded: number;
@@ -64,6 +67,9 @@ export function AnalyticsClient({
     draftCount: number;
     wordCount: number;
   }>;
+  monthlySpendUsd?: number;
+  usageCallsCount?: number;
+  featureSpend?: Record<string, number>;
 }) {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-7 space-y-7">
@@ -81,7 +87,7 @@ export function AnalyticsClient({
       </header>
 
       {/* Top Key Metrics Row */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="editorial-surface rounded-2xl p-5">
           <span className="text-[11px] font-mono uppercase text-ink-muted">
             Mean Band Score
@@ -106,7 +112,7 @@ export function AnalyticsClient({
 
         <div className="editorial-surface rounded-2xl p-5">
           <span className="text-[11px] font-mono uppercase text-ink-muted">
-            Academic Words Written
+            Words Written
           </span>
           <p className="font-mono text-2xl font-bold text-ink mt-1 tabular-nums">
             {totalWordsWritten.toLocaleString()}
@@ -114,12 +120,24 @@ export function AnalyticsClient({
           <span className="text-xs text-ink-secondary">Cumulative output</span>
         </div>
 
-        <div className="editorial-surface rounded-2xl p-5 flex flex-col justify-between">
+        <div className="editorial-surface rounded-2xl p-5">
+          <span className="text-[11px] font-mono uppercase text-ink-muted">
+            AI Spend (This Month)
+          </span>
+          <p className="font-mono text-2xl font-bold text-ink mt-1 tabular-nums">
+            ${monthlySpendUsd > 0 ? monthlySpendUsd.toFixed(3) : "0.00"}
+          </p>
+          <span className="text-xs text-ink-secondary">
+            {usageCallsCount > 0 ? `${usageCallsCount} calls logged` : "OpenRouter gateway"}
+          </span>
+        </div>
+
+        <div className="editorial-surface rounded-2xl p-5 flex flex-col justify-between col-span-2 sm:col-span-1">
           <div>
             <span className="text-[11px] font-mono uppercase text-warm font-semibold">
               Primary Bottleneck
             </span>
-            <p className="font-sans text-sm font-bold text-ink mt-1">
+            <p className="font-sans text-sm font-bold text-ink mt-1 truncate">
               {CRITERION_NAMES[weakestCriterion]}
             </p>
           </div>
@@ -128,10 +146,26 @@ export function AnalyticsClient({
             className="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline mt-2"
           >
             <Zap className="w-3.5 h-3.5" />
-            <span>Run 5-Min Fix Drill →</span>
+            <span>5-Min Fix Drill →</span>
           </Link>
         </div>
       </section>
+
+      {Object.keys(featureSpend).length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-muted px-1">
+          <span className="font-mono uppercase text-ink-secondary font-semibold">
+            Month by feature:
+          </span>
+          {Object.entries(featureSpend).map(([feat, cost]) => (
+            <span
+              key={feat}
+              className="px-2 py-0.5 rounded-md bg-surface border border-line font-mono text-ink"
+            >
+              {feat}: ${cost.toFixed(4)}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Band Trajectory Chart + 4-Criterion Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

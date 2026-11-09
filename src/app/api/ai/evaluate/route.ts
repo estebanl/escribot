@@ -180,7 +180,7 @@ export async function POST(request: Request) {
           const wordCount = countEssayWords(sub.essayText);
 
           // Run AI evaluation BEFORE writing draft row so interrupted attempts never leave orphan drafts
-          const { payload, providerUsed, modelUsed } = await evaluateEssayWithAI({
+          const { payload, providerUsed, modelUsed, costUsd } = await evaluateEssayWithAI({
             taskType: sub.taskType,
             promptTitle: prompt.title,
             promptText: prompt.promptText,
@@ -243,6 +243,7 @@ export async function POST(request: Request) {
             topPrioritiesJson: JSON.stringify(payload.topPriorities),
             providerUsed,
             modelUsed,
+            costUsd: costUsd ?? null,
             createdAt: now,
           });
 
@@ -276,6 +277,7 @@ export async function POST(request: Request) {
             evaluationId: evalId,
             providerUsed,
             modelUsed,
+            costUsd: costUsd ?? null,
             payload,
           });
         }
