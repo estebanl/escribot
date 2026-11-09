@@ -17,6 +17,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
+import { ModelAnswer } from "./ModelAnswer";
 import { countEssayWords, getMinimumWords } from "@/lib/ielts-utils";
 import {
   submitEvaluationStream,
@@ -464,6 +465,10 @@ export function EvaluationWorkbench({
             />
           )}
         </section>
+      )}
+
+      {currentDraft.prompt && (
+        <ModelAnswer key={currentDraft.prompt.id} promptId={currentDraft.prompt.id} />
       )}
 
       {/* Examiner Executive Summary + 4 Official Criterion Cards */}

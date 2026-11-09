@@ -19,6 +19,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
+import { ModelAnswer } from "./ModelAnswer";
 import { countEssayWords, getMinimumWords, getRecommendedMinutes } from "@/lib/ielts-utils";
 import {
   safePostJson,
@@ -351,6 +352,7 @@ export function CoachWorkspace({
                 imageDataUrl={prompt.imageDataUrl}
               />
             )}
+            <ModelAnswer promptId={prompt.id} className="mt-4" />
           </section>
 
           {/* 5-Minute Plan-First Outline Check */}

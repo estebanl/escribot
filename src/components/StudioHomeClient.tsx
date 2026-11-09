@@ -21,6 +21,7 @@ import {
   type PromptRecord,
 } from "./PromptModals";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
+import { ModelAnswer } from "./ModelAnswer";
 import type { SessionMode } from "@/lib/types";
 
 interface RecentSessionSummary {
@@ -398,6 +399,8 @@ export function StudioHomeClient({
                       compact
                     />
                   )}
+
+                  <ModelAnswer promptId={prompt.id} className="mt-3" />
 
                   <div className="mt-4 pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3">
                     <div>
