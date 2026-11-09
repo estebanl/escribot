@@ -59,9 +59,9 @@ const DRILL_CARDS: Array<{
     duration: "5 min",
     description:
       "Spot and repair false friends ('actually' vs 'currently'), comma-spliced 'however' clauses, and preposition/article calques.",
-    beginnerTitle: "Fix Common Spanish-Speaker Mistakes",
+    beginnerTitle: "Fix First-Language Mistakes",
     beginnerDescription:
-      "Find 2 small mistakes, like 'actually' vs 'nowadays', and write the correct sentence.",
+      "Find 2 small mistakes that come from your first language and write the correct sentence.",
   },
   {
     type: "lexical_hedging",
@@ -122,6 +122,8 @@ export function DrillsClient({
   const [scoreResult, setScoreResult] = useState<MicroDrillScore | null>(null);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Bumped on every new request and on level change, so stale responses are ignored.
+  const requestSeq = useRef(0);
 
   const isBeginner = level === "beginner";
   const isAdvanced = level === "advanced";
@@ -136,6 +138,9 @@ export function DrillsClient({
   function changeLevel(next: DrillLevel) {
     setLevel(next);
     storeLevel(next);
+    requestSeq.current += 1;
+    setLoadingChallenge(false);
+    setScoring(false);
     // A drill generated for another level no longer matches; clear it.
     setChallenge(null);
     setScoreResult(null);
@@ -170,6 +175,7 @@ export function DrillsClient({
   }, [challenge, scoreResult, secondsLeft]);
 
   async function launchDrill(type: DrillType) {
+    const seq = ++requestSeq.current;
     setSelectedType(type);
     setLoadingChallenge(true);
     setScoreResult(null);
@@ -183,6 +189,7 @@ export function DrillsClient({
         body: JSON.stringify({ action: "generate", drillType: type, level }),
       });
       const data = await res.json();
+      if (seq !== requestSeq.current) return;
       if (!res.ok) {
         setError(data.error || "Failed to generate micro-drill.");
       } else {
@@ -191,14 +198,16 @@ export function DrillsClient({
         setSecondsLeft(data.challenge.timeLimitSeconds || 300);
       }
     } catch {
+      if (seq !== requestSeq.current) return;
       setError("Network error while starting drill.");
     } finally {
-      setLoadingChallenge(false);
+      if (seq === requestSeq.current) setLoadingChallenge(false);
     }
   }
 
   async function submitDrill() {
     if (!challenge || !response.trim()) return;
+    const seq = ++requestSeq.current;
     setScoring(true);
     setError(null);
     try {
@@ -214,15 +223,17 @@ export function DrillsClient({
         }),
       });
       const data = await res.json();
+      if (seq !== requestSeq.current) return;
       if (!res.ok) {
         setError(data.error || "Failed to score drill.");
       } else {
         setScoreResult(data.score);
       }
     } catch {
+      if (seq !== requestSeq.current) return;
       setError("Network error while scoring drill.");
     } finally {
-      setScoring(false);
+      if (seq === requestSeq.current) setScoring(false);
     }
   }
 

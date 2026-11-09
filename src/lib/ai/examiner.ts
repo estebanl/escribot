@@ -21,6 +21,8 @@ import type {
   InlineAnnotation,
   MicroDrillChallenge,
   MicroDrillScore,
+  MicroDrillStep,
+  NativeLanguageCode,
   OutlineFeedback,
   OutlineInput,
   PromptCategory,
@@ -1305,6 +1307,156 @@ const BEGINNER_DRILL_TEMPLATES: Record<DrillType, MicroDrillChallenge> = {
   },
 };
 
+function beginnerL1(
+  title: string,
+  instructions: string,
+  flawedText: string,
+  steps: MicroDrillStep[],
+  wordBank: string[],
+  hints: string[],
+  referenceModelAnswer: string
+): MicroDrillChallenge {
+  return {
+    drillType: "l1_surgeon",
+    level: "beginner",
+    targetCriterion: "L1",
+    title,
+    instructions,
+    timeLimitSeconds: 300,
+    sourceContext: "One short sentence to correct",
+    flawedText,
+    steps,
+    wordBank,
+    hints,
+    referenceModelAnswer,
+  };
+}
+
+/** Beginner L1 drills matched to each native-language profile (used without an AI key). */
+const BEGINNER_L1_TEMPLATES: Record<NativeLanguageCode, MicroDrillChallenge> = {
+  es: BEGINNER_DRILL_TEMPLATES.l1_surgeon,
+  pt: beginnerL1(
+    "Fix 2 Portuguese-to-English Mistakes",
+    "This sentence has 2 common mistakes that Portuguese speakers make. Find them and write the correct sentence.",
+    "Actually, the technology is very important in our lives.",
+    [
+      { prompt: "Look at the first word. Does “Actually” mean “atualmente”?" },
+      { prompt: "Look at “the technology”. Do we need “the” when we talk about technology in general?" },
+      { prompt: "Write the correct sentence.", starter: "Nowadays, ___ is very important in our lives." },
+    ],
+    ["Nowadays,", "Currently,", "At present,", "technology", "plays an important role in"],
+    [
+      "“Actually” means “na verdade”. For “atualmente”, use “Nowadays” or “Currently”.",
+      "In English, general ideas have no “the”: “Technology is…”, not “The technology is…”.",
+    ],
+    "Nowadays, technology plays a very important role in our lives."
+  ),
+  fr: beginnerL1(
+    "Fix 2 French-to-English Mistakes",
+    "This sentence has 2 common mistakes that French speakers make. Find them and write the correct sentence.",
+    "Actually, the technology is very important in our lives.",
+    [
+      { prompt: "Look at the first word. Does “Actually” mean “actuellement”?" },
+      { prompt: "Look at “the technology”. Do we need “the” when we talk about technology in general?" },
+      { prompt: "Write the correct sentence.", starter: "Nowadays, ___ is very important in our lives." },
+    ],
+    ["Nowadays,", "Currently,", "At present,", "technology", "plays an important role in"],
+    [
+      "“Actually” means “en fait”. For “actuellement”, use “Nowadays” or “Currently”.",
+      "In English, general ideas have no “the”: “Technology is…”, not “The technology is…”.",
+    ],
+    "Nowadays, technology plays a very important role in our lives."
+  ),
+  zh: beginnerL1(
+    "Fix 2 Plural & Verb Mistakes",
+    "This sentence has 2 common mistakes that Mandarin speakers make with plurals and verbs. Find them and write the correct sentence.",
+    "Many student needs a computer for study.",
+    [
+      { prompt: "Look at “Many student”. After “many”, should the noun be singular or plural?" },
+      { prompt: "Now look at the verb “needs”. Does it match a plural subject?" },
+      { prompt: "Write the correct sentence.", starter: "Many ___ need a computer for ___." },
+    ],
+    ["students", "need", "studying", "their studies", "many", "a computer"],
+    [
+      "After “many”, use a plural noun: “many students”.",
+      "Plural subjects take the verb without “-s”: “students need”, not “students needs”.",
+    ],
+    "Many students need a computer for their studies."
+  ),
+  ar: beginnerL1(
+    "Fix 2 Sentence-Pattern Mistakes",
+    "This sentence has 2 common mistakes that Arabic speakers make. Find them and write the correct sentence.",
+    "This is the policy which the government made it, and the people like it.",
+    [
+      { prompt: "Look at “which the government made it”. Do we need “it” after “which”?" },
+      { prompt: "Look at “the people”. Are we talking about specific people or people in general?" },
+      { prompt: "Write the correct sentence.", starter: "This is the policy which the government made, and ___ like it." },
+    ],
+    ["which", "that", "many people", "people", "most people", "support"],
+    [
+      "“which” already points to “the policy”, so do not add “it” at the end.",
+      "For people in general, do not use “the”: “people like it” or “many people like it”.",
+    ],
+    "This is the policy which the government made, and many people like it."
+  ),
+  hi: beginnerL1(
+    "Fix 2 Preposition Mistakes",
+    "This sentence has 2 common mistakes that Hindi speakers make with small words. Find them and write the correct sentence.",
+    "Students should discuss about the problem and cope up with stress.",
+    [
+      { prompt: "Look at “discuss about”. Does “discuss” need “about” after it?" },
+      { prompt: "Look at “cope up with”. Is “up” needed?" },
+      { prompt: "Write the correct sentence.", starter: "Students should discuss ___ and cope with ___." },
+    ],
+    ["discuss", "cope with", "talk about", "deal with", "the problem", "stress"],
+    [
+      "Say “discuss the problem” (no “about”), or “talk about the problem”.",
+      "The correct phrase is “cope with”, not “cope up with”.",
+    ],
+    "Students should discuss the problem and cope with stress."
+  ),
+  neutral: beginnerL1(
+    "Fix 2 Small Grammar Mistakes",
+    "This sentence has 2 common small mistakes with “the”. Find them and write the correct sentence.",
+    "The technology is very important in the our lives.",
+    [
+      { prompt: "Look at “The technology”. Do we need “the” when we talk about technology in general?" },
+      { prompt: "Look at “the our lives”. Can “the” and “our” go together?" },
+      { prompt: "Write the correct sentence.", starter: "___ is very important in ___ lives." },
+    ],
+    ["Technology", "our", "plays an important role in", "very important", "daily lives"],
+    [
+      "In English, general ideas have no “the”: “Technology is…”.",
+      "Use “the” or “our”, never both: “our lives”.",
+    ],
+    "Technology plays a very important role in our lives."
+  ),
+};
+
+/** Extra guiding steps so intermediate drills are scaffolded even without an AI key. */
+const INTERMEDIATE_DRILL_STEPS: Record<DrillType, MicroDrillStep[]> = {
+  overview_sprint: [
+    { prompt: "Find the biggest overall trend: which category rises most, and which falls most?" },
+    { prompt: "Write sentence 1 about the general change, starting with “Overall,” (no numbers)." },
+    { prompt: "Write sentence 2 about the most striking contrast or the ranking at the end of the period." },
+  ],
+  cohesion: [
+    { prompt: "Find the 4 list-style linkers (“Firstly”, “Moreover”, “On the other hand”, “Because of this”)." },
+    { prompt: "Join sentences 1 and 2, using “This…” or “These…” to point back to the previous idea." },
+    { prompt: "Merge the last two sentences into one contrast sentence starting with “Yet” or “However,”." },
+  ],
+  l1_surgeon: [
+    { prompt: "Read word by word and underline anything that looks like a direct translation from your first language." },
+    { prompt: "Check the joins between clauses: is “however” between two full sentences with only commas around it?" },
+    { prompt: "Rewrite the sentence with each mistake fixed, keeping the same meaning." },
+  ],
+  lexical_hedging: [
+    { prompt: "Underline every absolute word (“definitely”, “every”, “all”, “right away”)." },
+    { prompt: "Replace them with careful language: “can”, “may”, “tends to”, “many”." },
+    { prompt: "Swap informal phrases (“big taxes”, “lots of money”) for more formal ones." },
+  ],
+};
+
 function levelGuidance(level: DrillLevel, currentBand: number, targetBand: number) {
   if (level === "beginner") {
     const band = Math.max(currentBand + 1, 5.5);
@@ -1341,10 +1493,18 @@ export async function generateMicroDrillWithAI(params: {
 }): Promise<MicroDrillChallenge> {
   const cfg = await resolveUserAndAIConfig();
   const level: DrillLevel = params.level || "advanced";
-  const templates = level === "beginner" ? BEGINNER_DRILL_TEMPLATES : BUILTIN_DRILL_TEMPLATES;
+  const drillType: DrillType = BUILTIN_DRILL_TEMPLATES[params.drillType] ? params.drillType : "cohesion";
+  const l1Code: NativeLanguageCode = cfg.l1CoachingEnabled ? cfg.nativeLanguage : "neutral";
+  const base =
+    level === "beginner"
+      ? drillType === "l1_surgeon"
+        ? BEGINNER_L1_TEMPLATES[l1Code] || BEGINNER_L1_TEMPLATES.neutral
+        : BEGINNER_DRILL_TEMPLATES[drillType]
+      : BUILTIN_DRILL_TEMPLATES[drillType];
   const fallback: MicroDrillChallenge = {
-    ...(templates[params.drillType] || templates.cohesion),
+    ...base,
     level,
+    steps: base.steps ?? (level === "intermediate" ? INTERMEDIATE_DRILL_STEPS[drillType] : undefined),
   };
   const guidance = levelGuidance(level, cfg.currentBand, cfg.targetBand);
 
