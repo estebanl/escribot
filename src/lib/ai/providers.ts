@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { decryptString } from "@/lib/crypto";
@@ -7,6 +8,7 @@ export interface ResolvedAIConfig {
   provider: AIProviderId;
   graderModel: string;
   fastModel: string;
+  visionModel: string;
   apiKey: string | null;
   allKeys: Partial<Record<AIProviderId, string>>;
   currentBand: number;
@@ -15,10 +17,32 @@ export interface ResolvedAIConfig {
   l1CoachingEnabled: boolean;
 }
 
-export const PROVIDER_DEFAULTS: Record<
-  AIProviderId,
-  { label: string; graderModel: string; fastModel: string; visionModel: string }
-> = {
+export interface ProviderDefaults {
+  label: string;
+  graderModel: string;
+  fastModel: string;
+  visionModel: string;
+  graderFallbacks?: string[];
+  fastFallbacks?: string[];
+}
+
+export const PROVIDER_DEFAULTS: Record<AIProviderId, ProviderDefaults> = {
+  openrouter: {
+    label: "OpenRouter (Sonnet 5.5 + DS Flash Vision)",
+    graderModel: "anthropic/claude-sonnet-5.5",
+    fastModel: "deepseek/deepseek-v4.1-flash-1017",
+    visionModel: "deepseek/deepseek-v4.1-flash-1017",
+    graderFallbacks: [
+      "anthropic/claude-sonnet-5.5",
+      "openai/gpt-6.1-sol",
+      "google/gemini-4-argon",
+    ],
+    fastFallbacks: [
+      "deepseek/deepseek-v4.1-flash-1017",
+      "anthropic/claude-haiku-5.5",
+      "openai/gpt-6-luna",
+    ],
+  },
   deepseek: {
     label: "DeepSeek (V4 Pro + V4.1 Flash Vision)",
     graderModel: "deepseek-v4-pro",
@@ -68,6 +92,8 @@ export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
   }
 
   const allKeys: Partial<Record<AIProviderId, string>> = {
+    openrouter:
+      storedKeys.openrouter || process.env.OPENROUTER_API_KEY?.trim() || undefined,
     deepseek: storedKeys.deepseek || process.env.DEEPSEEK_API_KEY?.trim() || undefined,
     gemini: storedKeys.gemini || process.env.GEMINI_API_KEY?.trim() || undefined,
     openai: storedKeys.openai || process.env.OPENAI_API_KEY?.trim() || undefined,
@@ -75,13 +101,19 @@ export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
       storedKeys.anthropic || process.env.ANTHROPIC_API_KEY?.trim() || undefined,
   };
 
-  const provider = ((settings?.activeProvider as AIProviderId) || "deepseek") as AIProviderId;
-  const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.deepseek;
+  let provider = ((settings?.activeProvider as AIProviderId) || "openrouter") as AIProviderId;
+  // If active provider has no key configured, but openrouter has a key, auto-fallback to openrouter
+  if (!allKeys[provider] && allKeys.openrouter) {
+    provider = "openrouter";
+  }
+
+  const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openrouter;
 
   return {
     provider,
     graderModel: settings?.graderModel || defaults.graderModel,
     fastModel: settings?.fastModel || defaults.fastModel,
+    visionModel: settings?.visionModel || defaults.visionModel,
     apiKey: allKeys[provider] || null,
     allKeys,
     currentBand: settings?.currentBand ?? 6.5,
@@ -95,6 +127,8 @@ export interface GenerateCompletionOptions {
   provider: AIProviderId;
   apiKey: string;
   model: string;
+  fallbackModels?: string[];
+  feature?: string;
   systemPrompt: string;
   userPrompt: string;
   imageDataUrl?: string;
@@ -103,6 +137,15 @@ export interface GenerateCompletionOptions {
   reasoningEffort?: "low" | "high" | "max";
   maxTokens?: number;
   timeoutMs?: number;
+}
+
+export interface LLMResultWithMeta {
+  content: string;
+  modelUsed: string;
+  costUsd?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 }
 
 function splitDataUrl(dataUrl: string): { mimeType: string; base64: string } | null {
@@ -120,11 +163,15 @@ function isAbortOrTimeout(err: unknown): boolean {
   );
 }
 
-export async function callLLM(opts: GenerateCompletionOptions): Promise<string> {
+export async function callLLMWithMeta(
+  opts: GenerateCompletionOptions
+): Promise<LLMResultWithMeta> {
   const {
     provider,
     apiKey,
     model,
+    fallbackModels,
+    feature,
     systemPrompt,
     userPrompt,
     imageDataUrl,
@@ -138,6 +185,143 @@ export async function callLLM(opts: GenerateCompletionOptions): Promise<string> 
   const signal = AbortSignal.timeout(timeoutMs);
 
   try {
+    /* -------------------- 0. OPENROUTER (Unified Multi-Provider API) -------------------- */
+    if (provider === "openrouter") {
+      const baseUrl = (
+        process.env.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1"
+      ).replace(/\/+$/, "");
+
+      const userContent = imageDataUrl
+        ? [
+            { type: "text", text: userPrompt },
+            {
+              type: "image_url",
+              image_url: { url: imageDataUrl },
+            },
+          ]
+        : userPrompt;
+
+      const modelList = Array.from(
+        new Set([model, ...(fallbackModels || [])].filter(Boolean))
+      );
+
+      const body: Record<string, unknown> = {
+        model: modelList[0],
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+        provider: {
+          data_collection: "deny",
+        },
+        temperature: 0.25,
+      };
+
+      if (thinkingMode === "enabled") {
+        body.reasoning = { effort: reasoningEffort };
+      }
+
+      if (modelList.length > 1) {
+        body.models = modelList;
+      }
+
+      if (typeof maxTokens === "number" && maxTokens > 0) {
+        // OpenRouter models (especially reasoning models like DeepSeek, Claude 3.7+, o-series)
+        // allocate internal reasoning tokens against max_tokens before producing content.
+        // Buffer max_tokens so reasoning does not exhaust the token window and truncate output.
+        body.max_tokens = Math.max(maxTokens + 2048, 4096);
+      }
+
+      if (jsonMode) {
+        body.response_format = { type: "json_object" };
+      }
+
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "HTTP-Referer": "https://fluentescritor.app",
+          "X-Title": "FluentEscritor",
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(
+          `OpenRouter API error (${res.status}): ${errText.slice(0, 300)}`
+        );
+      }
+
+      const data = (await res.json()) as {
+        id?: string;
+        model?: string;
+        choices?: Array<{
+          message?: {
+            content?: string;
+            reasoning?: string;
+            refusal?: string;
+          };
+          finish_reason?: string;
+        }>;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+          cost?: number;
+        };
+      };
+
+      let content = data.choices?.[0]?.message?.content;
+      if (!content) {
+        const msg = data.choices?.[0]?.message;
+        if (msg?.refusal) {
+          throw new Error(`OpenRouter model refused request: ${msg.refusal}`);
+        }
+        if (msg?.reasoning && !msg.content) {
+          content = msg.reasoning;
+        }
+      }
+
+      if (!content) {
+        const finishReason = data.choices?.[0]?.finish_reason || "unknown";
+        throw new Error(
+          `Empty response from OpenRouter API (model: ${data.model || model}, finish_reason: ${finishReason}).`
+        );
+      }
+
+      const actualModel = data.model || model;
+      const costUsd = typeof data.usage?.cost === "number" ? data.usage.cost : undefined;
+
+      // Log usage to ai_usage table asynchronously (non-blocking)
+      getDb()
+        .then((database) =>
+          database.insert(schema.aiUsage).values({
+            id: `use-${crypto.randomUUID().slice(0, 10)}`,
+            feature: feature || "general",
+            provider: "openrouter",
+            modelUsed: actualModel,
+            promptTokens: data.usage?.prompt_tokens ?? null,
+            completionTokens: data.usage?.completion_tokens ?? null,
+            totalTokens: data.usage?.total_tokens ?? null,
+            costUsd: costUsd ?? null,
+            createdAt: new Date().toISOString(),
+          })
+        )
+        .catch(() => {});
+
+      return {
+        content,
+        modelUsed: actualModel,
+        costUsd,
+        promptTokens: data.usage?.prompt_tokens,
+        completionTokens: data.usage?.completion_tokens,
+        totalTokens: data.usage?.total_tokens,
+      };
+    }
+
     /* -------------------- 1. DEEPSEEK (OpenAI-compatible v4/v4.1) -------------------- */
     if (provider === "deepseek") {
       const baseUrl = (
@@ -198,10 +382,21 @@ export async function callLLM(opts: GenerateCompletionOptions): Promise<string> 
 
       const data = (await res.json()) as {
         choices?: Array<{ message?: { content?: string } }>;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+        };
       };
       const content = data.choices?.[0]?.message?.content;
       if (!content) throw new Error("Empty response from DeepSeek API.");
-      return content;
+      return {
+        content,
+        modelUsed: effectiveModel,
+        promptTokens: data.usage?.prompt_tokens,
+        completionTokens: data.usage?.completion_tokens,
+        totalTokens: data.usage?.total_tokens,
+      };
     }
 
     /* -------------------- 2. OPENAI -------------------- */
@@ -246,10 +441,21 @@ export async function callLLM(opts: GenerateCompletionOptions): Promise<string> 
 
       const data = (await res.json()) as {
         choices?: Array<{ message?: { content?: string } }>;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+        };
       };
       const content = data.choices?.[0]?.message?.content;
       if (!content) throw new Error("Empty response from OpenAI API.");
-      return content;
+      return {
+        content,
+        modelUsed: model,
+        promptTokens: data.usage?.prompt_tokens,
+        completionTokens: data.usage?.completion_tokens,
+        totalTokens: data.usage?.total_tokens,
+      };
     }
 
     /* -------------------- 3. GOOGLE GEMINI -------------------- */
@@ -304,7 +510,7 @@ export async function callLLM(opts: GenerateCompletionOptions): Promise<string> 
         ?.map((p) => p.text || "")
         .join("");
       if (!text) throw new Error("Empty response from Gemini API.");
-      return text;
+      return { content: text, modelUsed: model };
     }
 
     /* -------------------- 4. ANTHROPIC CLAUDE -------------------- */
@@ -353,13 +559,26 @@ export async function callLLM(opts: GenerateCompletionOptions): Promise<string> 
 
       const data = (await res.json()) as {
         content?: Array<{ type: string; text?: string }>;
+        usage?: {
+          input_tokens?: number;
+          output_tokens?: number;
+        };
       };
       const text = data.content
         ?.filter((c) => c.type === "text")
         ?.map((c) => c.text || "")
         .join("");
       if (!text) throw new Error("Empty response from Anthropic API.");
-      return text;
+      return {
+        content: text,
+        modelUsed: model,
+        promptTokens: data.usage?.input_tokens,
+        completionTokens: data.usage?.output_tokens,
+        totalTokens:
+          data.usage?.input_tokens && data.usage?.output_tokens
+            ? data.usage.input_tokens + data.usage.output_tokens
+            : undefined,
+      };
     }
 
     throw new Error(`Unsupported AI provider: ${provider}`);
@@ -373,4 +592,9 @@ export async function callLLM(opts: GenerateCompletionOptions): Promise<string> 
     }
     throw err;
   }
+}
+
+export async function callLLM(opts: GenerateCompletionOptions): Promise<string> {
+  const result = await callLLMWithMeta(opts);
+  return result.content;
 }

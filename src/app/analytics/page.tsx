@@ -101,6 +101,21 @@ export default async function AnalyticsPage() {
     };
   });
 
+  const now = new Date();
+  const currentMonthPrefix = now.toISOString().slice(0, 7); // "YYYY-MM"
+  const allUsage = await db.select().from(schema.aiUsage);
+  const monthlyUsage = allUsage.filter((u) => u.createdAt.startsWith(currentMonthPrefix));
+  const usageSpend = monthlyUsage.reduce((acc, u) => acc + (u.costUsd || 0), 0);
+  const evalsSpend = allEvals
+    .filter((e) => e.createdAt.startsWith(currentMonthPrefix))
+    .reduce((acc, e) => acc + (e.costUsd || 0), 0);
+  const monthlySpendUsd = Number(Math.max(usageSpend, evalsSpend).toFixed(4));
+
+  const featureSpend: Record<string, number> = {};
+  for (const u of monthlyUsage) {
+    featureSpend[u.feature] = (featureSpend[u.feature] || 0) + (u.costUsd || 0);
+  }
+
   return (
     <AppShell passcodeActive={isPasscodeRequired()}>
       <AnalyticsClient
@@ -111,6 +126,9 @@ export default async function AnalyticsPage() {
         weakestCriterion={weakestCriterion}
         trendPoints={trendPoints}
         sessionRows={sessionRows}
+        monthlySpendUsd={monthlySpendUsd}
+        usageCallsCount={monthlyUsage.length}
+        featureSpend={featureSpend}
       />
     </AppShell>
   );

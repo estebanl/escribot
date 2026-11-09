@@ -18,7 +18,12 @@ export type Task2Category =
 
 export type PromptCategory = Task1Category | Task2Category;
 
-export type AIProviderId = "deepseek" | "gemini" | "openai" | "anthropic";
+export type AIProviderId =
+  | "openrouter"
+  | "deepseek"
+  | "gemini"
+  | "openai"
+  | "anthropic";
 
 export type NativeLanguageCode =
   | "es"

@@ -21,11 +21,22 @@ export async function GET() {
       rawEncryptedMap = {};
     }
 
-    const providers: AIProviderId[] = ["deepseek", "gemini", "openai", "anthropic"];
+    const providers: AIProviderId[] = [
+      "openrouter",
+      "deepseek",
+      "gemini",
+      "openai",
+      "anthropic",
+    ];
     const keyStatus: Record<
       AIProviderId,
       { hasStoredKey: boolean; maskedStoredKey: string | null; hasEnvKey: boolean }
     > = {
+      openrouter: {
+        hasStoredKey: false,
+        maskedStoredKey: null,
+        hasEnvKey: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+      },
       deepseek: {
         hasStoredKey: false,
         maskedStoredKey: null,
@@ -58,9 +69,20 @@ export async function GET() {
       }
     }
 
-    const activeProvider = (row?.activeProvider as AIProviderId) || "deepseek";
+    let activeProvider = (row?.activeProvider as AIProviderId) || "openrouter";
+    // Migration fallback check
+    if (
+      !keyStatus[activeProvider]?.hasStoredKey &&
+      !keyStatus[activeProvider]?.hasEnvKey &&
+      (keyStatus.openrouter.hasStoredKey || keyStatus.openrouter.hasEnvKey)
+    ) {
+      activeProvider = "openrouter";
+    }
+
     const activeReady =
       keyStatus[activeProvider]?.hasStoredKey || keyStatus[activeProvider]?.hasEnvKey;
+
+    const defaults = PROVIDER_DEFAULTS[activeProvider] || PROVIDER_DEFAULTS.openrouter;
 
     return NextResponse.json({
       settings: {
@@ -70,9 +92,9 @@ export async function GET() {
         nativeLanguage: (row?.nativeLanguage as NativeLanguageCode) || "es",
         l1CoachingEnabled: row?.l1CoachingEnabled ?? true,
         activeProvider,
-        graderModel:
-          row?.graderModel || PROVIDER_DEFAULTS[activeProvider].graderModel,
-        fastModel: row?.fastModel || PROVIDER_DEFAULTS[activeProvider].fastModel,
+        graderModel: row?.graderModel || defaults.graderModel,
+        fastModel: row?.fastModel || defaults.fastModel,
+        visionModel: row?.visionModel || defaults.visionModel,
       },
       keyStatus,
       activeProviderReady: activeReady,
@@ -98,6 +120,7 @@ export async function PUT(request: Request) {
       activeProvider?: AIProviderId;
       graderModel?: string;
       fastModel?: string;
+      visionModel?: string;
       apiKeysToUpdate?: Partial<Record<AIProviderId, string | null>>;
     };
 
@@ -125,8 +148,8 @@ export async function PUT(request: Request) {
     }
 
     const activeProvider =
-      body.activeProvider || (existing?.activeProvider as AIProviderId) || "deepseek";
-    const defaults = PROVIDER_DEFAULTS[activeProvider] || PROVIDER_DEFAULTS.deepseek;
+      body.activeProvider || (existing?.activeProvider as AIProviderId) || "openrouter";
+    const defaults = PROVIDER_DEFAULTS[activeProvider] || PROVIDER_DEFAULTS.openrouter;
 
     await db
       .update(schema.userSettings)
@@ -149,6 +172,7 @@ export async function PUT(request: Request) {
         activeProvider,
         graderModel: body.graderModel?.trim() || defaults.graderModel,
         fastModel: body.fastModel?.trim() || defaults.fastModel,
+        visionModel: body.visionModel?.trim() || defaults.visionModel,
         encryptedApiKeys: JSON.stringify(encryptedMap),
         updatedAt: new Date().toISOString(),
       })

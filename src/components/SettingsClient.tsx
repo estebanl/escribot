@@ -34,37 +34,55 @@ export function SettingsClient() {
   const [nativeLanguage, setNativeLanguage] = useState<NativeLanguageCode>("es");
   const [l1CoachingEnabled, setL1CoachingEnabled] = useState(true);
 
-  const [activeProvider, setActiveProvider] = useState<AIProviderId>("deepseek");
-  const [graderModel, setGraderModel] = useState("deepseek-v4-pro");
-  const [fastModel, setFastModel] = useState("deepseek-flash");
+  const [activeProvider, setActiveProvider] = useState<AIProviderId>("openrouter");
+  const [graderModel, setGraderModel] = useState("anthropic/claude-sonnet-5.5");
+  const [fastModel, setFastModel] = useState("deepseek/deepseek-v4.1-flash-1017");
+  const [visionModel, setVisionModel] = useState("deepseek/deepseek-v4.1-flash-1017");
+  const [openRouterModels, setOpenRouterModels] = useState<
+    Array<{ id: string; name: string; hasVision: boolean }>
+  >([]);
 
   const [providerDefaults, setProviderDefaults] = useState<
-    Record<AIProviderId, { label: string; graderModel: string; fastModel: string }>
+    Record<
+      AIProviderId,
+      { label: string; graderModel: string; fastModel: string; visionModel?: string }
+    >
   >({
+    openrouter: {
+      label: "OpenRouter (Sonnet 5.5 + DS Flash Vision)",
+      graderModel: "anthropic/claude-sonnet-5.5",
+      fastModel: "deepseek/deepseek-v4.1-flash-1017",
+      visionModel: "deepseek/deepseek-v4.1-flash-1017",
+    },
     deepseek: {
       label: "DeepSeek (V4 Pro + V4.1 Flash Vision)",
       graderModel: "deepseek-v4-pro",
       fastModel: "deepseek-flash",
+      visionModel: "deepseek-flash",
     },
     gemini: {
       label: "Google Gemini (2.5 Pro + 2.5 Flash)",
       graderModel: "gemini-2.5-pro",
       fastModel: "gemini-2.5-flash",
+      visionModel: "gemini-2.5-flash",
     },
     openai: {
       label: "OpenAI (GPT-4.1 + GPT-4.1 Mini)",
       graderModel: "gpt-4.1",
       fastModel: "gpt-4.1-mini",
+      visionModel: "gpt-4.1",
     },
     anthropic: {
       label: "Anthropic Claude (Sonnet 4.5 + Haiku 4.5)",
       graderModel: "claude-sonnet-4-5",
       fastModel: "claude-haiku-4-5",
+      visionModel: "claude-sonnet-4-5",
     },
   });
 
   const [keyStatus, setKeyStatus] = useState<ProviderStatusMap>({});
   const [newKeyInputs, setNewKeyInputs] = useState<Record<AIProviderId, string>>({
+    openrouter: "",
     deepseek: "",
     gemini: "",
     openai: "",
@@ -86,6 +104,7 @@ export function SettingsClient() {
         setActiveProvider(data.settings.activeProvider);
         setGraderModel(data.settings.graderModel);
         setFastModel(data.settings.fastModel);
+        if (data.settings.visionModel) setVisionModel(data.settings.visionModel);
         setKeyStatus(data.keyStatus || {});
         if (data.providerDefaults) setProviderDefaults(data.providerDefaults);
       }
@@ -108,12 +127,23 @@ export function SettingsClient() {
         setActiveProvider(data.settings.activeProvider);
         setGraderModel(data.settings.graderModel);
         setFastModel(data.settings.fastModel);
+        if (data.settings.visionModel) setVisionModel(data.settings.visionModel);
         setKeyStatus(data.keyStatus || {});
         if (data.providerDefaults) setProviderDefaults(data.providerDefaults);
       })
       .finally(() => {
         if (active) setLoading(false);
       });
+
+    // Prefetch OpenRouter models list for datalist autocomplete
+    fetch("/api/ai/models")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active || !Array.isArray(data?.models)) return;
+        setOpenRouterModels(data.models);
+      })
+      .catch(() => {});
+
     return () => {
       active = false;
     };
@@ -125,6 +155,7 @@ export function SettingsClient() {
     if (defs) {
       setGraderModel(defs.graderModel);
       setFastModel(defs.fastModel);
+      if (defs.visionModel) setVisionModel(defs.visionModel);
     }
   }
 
@@ -134,7 +165,13 @@ export function SettingsClient() {
     setSavedBanner(false);
 
     const apiKeysToUpdate: Partial<Record<AIProviderId, string>> = {};
-    for (const p of ["deepseek", "gemini", "openai", "anthropic"] as AIProviderId[]) {
+    for (const p of [
+      "openrouter",
+      "deepseek",
+      "gemini",
+      "openai",
+      "anthropic",
+    ] as AIProviderId[]) {
       if (newKeyInputs[p].trim()) {
         apiKeysToUpdate[p] = newKeyInputs[p].trim();
       }
@@ -152,11 +189,18 @@ export function SettingsClient() {
         activeProvider,
         graderModel,
         fastModel,
+        visionModel,
         apiKeysToUpdate,
       }),
     });
 
-    setNewKeyInputs({ deepseek: "", gemini: "", openai: "", anthropic: "" });
+    setNewKeyInputs({
+      openrouter: "",
+      deepseek: "",
+      gemini: "",
+      openai: "",
+      anthropic: "",
+    });
     await fetchSettings();
     setSaving(false);
     setSavedBanner(true);
@@ -328,12 +372,12 @@ export function SettingsClient() {
           </div>
         </section>
 
-        {/* 2. Multi-Provider AI Routing (DeepSeek Hybrid Default) */}
+        {/* 2. Multi-Provider AI Routing (OpenRouter Unified Default) */}
         <section className="editorial-surface rounded-2xl p-6 space-y-4">
           <div className="flex items-start justify-between gap-2">
             <div>
               <h2 className="font-serif text-lg font-semibold text-ink">
-                2. Multi-Provider AI Engine (DeepSeek Default)
+                2. Multi-Provider AI Engine (OpenRouter Default)
               </h2>
               <p className="text-xs text-ink-secondary mt-0.5">
                 Keys entered below are encrypted with <code className="font-mono">AES-256-GCM</code> in Turso, or read automatically from your Vercel environment variables.
@@ -342,7 +386,24 @@ export function SettingsClient() {
             <ShieldCheck className="w-5 h-5 text-accent shrink-0" />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <datalist id="openrouter-models">
+            {openRouterModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </datalist>
+          <datalist id="openrouter-vision-models">
+            {openRouterModels
+              .filter((m) => m.hasVision)
+              .map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+          </datalist>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-medium text-ink-secondary mb-1">
                 Active Provider
@@ -355,10 +416,11 @@ export function SettingsClient() {
                 }
                 className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm text-ink"
               >
-                <option value="deepseek">DeepSeek (Recommended)</option>
-                <option value="gemini">Google Gemini</option>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic Claude</option>
+                <option value="openrouter">OpenRouter (Recommended Gateway)</option>
+                <option value="deepseek">DeepSeek Direct</option>
+                <option value="gemini">Google Gemini Direct</option>
+                <option value="openai">OpenAI Direct</option>
+                <option value="anthropic">Anthropic Claude Direct</option>
               </select>
             </div>
 
@@ -368,82 +430,111 @@ export function SettingsClient() {
               </label>
               <input
                 type="text"
+                list={activeProvider === "openrouter" ? "openrouter-models" : undefined}
                 value={graderModel}
                 onChange={(e) => setGraderModel(e.target.value)}
+                placeholder="e.g. anthropic/claude-sonnet-5.5"
                 className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm font-mono text-ink"
               />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-ink-secondary mb-1">
-                Vision &amp; Fast Coach Model
+                Fast Coach Model
               </label>
               <input
                 type="text"
+                list={activeProvider === "openrouter" ? "openrouter-models" : undefined}
                 value={fastModel}
                 onChange={(e) => setFastModel(e.target.value)}
+                placeholder="e.g. deepseek/deepseek-v4.1-flash-1017"
                 className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm font-mono text-ink"
               />
             </div>
+
+            {activeProvider === "openrouter" && (
+              <div className="sm:col-span-2 lg:col-span-3">
+                <label className="block text-xs font-medium text-ink-secondary mb-1">
+                  Task 1 Screenshot Vision Model
+                </label>
+                <input
+                  type="text"
+                  list="openrouter-vision-models"
+                  value={visionModel}
+                  onChange={(e) => setVisionModel(e.target.value)}
+                  placeholder="e.g. deepseek/deepseek-v4.1-flash-1017"
+                  className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm font-mono text-ink"
+                />
+                <p className="text-[11px] text-ink-muted mt-1">
+                  Model used to extract data tables and trends from pasted Task 1 chart screenshots.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-3 pt-2">
-            {(["deepseek", "gemini", "openai", "anthropic"] as AIProviderId[]).map(
-              (prov) => {
-                const st = keyStatus[prov];
-                return (
-                  <div
-                    key={prov}
-                    className="p-3.5 rounded-xl bg-canvas border border-line space-y-2"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <span className="font-semibold uppercase font-mono text-ink flex items-center gap-1.5">
-                        <KeyRound className="w-3.5 h-3.5 text-accent" />
-                        {providerDefaults[prov]?.label || prov}
-                      </span>
+            {(
+              [
+                "openrouter",
+                "deepseek",
+                "gemini",
+                "openai",
+                "anthropic",
+              ] as AIProviderId[]
+            ).map((prov) => {
+              const st = keyStatus[prov];
+              return (
+                <div
+                  key={prov}
+                  className="p-3.5 rounded-xl bg-canvas border border-line space-y-2"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-semibold uppercase font-mono text-ink flex items-center gap-1.5">
+                      <KeyRound className="w-3.5 h-3.5 text-accent" />
+                      {providerDefaults[prov]?.label || prov}
+                    </span>
 
-                      <div className="flex items-center gap-2">
-                        {st?.hasEnvKey && (
-                          <span className="px-2 py-0.5 rounded bg-accent-soft text-accent font-mono text-[11px]">
-                            Env Key Active
-                          </span>
-                        )}
-                        {st?.hasStoredKey && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-subtle text-ink font-mono text-[11px]">
-                            <span>Saved: {st.maskedStoredKey}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleClearKey(prov)}
-                              className="text-red-500 hover:underline ml-1 cursor-pointer"
-                            >
-                              Clear
-                            </button>
-                          </span>
-                        )}
-                      </div>
+                    <div className="flex items-center gap-2">
+                      {st?.hasEnvKey && (
+                        <span className="px-2 py-0.5 rounded bg-accent-soft text-accent font-mono text-[11px]">
+                          Env Key Active
+                        </span>
+                      )}
+                      {st?.hasStoredKey && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-subtle text-ink font-mono text-[11px]">
+                          <span>Saved: {st.maskedStoredKey}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleClearKey(prov)}
+                            className="text-red-500 hover:underline ml-1 cursor-pointer"
+                          >
+                            Clear
+                          </button>
+                        </span>
+                      )}
                     </div>
-
-                    <input
-                      id={`apikey-input-${prov}`}
-                      type="password"
-                      value={newKeyInputs[prov]}
-                      onChange={(e) =>
-                        setNewKeyInputs((prev) => ({
-                          ...prev,
-                          [prov]: e.target.value,
-                        }))
-                      }
-                      placeholder={
-                        st?.hasStoredKey || st?.hasEnvKey
-                          ? "Leave blank to keep existing key, or paste new key to override..."
-                          : `Paste ${prov.toUpperCase()}_API_KEY...`
-                      }
-                      className="w-full px-3 py-2 rounded-lg bg-surface border border-line text-xs font-mono text-ink"
-                    />
                   </div>
-                );
-              }
-            )}
+
+                  <input
+                    id={`apikey-input-${prov}`}
+                    type="password"
+                    value={newKeyInputs[prov]}
+                    onChange={(e) =>
+                      setNewKeyInputs((prev) => ({
+                        ...prev,
+                        [prov]: e.target.value,
+                      }))
+                    }
+                    placeholder={
+                      st?.hasStoredKey || st?.hasEnvKey
+                        ? "Leave blank to keep existing key, or paste new key to override..."
+                        : `Paste ${prov.toUpperCase()}_API_KEY...`
+                    }
+                    className="w-full px-3 py-2 rounded-lg bg-surface border border-line text-xs font-mono text-ink"
+                  />
+                </div>
+              );
+            })}
           </div>
         </section>
 

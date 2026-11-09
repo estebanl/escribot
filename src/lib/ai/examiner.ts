@@ -1,5 +1,6 @@
 import {
   callLLM,
+  callLLMWithMeta,
   PROVIDER_DEFAULTS,
   resolveUserAndAIConfig,
   type ResolvedAIConfig,
@@ -38,16 +39,18 @@ export async function extractVisualSpecFromImage(
 ): Promise<string> {
   const cfg = config || (await resolveUserAndAIConfig());
   if (!cfg.apiKey) {
-    return "Uploaded visual chart/diagram screenshot (configure DEEPSEEK_API_KEY in Settings for live multimodal chart figure extraction).";
+    return "Uploaded visual chart/diagram screenshot (configure API key in Settings for live multimodal chart figure extraction).";
   }
 
-  const visionModel = PROVIDER_DEFAULTS[cfg.provider]?.visionModel || cfg.fastModel;
+  const visionModel = cfg.visionModel || PROVIDER_DEFAULTS[cfg.provider]?.visionModel || cfg.fastModel;
 
   try {
     const raw = await callLLM({
       provider: cfg.provider,
       apiKey: cfg.apiKey,
       model: visionModel,
+      fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+      feature: "vision_extract",
       imageDataUrl,
       jsonMode: true,
       thinkingMode: "disabled",
@@ -322,6 +325,7 @@ export async function evaluateEssayWithAI(
   payload: EvaluationPayload;
   providerUsed: string;
   modelUsed: string;
+  costUsd?: number;
 }> {
   const cfg = await resolveUserAndAIConfig();
   const wordCount = countEssayWords(input.essayText);
@@ -485,73 +489,102 @@ Return ONLY a valid JSON object matching this exact structure:
 
   let modelUsed = cfg.graderModel;
 
-  const scorePromise = (async (): Promise<RubricScoreOutput> => {
+  const scorePromise = (async (): Promise<{
+    data: RubricScoreOutput;
+    cost?: number;
+    model: string;
+  }> => {
     try {
-      const rawRubric = await callLLM({
+      const resRubric = await callLLMWithMeta({
         provider: cfg.provider,
         apiKey,
         model: cfg.graderModel,
+        fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.graderFallbacks,
+        feature: "rubric_score",
         systemPrompt: rubricSystemPrompt,
         userPrompt: rubricUserPrompt,
         jsonMode: true,
         thinkingMode: "disabled",
         maxTokens: 1200,
-        timeoutMs: 26_000,
+        timeoutMs: 35_000,
       });
-      const parsedRubric = extractJsonObject<RubricScoreOutput>(rawRubric);
+      const parsedRubric = extractJsonObject<RubricScoreOutput>(resRubric.content);
       input.onProgress?.("4-criterion band scores ready — finalising inline upgrades...");
-      return parsedRubric;
+      const actualModel = resRubric.modelUsed || cfg.graderModel;
+      modelUsed = actualModel;
+      return { data: parsedRubric, cost: resRubric.costUsd, model: actualModel };
     } catch (primaryErr) {
       if (cfg.fastModel && cfg.fastModel !== cfg.graderModel) {
         input.onProgress?.("Switching to fast examiner model to complete band scoring...");
-        modelUsed = cfg.fastModel;
-        const rawFallback = await callLLM({
+        const resFallback = await callLLMWithMeta({
           provider: cfg.provider,
           apiKey,
           model: cfg.fastModel,
+          fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+          feature: "rubric_score_fallback",
           systemPrompt: rubricSystemPrompt,
           userPrompt: rubricUserPrompt,
           jsonMode: true,
           thinkingMode: "disabled",
           maxTokens: 1200,
-          timeoutMs: 20_000,
+          timeoutMs: 25_000,
         });
+        const actualModel = resFallback.modelUsed || cfg.fastModel;
+        modelUsed = actualModel;
         input.onProgress?.("4-criterion band scores ready — finalising inline upgrades...");
-        return extractJsonObject<RubricScoreOutput>(rawFallback);
+        return {
+          data: extractJsonObject<RubricScoreOutput>(resFallback.content),
+          cost: resFallback.costUsd,
+          model: actualModel,
+        };
       }
       throw primaryErr;
     }
   })();
 
-  const annotationsPromise = (async (): Promise<AnnotationRewriteOutput> => {
+  const annotationsPromise = (async (): Promise<{
+    data: AnnotationRewriteOutput;
+    cost?: number;
+  }> => {
     try {
-      const rawCoach = await callLLM({
+      const resCoach = await callLLMWithMeta({
         provider: cfg.provider,
         apiKey,
         model: cfg.fastModel,
+        fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+        feature: "annotations_rewrite",
         systemPrompt: coachSystemPrompt,
         userPrompt: coachUserPrompt,
         jsonMode: true,
         thinkingMode: "disabled",
         maxTokens: 2100,
-        timeoutMs: 34_000,
+        timeoutMs: 40_000,
       });
-      const parsedCoach = extractJsonObject<AnnotationRewriteOutput>(rawCoach);
+      const parsedCoach = extractJsonObject<AnnotationRewriteOutput>(resCoach.content);
       input.onProgress?.("Inline annotations & Band 8+ rewrite ready...");
-      return parsedCoach;
+      return { data: parsedCoach, cost: resCoach.costUsd };
     } catch {
       const localPreview = buildHeuristicDiagnosticPreview(input, cfg, wordCount, minWords);
       return {
-        inlineAnnotations: localPreview.inlineAnnotations,
-        targetBandRewrite:
-          "Band 8.0+ full rewrite timed out on this run, while your official 4-criterion band scores succeeded above. You can redraft or re-run anytime.",
-        rewriteKeyChanges: [],
-        vaultItems: localPreview.vaultItems,
+        data: {
+          inlineAnnotations: localPreview.inlineAnnotations,
+          targetBandRewrite:
+            "Band 8.0+ full rewrite timed out on this run, while your official 4-criterion band scores succeeded above. You can redraft or re-run anytime.",
+          rewriteKeyChanges: [],
+          vaultItems: localPreview.vaultItems,
+        },
+        cost: undefined,
       };
     }
   })();
 
-  const [rubricData, coachData] = await Promise.all([scorePromise, annotationsPromise]);
+  const [rubricResult, coachResult] = await Promise.all([scorePromise, annotationsPromise]);
+  const rubricData = rubricResult.data;
+  const coachData = coachResult.data;
+  const totalCost =
+    rubricResult.cost !== undefined || coachResult.cost !== undefined
+      ? Number(((rubricResult.cost || 0) + (coachResult.cost || 0)).toFixed(6))
+      : undefined;
 
   const taTrBand = roundIeltsBand(
     Number(rubricData.taTrBand ?? rubricData.criteria?.TA_TR?.band ?? 6.5)
@@ -705,6 +738,7 @@ Return ONLY a valid JSON object matching this exact structure:
     payload,
     providerUsed: cfg.provider,
     modelUsed,
+    costUsd: totalCost,
   };
 }
 
@@ -783,6 +817,8 @@ export async function checkOutlineWithAI(params: {
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
+    fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+    feature: "outline_check",
     jsonMode: true,
     thinkingMode: "disabled",
     timeoutMs: 35_000,
@@ -867,6 +903,8 @@ export async function runToolkitWithAI(req: ToolkitRequest): Promise<ToolkitResp
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
+    fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+    feature: "toolkit",
     jsonMode: true,
     thinkingMode: "disabled",
     timeoutMs: 35_000,
@@ -957,6 +995,8 @@ export async function generatePromptWithAI(params: {
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
+    fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+    feature: "prompt_generation",
     jsonMode: true,
     thinkingMode: "disabled",
     maxTokens: 1600,
@@ -1143,6 +1183,8 @@ export async function generateMicroDrillWithAI(params: {
     provider: cfg.provider,
     apiKey: cfg.apiKey!,
     model: cfg.fastModel,
+    fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+    feature: "drill_generate",
     jsonMode: true,
     thinkingMode: "disabled",
     timeoutMs: 40_000,
@@ -1221,6 +1263,8 @@ export async function scoreMicroDrillWithAI(params: {
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
+    fallbackModels: PROVIDER_DEFAULTS[cfg.provider]?.fastFallbacks,
+    feature: "drill_score",
     jsonMode: true,
     thinkingMode: "disabled",
     timeoutMs: 35_000,
