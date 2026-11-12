@@ -18,6 +18,7 @@ import {
   Legend,
 } from "recharts";
 import { ArrowRight, RotateCw, ZoomIn, X, Compass, BarChart2, FileText } from "lucide-react";
+import { normalizeChartSpec } from "@/lib/chart-utils";
 import type {
   ChartSpec,
   ComparisonMapSpec,
@@ -180,6 +181,10 @@ function SpecContent({
 
   /* ---------- 1. LINE / BAR / MIXED CHARTS ---------- */
   if (spec.kind === "line" || spec.kind === "bar" || spec.kind === "mixed") {
+    if (!Array.isArray(spec.data) || spec.data.length === 0 || !Array.isArray(spec.series) || spec.series.length === 0) {
+      return null;
+    }
+    const yUnit = spec.yAxisUnit || undefined;
     return (
       <div className={`${marginClass} rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs`}>
         <div className="mb-3">
@@ -192,13 +197,13 @@ function SpecContent({
         <div style={{ width: "100%", height }}>
           <ResponsiveContainer width="100%" height="100%">
             {spec.kind === "line" ? (
-              <LineChart data={spec.data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+              <LineChart data={spec.data} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey={spec.xAxisKey} tick={{ fontSize: 12, fill: "#334155" }} />
                 <YAxis
-                  unit={spec.yAxisUnit}
+                  unit={yUnit}
                   tick={{ fontSize: 12, fill: "#334155" }}
-                  width={46}
+                  width="auto"
                 />
                 <Tooltip
                   contentStyle={{
@@ -223,13 +228,13 @@ function SpecContent({
                 ))}
               </LineChart>
             ) : spec.kind === "bar" ? (
-              <BarChart data={spec.data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+              <BarChart data={spec.data} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey={spec.xAxisKey} tick={{ fontSize: 11, fill: "#334155" }} />
                 <YAxis
-                  unit={spec.yAxisUnit}
+                  unit={yUnit}
                   tick={{ fontSize: 12, fill: "#334155" }}
-                  width={46}
+                  width="auto"
                 />
                 <Tooltip
                   contentStyle={{
@@ -251,21 +256,21 @@ function SpecContent({
                 ))}
               </BarChart>
             ) : (
-              <ComposedChart data={spec.data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+              <ComposedChart data={spec.data} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey={spec.xAxisKey} tick={{ fontSize: 12, fill: "#334155" }} />
                 <YAxis
                   yAxisId="left"
-                  unit={` ${spec.yAxisUnit}`}
+                  unit={yUnit ? ` ${yUnit}` : undefined}
                   tick={{ fontSize: 11, fill: "#334155" }}
-                  width={52}
+                  width="auto"
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
                   unit={spec.yAxisRightUnit || "%"}
                   tick={{ fontSize: 11, fill: "#334155" }}
-                  width={44}
+                  width="auto"
                 />
                 <Tooltip
                   contentStyle={{
@@ -564,14 +569,15 @@ export function TaskVisualRenderer({
   const [zoomed, setZoomed] = useState(false);
   const [activeTab, setActiveTab] = useState<"spec" | "image">("spec");
 
-  let spec: ChartSpec | null = chartSpecDirect || null;
-  if (!spec && chartSpecJson) {
+  let rawSpec: unknown = chartSpecDirect || null;
+  if (!rawSpec && chartSpecJson) {
     try {
-      spec = JSON.parse(chartSpecJson) as ChartSpec;
+      rawSpec = JSON.parse(chartSpecJson);
     } catch {
-      spec = null;
+      rawSpec = null;
     }
   }
+  const spec: ChartSpec | null = normalizeChartSpec(rawSpec) ?? null;
 
   if (!imageDataUrl && !spec) return null;
 

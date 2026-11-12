@@ -12,6 +12,7 @@ import {
   L1_LANGUAGE_PROFILES,
   roundIeltsBand,
 } from "@/lib/ielts-utils";
+import { normalizeCartesianChartSpec, normalizeChartSpec } from "@/lib/chart-utils";
 import type {
   AnnotationCategory,
   ChartSpec,
@@ -1036,7 +1037,7 @@ Return ONLY valid JSON:
     title: parsed.title || `Academic ${params.taskType.toUpperCase()} Practice`,
     topic: parsed.topic || chosenTopic,
     promptText: parsed.promptText,
-    chartSpec: parsed.chartSpec || undefined,
+    chartSpec: normalizeChartSpec(parsed.chartSpec),
   };
 }
 
@@ -1546,7 +1547,9 @@ ${guidance.generation}
 ${vaultNote}
 ${
   params.drillType === "overview_sprint"
-    ? `Include a "chartSpec" (kind: "line" or "bar" with ${level === "beginner" ? 2 : 3} series and 5 data points) and set "flawedText" to null. Ask the student to write ONLY a 2-sentence Task 1 Overview without raw statistics.`
+    ? `Include a "chartSpec" with ${level === "beginner" ? 2 : 3} series and 5 data points using this EXACT shape (all data values must be plain numbers, and "yAxisUnit" must be a short suffix like "%", "k", "M", or "" — put longer unit notes in "subtitle"):
+{ "kind": "line" | "bar", "title": "...", "subtitle": "...", "xAxisKey": "year", "yAxisUnit": "%", "series": [{ "key": "s1", "label": "Series 1", "color": "#16656e" }, { "key": "s2", "label": "Series 2", "color": "#c55e1b" }], "data": [{ "year": "2015", "s1": 20, "s2": 45 }, ... (5 points)] }
+Set "flawedText" to null. Ask the student to write ONLY a 2-sentence Task 1 Overview without raw statistics.`
     : `Set "chartSpec" to null and provide a ${level === "beginner" ? "1-3 short sentence" : "2-3 sentence"} "flawedText" paragraph exhibiting realistic Band ${
         level === "beginner" ? "4.5–5.5" : "6.0–6.5"
       } weaknesses for "${params.drillType}" (${
@@ -1562,8 +1565,8 @@ Return JSON:
   "instructions": "...",
   "timeLimitSeconds": ${params.drillType === "overview_sprint" && level !== "beginner" ? 240 : 300},
   "sourceContext": "...",
-  "chartSpec": null,
-  "flawedText": "...",
+  "chartSpec": ${params.drillType === "overview_sprint" ? "{ ... }" : "null"},
+  "flawedText": ${params.drillType === "overview_sprint" ? "null" : '"..."'},
   "hints": ["...", "..."],
   "referenceModelAnswer": "${
     level === "advanced" ? "Band 8.5" : `Band ${guidance.band.toFixed(1)}`
@@ -1572,6 +1575,11 @@ Return JSON:
   });
 
   const parsed = extractJsonObject<Partial<MicroDrillChallenge>>(raw);
+  const chartSpec =
+    params.drillType === "overview_sprint"
+      ? normalizeCartesianChartSpec(parsed.chartSpec) ?? fallback.chartSpec
+      : undefined;
+
   return {
     drillType: params.drillType,
     targetCriterion: parsed.targetCriterion || fallback.targetCriterion,
@@ -1579,7 +1587,7 @@ Return JSON:
     instructions: parsed.instructions || fallback.instructions,
     timeLimitSeconds: parsed.timeLimitSeconds || fallback.timeLimitSeconds,
     sourceContext: parsed.sourceContext || fallback.sourceContext,
-    chartSpec: parsed.chartSpec || (params.drillType === "overview_sprint" ? fallback.chartSpec : undefined),
+    chartSpec,
     flawedText: parsed.flawedText || fallback.flawedText,
     hints: parsed.hints?.length ? parsed.hints : fallback.hints,
     referenceModelAnswer: parsed.referenceModelAnswer || fallback.referenceModelAnswer,
