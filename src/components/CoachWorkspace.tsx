@@ -21,10 +21,12 @@ import {
   BookmarkCheck,
   Target,
   History,
+  Tags,
 } from "lucide-react";
 import { TaskVisualRenderer } from "./TaskVisualRenderer";
 import { ModelAnswer } from "./ModelAnswer";
 import { countEssayWords, getMinimumWords, getRecommendedMinutes } from "@/lib/ielts-utils";
+import { getTaskKeywords, isKeywordUsedInText } from "@/lib/task-keywords";
 import {
   safePostJson,
   submitEvaluationStream,
@@ -156,6 +158,7 @@ export function CoachWorkspace({
   const [serifEditor, setSerifEditor] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(initialDraft?.secondsSpent || 0);
   const [timerPaused, setTimerPaused] = useState(false);
+  const [keywordsOpen, setKeywordsOpen] = useState(true);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
 
   // On-demand Coach Toolkit state (NO autocomplete)
@@ -505,6 +508,29 @@ export function CoachWorkspace({
       if (next.has(idx)) next.delete(idx);
       else next.add(idx);
       return next;
+    });
+  }
+
+  function insertKeywordAtCursor(keyword: string) {
+    const el = editorRef.current;
+    const start = el ? (el.selectionStart ?? essayText.length) : essayText.length;
+    const end = el ? (el.selectionEnd ?? start) : start;
+    const before = essayText.slice(0, start);
+    const after = essayText.slice(end);
+    const needsLeadingSpace = before.length > 0 && !/[\s(\["'“‘]$/.test(before);
+    const needsTrailingSpace = after.length > 0 && !/^[\s.,;:!?)}"'”’]/.test(after);
+    const inserted = `${needsLeadingSpace ? " " : ""}${keyword}${needsTrailingSpace ? " " : ""}`;
+    const nextText = `${before}${inserted}${after}`;
+    const nextCaret = before.length + inserted.length;
+
+    setEssayText(nextText);
+    setSelectedSnippet("");
+
+    window.requestAnimationFrame(() => {
+      if (editorRef.current) {
+        editorRef.current.focus();
+        editorRef.current.setSelectionRange(nextCaret, nextCaret);
+      }
     });
   }
 
@@ -1036,6 +1062,88 @@ export function CoachWorkspace({
               </div>
             )}
           </section>
+
+          {/* Suggested Reusable Keywords */}
+          {(() => {
+            const keywordGroups = getTaskKeywords(taskType, prompt.category);
+            const allKeywords = keywordGroups.flatMap((g) => g.keywords);
+            const usedCount = allKeywords.filter((kw) =>
+              isKeywordUsedInText(essayText, kw)
+            ).length;
+            return (
+              <section
+                id="coach-suggested-keywords"
+                className="editorial-surface rounded-2xl p-5 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Tags className="w-4 h-4 text-accent" />
+                    <h2 className="font-serif text-base font-semibold text-ink">
+                      Suggested Keywords
+                    </h2>
+                    <span className="text-[11px] font-mono text-ink-muted tabular-nums">
+                      {usedCount}/{allKeywords.length} used
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setKeywordsOpen((o) => !o)}
+                    aria-expanded={keywordsOpen}
+                    className="text-xs font-medium text-accent hover:underline cursor-pointer"
+                  >
+                    {keywordsOpen ? "Collapse" : "Expand"}
+                  </button>
+                </div>
+
+                {keywordsOpen && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-ink-secondary leading-relaxed">
+                      Reusable academic terms for{" "}
+                      <span className="font-medium text-ink">
+                        {prompt.category.replace("_", " ")}
+                      </span>{" "}
+                      tasks. Click any chip to insert at your cursor.
+                    </p>
+
+                    <div className="space-y-2.5">
+                      {keywordGroups.map((group) => (
+                        <div key={group.label} className="space-y-1.5">
+                          <p className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-muted">
+                            {group.label}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {group.keywords.map((kw) => {
+                              const used = isKeywordUsedInText(essayText, kw);
+                              return (
+                                <button
+                                  key={kw}
+                                  type="button"
+                                  onClick={() => insertKeywordAtCursor(kw)}
+                                  title={
+                                    used
+                                      ? `"${kw}" is already in your draft — click to insert again`
+                                      : `Insert "${kw}" at cursor`
+                                  }
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                                    used
+                                      ? "bg-accent-soft text-accent border-accent/30"
+                                      : "bg-canvas hover:bg-subtle text-ink border-line-strong"
+                                  }`}
+                                >
+                                  {used && <Check className="w-3 h-3 shrink-0" />}
+                                  <span>{kw}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            );
+          })()}
         </div>
 
         {/* Right Column: Distraction-Free Writing Sheet + Surgical On-Demand Toolkit */}
