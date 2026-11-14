@@ -2,10 +2,16 @@ import Stripe from "stripe";
 
 export type BillingInterval = "month" | "year";
 
-/** Billing is on when Stripe is configured with at least the monthly Pro price. */
+/**
+ * Billing is on only when Stripe is fully configured: the API key, the
+ * monthly Pro price, and the webhook secret. Without the webhook, checkout
+ * would take payment but the subscription would never be recorded.
+ */
 export function isBillingEnabled(): boolean {
   return Boolean(
-    process.env.STRIPE_SECRET_KEY?.trim() && process.env.STRIPE_PRICE_PRO_MONTHLY?.trim()
+    process.env.STRIPE_SECRET_KEY?.trim() &&
+      process.env.STRIPE_PRICE_PRO_MONTHLY?.trim() &&
+      process.env.STRIPE_WEBHOOK_SECRET?.trim()
   );
 }
 
