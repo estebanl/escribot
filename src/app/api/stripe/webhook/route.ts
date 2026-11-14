@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { getDb } from "@/lib/db";
 import { getStripe } from "@/lib/billing/stripe";
 import { applySubscriptionEvent } from "@/lib/billing/subscription";
+import { reportError } from "@/lib/errors";
 
 const SUBSCRIPTION_EVENTS = new Set([
   "customer.subscription.created",
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true, result });
   } catch (err) {
     // A 5xx makes Stripe retry the delivery with backoff.
-    console.error(`Failed to process Stripe event ${event.id}:`, err);
+    await reportError({ source: "server", error: err, path: "/api/stripe/webhook" });
     return NextResponse.json({ error: "Processing failed." }, { status: 500 });
   }
 }

@@ -128,6 +128,7 @@ export const userSettings = sqliteTable("user_settings", {
   encryptedApiKeys: text("encrypted_api_keys").notNull().default("{}"),
   // Manual override ("pro" = complimentary Pro). Paid Pro comes from `subscriptions`.
   plan: text("plan").notNull().default("free"),
+  onboardedAt: text("onboarded_at"), // NULL until the welcome questions are answered
   updatedAt: text("updated_at").notNull(),
 });
 
@@ -239,3 +240,39 @@ export const aiUsage = sqliteTable("ai_usage", {
   costUsd: real("cost_usd"),
   createdAt: text("created_at").notNull(),
 }, (t) => [index("idx_ai_usage_created").on(t.createdAt), index("idx_ai_usage_user").on(t.userId, t.createdAt), index("idx_ai_usage_plan").on(t.plan, t.keySource, t.createdAt)]);
+
+/**
+ * Uploaded images (Task 1 chart screenshots). Bytes live in Vercel Blob
+ * (private) when BLOB_READ_WRITE_TOKEN is set, otherwise in `data_base64`.
+ * Served only to their owner through /api/images/[id].
+ */
+export const images = sqliteTable(
+  "images",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    contentType: text("content_type").notNull(),
+    bytes: integer("bytes").notNull(),
+    storage: text("storage").notNull(), // "blob" | "db"
+    blobPathname: text("blob_pathname"),
+    dataBase64: text("data_base64"),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("idx_images_user").on(t.userId)]
+);
+
+/** Server and client errors, kept for the admin view (newest first, pruned). */
+export const errorEvents = sqliteTable(
+  "error_events",
+  {
+    id: text("id").primaryKey(),
+    source: text("source").notNull(), // "server" | "client"
+    message: text("message").notNull(),
+    stack: text("stack"),
+    path: text("path"),
+    digest: text("digest"),
+    userId: text("user_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("idx_error_events_created").on(t.createdAt)]
+);

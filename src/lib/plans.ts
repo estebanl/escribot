@@ -13,6 +13,8 @@ export interface PlanLimits {
   assistsPerMonth: number | null;
   /** Whether the provider/model chosen in Settings is honoured on platform keys. */
   canChooseModels: boolean;
+  /** Total size of uploaded chart images. null = unlimited. */
+  storageBytes: number | null;
 }
 
 export const PLANS: Record<PlanId, PlanLimits> = {
@@ -21,12 +23,14 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     evaluationsPerMonth: 5,
     assistsPerMonth: 60,
     canChooseModels: false,
+    storageBytes: 25 * 1024 * 1024,
   },
   pro: {
     label: "Pro",
     evaluationsPerMonth: 100,
     assistsPerMonth: 1500,
     canChooseModels: true,
+    storageBytes: 250 * 1024 * 1024,
   },
   // The deployment owner (OWNER_EMAIL) pays for the platform keys.
   owner: {
@@ -34,6 +38,7 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     evaluationsPerMonth: null,
     assistsPerMonth: null,
     canChooseModels: true,
+    storageBytes: null,
   },
 };
 

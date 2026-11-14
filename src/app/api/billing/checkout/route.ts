@@ -15,6 +15,7 @@ import {
   getSubscription,
   hasProAccess,
 } from "@/lib/billing/subscription";
+import { reportError } from "@/lib/errors";
 
 /** Starts a Stripe Checkout session for the Pro plan and returns its URL. */
 export async function POST(request: Request) {
@@ -76,7 +77,7 @@ export async function POST(request: Request) {
     if (!session.url) throw new Error("Stripe did not return a checkout URL.");
     return NextResponse.json({ url: session.url });
   } catch (err) {
-    console.error("Stripe checkout failed:", err);
+    await reportError({ source: "server", error: err, path: "/api/billing/checkout" });
     return NextResponse.json(
       { error: "Could not start checkout. Please try again." },
       { status: 502 }

@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { getAuth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -33,6 +33,18 @@ export interface PageUser extends SessionUser {
   plan: PlanId;
   /** Show upgrade prompts: billing is configured and the user is on Free. */
   canUpgrade: boolean;
+  isAdmin: boolean;
+}
+
+/** The verified owner, or a verified address listed in ADMIN_EMAILS. */
+function isAdminAccount(user: SessionUser, plan: PlanId): boolean {
+  if (plan === "owner") return true;
+  if (!user.emailVerified) return false;
+  const admins = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return admins.includes(user.email.trim().toLowerCase());
 }
 
 /** For server pages: returns the signed-in user (with plan) or redirects to /login. */
@@ -43,7 +55,27 @@ export async function requireUser(): Promise<PageUser> {
   // Pre-multi-user data moves to the owner once their address is verified.
   await claimLegacyDataIfOwner(db, user);
   const plan = await getEffectivePlan(db, user.id);
-  return { ...user, plan, canUpgrade: plan === "free" && isBillingEnabled() };
+  return {
+    ...user,
+    plan,
+    canUpgrade: plan === "free" && isBillingEnabled(),
+    isAdmin: isAdminAccount(user, plan),
+  };
+}
+
+/** For admin pages: anyone else gets a 404, so the page's existence is not revealed. */
+export async function requireAdmin(): Promise<PageUser> {
+  const user = await requireUser();
+  if (!user.isAdmin) notFound();
+  return user;
+}
+
+/** For admin API routes: the admin user, or null (respond 404). */
+export async function getAdminUser(): Promise<SessionUser | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const plan = await getEffectivePlan(await getDb(), user.id);
+  return isAdminAccount(user, plan) ? user : null;
 }
 
 /** For API routes: `const user = await getCurrentUser(); if (!user) return unauthorized();` */

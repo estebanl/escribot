@@ -5,6 +5,7 @@ import { getCurrentUser, unauthorized } from "@/lib/session";
 import { guardAiRequest } from "@/lib/ai/access";
 import { generatePromptWithAI } from "@/lib/ai/examiner";
 import type { PromptCategory, TaskType } from "@/lib/types";
+import { reportError } from "@/lib/errors";
 
 export const maxDuration = 60;
 
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ prompt: record });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/ai/generate-prompt" });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to generate prompt." },
       { status: 500 }

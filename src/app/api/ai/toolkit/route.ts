@@ -3,6 +3,7 @@ import { runToolkitWithAI } from "@/lib/ai/examiner";
 import { getCurrentUser, unauthorized } from "@/lib/session";
 import { guardAiRequest } from "@/lib/ai/access";
 import type { ToolkitRequest } from "@/lib/types";
+import { reportError } from "@/lib/errors";
 
 export async function POST(request: Request) {
   try {
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ result });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/ai/toolkit" });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Toolkit check failed." },
       { status: 500 }

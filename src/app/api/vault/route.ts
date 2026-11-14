@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { reportError } from "@/lib/errors";
 
 export async function GET() {
   try {
@@ -17,8 +18,9 @@ export async function GET() {
 
     return NextResponse.json({ items });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/vault" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to load Vault." },
+      { error: "Failed to load Vault." },
       { status: 500 }
     );
   }
@@ -65,8 +67,9 @@ export async function POST(request: Request) {
     await db.insert(schema.vaultItems).values(record);
     return NextResponse.json({ item: record });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/vault" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to add Vault item." },
+      { error: "Failed to add Vault item." },
       { status: 500 }
     );
   }
@@ -109,8 +112,9 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ ok: true, masteryLevel: clamped, nextReviewAt: nextDate });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/vault" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to update Vault item." },
+      { error: "Failed to update Vault item." },
       { status: 500 }
     );
   }
@@ -131,8 +135,9 @@ export async function DELETE(request: Request) {
       .where(and(eq(schema.vaultItems.id, id), eq(schema.vaultItems.userId, user.id)));
     return NextResponse.json({ ok: true });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/vault" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to delete Vault item." },
+      { error: "Failed to delete Vault item." },
       { status: 500 }
     );
   }

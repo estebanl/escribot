@@ -4,6 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { getDb, schema, type Db } from "@/lib/db";
 import { provisionNewUser } from "@/lib/db/scope";
+import { deleteAllUserData } from "@/lib/account";
 import { isEmailConfigured, isPasswordResetAvailable, sendEmail } from "@/lib/email";
 
 export function isGoogleSignInEnabled(): boolean {
@@ -97,6 +98,22 @@ function createAuth(db: Db) {
     session: {
       expiresIn: 60 * 60 * 24 * 30,
       updateAge: 60 * 60 * 24,
+    },
+    user: {
+      deleteUser: {
+        enabled: true,
+        // Requires the password (or, for Google-only accounts, a session
+        // created within the last day). Runs before the user row is removed.
+        beforeDelete: async (user) => {
+          try {
+            await deleteAllUserData(db, user.id);
+          } catch (err) {
+            throw new APIError("INTERNAL_SERVER_ERROR", {
+              message: err instanceof Error ? err.message : "Could not delete your account.",
+            });
+          }
+        },
+      },
     },
     databaseHooks: {
       user: {

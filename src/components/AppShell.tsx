@@ -14,6 +14,7 @@ import {
   Moon,
   LogOut,
   Sparkles,
+  Shield,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
@@ -39,7 +40,7 @@ export function AppShell({
   user,
 }: {
   children: React.ReactNode;
-  user?: { name: string; email: string; canUpgrade?: boolean } | null;
+  user?: { name: string; email: string; canUpgrade?: boolean; isAdmin?: boolean } | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -126,6 +127,18 @@ export function AppShell({
               {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
+            {user?.isAdmin && (
+              <Link
+                id="admin-link"
+                href="/admin"
+                title="Admin"
+                aria-label="Admin"
+                className="p-2 rounded-lg border border-line bg-canvas hover:bg-subtle text-ink-secondary hover:text-ink transition"
+              >
+                <Shield className="w-4 h-4" />
+              </Link>
+            )}
+
             {user?.canUpgrade && (
               <Link
                 id="upgrade-link"
@@ -154,7 +167,25 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="flex-1 pb-20 lg:pb-10">{children}</main>
+      <main className="flex-1 pb-10">{children}</main>
+
+      <footer className="border-t border-line mb-16 lg:mb-0">
+        <nav
+          aria-label="Footer"
+          className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-muted"
+        >
+          <Link href="/pricing" className="hover:text-ink">
+            Pricing
+          </Link>
+          <Link href="/terms" className="hover:text-ink">
+            Terms
+          </Link>
+          <Link href="/privacy" className="hover:text-ink">
+            Privacy
+          </Link>
+          <span>Not affiliated with the official IELTS partners.</span>
+        </nav>
+      </footer>
 
       {/* Mobile Companion Bottom Navigation */}
       <nav

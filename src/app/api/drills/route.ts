@@ -7,6 +7,7 @@ import { guardAiRequest } from "@/lib/ai/access";
 import { generateMicroDrillWithAI, scoreMicroDrillWithAI } from "@/lib/ai/examiner";
 import { isDrillLevel } from "@/lib/ielts-utils";
 import type { DrillLevel, DrillType, MicroDrillChallenge } from "@/lib/types";
+import { reportError } from "@/lib/errors";
 
 export async function GET() {
   try {
@@ -22,6 +23,7 @@ export async function GET() {
 
     return NextResponse.json({ drills });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/drills" });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to load drills." },
       { status: 500 }
@@ -128,6 +130,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Unknown drill action." }, { status: 400 });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/drills" });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Micro-drill request failed." },
       { status: 500 }

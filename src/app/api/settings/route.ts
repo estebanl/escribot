@@ -9,6 +9,7 @@ import { getUsageSummary } from "@/lib/ai/access";
 import { isBillingEnabled } from "@/lib/billing/stripe";
 import { getSubscription } from "@/lib/billing/subscription";
 import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
+import { reportError } from "@/lib/errors";
 
 async function getBillingStatus(db: Awaited<ReturnType<typeof getDb>>, userId: string) {
   const sub = await getSubscription(db, userId);
@@ -131,8 +132,9 @@ export async function GET() {
       billing: await getBillingStatus(db, user.id),
     });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/settings" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to load settings." },
+      { error: "Failed to load settings." },
       { status: 500 }
     );
   }
@@ -153,6 +155,7 @@ export async function PUT(request: Request) {
       fastModel?: string;
       visionModel?: string;
       apiKeysToUpdate?: Partial<Record<AIProviderId, string | null>>;
+      completeOnboarding?: boolean;
     };
 
     const db = await getDb();
@@ -223,14 +226,17 @@ export async function PUT(request: Request) {
         fastModel,
         visionModel,
         encryptedApiKeys: JSON.stringify(encryptedMap),
+        onboardedAt:
+          existing?.onboardedAt ?? (body.completeOnboarding ? new Date().toISOString() : null),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.userSettings.userId, user.id));
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/settings" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to save settings." },
+      { error: "Failed to save settings." },
       { status: 500 }
     );
   }

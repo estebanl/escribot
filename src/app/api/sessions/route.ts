@@ -5,6 +5,7 @@ import { getDb, schema } from "@/lib/db";
 import { getVisiblePrompt, visiblePrompts } from "@/lib/db/scope";
 import { getCurrentUser, unauthorized } from "@/lib/session";
 import type { CriterionKey, SessionMode } from "@/lib/types";
+import { reportError } from "@/lib/errors";
 
 export async function GET() {
   try {
@@ -119,8 +120,9 @@ export async function GET() {
       },
     });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/sessions" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to load sessions." },
+      { error: "Failed to load sessions." },
       { status: 500 }
     );
   }
@@ -186,8 +188,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ session: record });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/sessions" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to create session." },
+      { error: "Failed to create session." },
       { status: 500 }
     );
   }

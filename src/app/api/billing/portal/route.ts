@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/session";
 import { getAppOrigin, getStripe, isBillingEnabled } from "@/lib/billing/stripe";
 import { getSubscription } from "@/lib/billing/subscription";
+import { reportError } from "@/lib/errors";
 
 /** Opens the Stripe customer portal (change plan, update card, cancel, invoices). */
 export async function POST(request: Request) {
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ url: session.url });
   } catch (err) {
-    console.error("Stripe portal failed:", err);
+    await reportError({ source: "server", error: err, path: "/api/billing/portal" });
     return NextResponse.json(
       { error: "Could not open billing management. Please try again." },
       { status: 502 }

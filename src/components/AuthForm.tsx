@@ -303,6 +303,20 @@ export function AuthForm({
           </form>
         )}
 
+        {mode === "signup" && (
+          <p className="text-xs text-ink-muted mt-4 text-center">
+            By creating an account you agree to the{" "}
+            <Link href="/terms" className="underline hover:text-ink">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="underline hover:text-ink">
+              Privacy Policy
+            </Link>
+            .
+          </p>
+        )}
+
         {googleEnabled && (mode === "login" || mode === "signup") && (
           <button
             id="auth-google-button"

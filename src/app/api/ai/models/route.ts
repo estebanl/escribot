@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { reportError } from "@/lib/errors";
 
 interface OpenRouterModel {
   id: string;
@@ -177,6 +178,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ models: allModels });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/ai/models" });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to fetch models" },
       { status: 500 }

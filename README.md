@@ -63,6 +63,35 @@ How it works:
 - **Manage billing** in Settings opens the Stripe portal for cancelling, changing card or billing period, and invoices. A cancelled subscription keeps Pro until the end of the paid period.
 - Test locally with the Stripe CLI: `stripe listen --forward-to localhost:3000/api/stripe/webhook` and use its `whsec_...` secret.
 
+### Onboarding, landing page and legal pages
+
+- Signed-out visitors to `/` see the landing page; signed-in users get the studio. `/pricing`, `/terms` and `/privacy` are public.
+- New accounts answer a short calibration step at `/welcome` (current and target band, exam date, first language) before reaching the studio.
+- `/terms` and `/privacy` are written to match what the app actually does with data (providers, retention, deletion). Set `SITE_OPERATOR`, `SUPPORT_EMAIL` and `SITE_JURISDICTION`, and **have them reviewed by a lawyer before launch**; they are a starting point, not legal advice.
+- The footer carries a trademark notice: FluentEscritor is not affiliated with the IELTS partners, and band scores are AI estimates.
+
+### Account deletion and data export
+
+**Settings → Account & Privacy** lets a user:
+
+- Download everything held about them as one JSON file (`/api/account/export`). Saved API keys are listed but never exported.
+- Delete their account, after confirming with their password. This deletes the Stripe customer (cancelling any subscription immediately), uploaded images and every row they own.
+
+### Chart image storage
+
+Uploaded Task 1 screenshots are stored in a private Vercel Blob store when `BLOB_READ_WRITE_TOKEN` is set, or in an `images` table otherwise. They are served only to their owner through `/api/images/[id]`.
+
+Limits: 2 MB per image; 25 MB total on Free and 250 MB on Pro (`src/lib/plans.ts`). Images uploaded before this change stay inline until an admin moves them from `/admin`.
+
+### Admin and error tracking
+
+- `/admin` is visible to the verified `OWNER_EMAIL` account and verified addresses in `ADMIN_EMAILS`; everyone else gets a 404. It shows users, sign-ups, paying subscribers, platform AI cost by plan, recent errors, a complimentary-Pro toggle per user, and the inline-image migration.
+- Errors are recorded in the `error_events` table (kept 30 days) from three places: uncaught server errors (`src/instrumentation.ts`), API routes' own error handling, and browser error boundaries (`/api/errors`). To use Sentry or similar instead, forward from `reportError` in `src/lib/errors.ts`.
+
+### Tests
+
+`npm run test:isolation` runs against a live server (`BASE_URL`, default `http://localhost:3000`). It creates two throwaway accounts and checks that one cannot read or change the other's data on any route, that signed-out requests get 401, and that deleting an account leaves other users intact. CI (`.github/workflows/ci.yml`) runs lint, type-check, build and this test on every pull request.
+
 ### Database migrations
 
 Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:generate`, and commit the new file in `/drizzle`. Migrations are applied automatically at startup (or manually with `npm run db:migrate`).
@@ -88,6 +117,9 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
    - *(Strongly recommended)* `RESEND_API_KEY` + `EMAIL_FROM` — Email verification and password-reset links. Without them, password reset is disabled and Free accounts can only use the platform AI keys via Google sign-in or `ALLOWED_SIGNUP_EMAILS`.
    - *(Optional)* `FREE_PLAN_DAILY_AI_CAP` — Daily ceiling on Free-plan AI requests across all accounts.
    - *(Optional)* `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `STRIPE_WEBHOOK_SECRET` — Enables paid Pro (see **Billing** above).
+   - `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION` — Shown on the Terms and Privacy pages.
+   - *(Recommended)* `BLOB_READ_WRITE_TOKEN` — Create a **private** Vercel Blob store for uploaded chart images.
+   - *(Optional)* `ADMIN_EMAILS` — Extra admins for `/admin`.
    - *(Optional)* `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` — Enables "Continue with Google" (redirect URI `<BETTER_AUTH_URL>/api/auth/callback/google`).
    - *(Optional)* `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
 3. **Deploy**: Migrations and the curated Academic IELTS starter bank are applied idempotently on first request.

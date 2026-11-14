@@ -3,6 +3,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { getOwnedSession, getVisiblePrompt } from "@/lib/db/scope";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { reportError } from "@/lib/errors";
 
 export async function GET(
   _request: Request,
@@ -61,8 +62,9 @@ export async function GET(
       },
     });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/sessions/[id]" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to fetch session." },
+      { error: "Failed to fetch session." },
       { status: 500 }
     );
   }

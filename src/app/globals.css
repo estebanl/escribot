@@ -278,3 +278,34 @@ h2.font-serif {
 .pricing-cta-secondary:hover {
   background-color: var(--bg-subtle);
 }
+
+/* Long-form text on the Terms and Privacy pages */
+.legal-prose {
+  color: var(--ink-secondary);
+  line-height: 1.7;
+}
+.legal-prose h2 {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  margin: 2.25rem 0 0.75rem;
+}
+.legal-prose p,
+.legal-prose ul {
+  margin: 0 0 1rem;
+}
+.legal-prose ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.legal-prose li {
+  margin-bottom: 0.4rem;
+}
+.legal-prose strong {
+  color: var(--ink-primary);
+}
+.legal-prose a {
+  color: var(--accent-primary);
+  text-decoration: underline;
+}

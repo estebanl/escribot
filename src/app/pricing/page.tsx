@@ -1,7 +1,7 @@
-import Link from "next/link";
-import { Feather } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { PricingClient } from "@/components/PricingClient";
+import { PublicHeader } from "@/components/PublicHeader";
+import { SiteFooter } from "@/components/SiteFooter";
 import { getDb } from "@/lib/db";
 import { PLANS } from "@/lib/plans";
 import { getCurrentUser } from "@/lib/session";
@@ -45,21 +45,10 @@ export default async function PricingPage({
   }
 
   return (
-    <main className="min-h-screen bg-canvas">
-      <header className="border-b border-line bg-surface">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/login" className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-lg bg-accent text-accent-fg flex items-center justify-center">
-              <Feather className="w-4 h-4" />
-            </span>
-            <span className="font-serif text-lg font-semibold text-ink">FluentEscritor</span>
-          </Link>
-          <Link href="/login?next=/pricing" className="text-sm font-medium text-accent hover:underline">
-            Sign in
-          </Link>
-        </div>
-      </header>
-      {content}
-    </main>
+    <div className="min-h-screen flex flex-col bg-canvas">
+      <PublicHeader />
+      <main className="flex-1">{content}</main>
+      <SiteFooter />
+    </div>
   );
 }

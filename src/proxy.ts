@@ -3,6 +3,8 @@ import type { NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 
 const PUBLIC_PATHS = [
+  "/terms",
+  "/privacy",
   "/login",
   "/signup",
   "/forgot-password",
@@ -10,6 +12,7 @@ const PUBLIC_PATHS = [
   "/pricing",
   "/api/auth",
   "/api/stripe/webhook", // authenticated by Stripe's signature, not a session
+  "/api/errors", // browser error reports, also from signed-out pages (rate limited)
 ];
 
 /**
@@ -20,7 +23,10 @@ const PUBLIC_PATHS = [
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+  if (
+    pathname === "/" || // landing page for signed-out visitors; the studio checks the session itself
+    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+  ) {
     return NextResponse.next();
   }
 

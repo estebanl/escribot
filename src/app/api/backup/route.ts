@@ -4,6 +4,9 @@ import crypto from "crypto";
 import { z } from "zod";
 import { getDb, schema } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { resolveImageForAI, storeImage } from "@/lib/storage";
+import { getEffectivePlan } from "@/lib/billing/subscription";
+import { reportError } from "@/lib/errors";
 
 export async function GET() {
   try {
@@ -49,7 +52,13 @@ export async function GET() {
       app: "FluentEscritor",
       version: 2,
       data: {
-        prompts: owned(prompts),
+        // Stored images are inlined so the file is self-contained.
+        prompts: await Promise.all(
+          owned(prompts).map(async (p) => ({
+            ...p,
+            imageDataUrl: await resolveImageForAI(db, user.id, p.imageDataUrl),
+          }))
+        ),
         sessions: owned(sessions),
         drafts: owned(drafts),
         evaluations: owned(evaluations),
@@ -58,8 +67,9 @@ export async function GET() {
       },
     });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/backup" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Export failed." },
+      { error: "Export failed." },
       { status: 500 }
     );
   }
@@ -200,9 +210,28 @@ export async function POST(request: Request) {
     const db = await getDb();
     let importedCount = 0;
 
+    // Inline images from the file go back into storage (subject to the plan's
+    // allowance); an image that cannot be stored is dropped, not the prompt.
+    const plan = await getEffectivePlan(db, userId);
+    const storedImages = new Map<string, string | null>();
+    for (const p of data.prompts) {
+      if (p.imageDataUrl?.startsWith("data:")) {
+        storedImages.set(
+          p.id,
+          await storeImage(db, userId, plan, p.imageDataUrl).catch(() => null)
+        );
+      }
+    }
+
     await db.transaction(async (tx) => {
       for (const p of data.prompts) {
-        await tx.insert(schema.prompts).values({ ...p, id: promptIds.get(p.id)!, userId });
+        await tx.insert(schema.prompts).values({
+          ...p,
+          id: promptIds.get(p.id)!,
+          userId,
+          // Only images stored above are kept; other references would not resolve.
+          imageDataUrl: storedImages.get(p.id) ?? null,
+        });
         importedCount++;
       }
       for (const s of data.sessions) {
@@ -252,8 +281,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, importedCount });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/backup" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Import failed." },
+      { error: "Import failed." },
       { status: 500 }
     );
   }

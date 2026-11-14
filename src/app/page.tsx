@@ -1,6 +1,8 @@
+import { redirect } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
-import { requireUser } from "@/lib/session";
+import { getCurrentUser, requireUser } from "@/lib/session";
+import { LandingPage } from "@/components/LandingPage";
 import { getOrCreateSettings, visiblePrompts } from "@/lib/db/scope";
 import { resolveUserAndAIConfig } from "@/lib/ai/providers";
 import { computeDaysUntilExam } from "@/lib/ielts-utils";
@@ -9,9 +11,21 @@ import { StudioHomeClient } from "@/components/StudioHomeClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function StudioHomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ deleted?: string }>;
+}) {
+  // Signed-out visitors get the marketing page; signed-in users the studio.
+  if (!(await getCurrentUser())) {
+    const { deleted } = await searchParams;
+    return <LandingPage deleted={deleted === "1"} />;
+  }
+
   const user = await requireUser();
   const db = await getDb();
+  const settingsRow = await getOrCreateSettings(db, user.id);
+  if (!settingsRow.onboardedAt) redirect("/welcome");
   const aiCfg = await resolveUserAndAIConfig(user.id);
 
   const allPrompts = await db
@@ -57,8 +71,6 @@ export default async function StudioHomePage() {
       latestDraftVersion: maxVersion,
     };
   });
-
-  const settingsRow = await getOrCreateSettings(db, user.id);
 
   const daysUntilExam = computeDaysUntilExam(settingsRow?.examDate);
 

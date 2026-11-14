@@ -5,6 +5,8 @@ import { getDb, schema } from "@/lib/db";
 import { getOwnedSession, getVisiblePrompt } from "@/lib/db/scope";
 import { getCurrentUser, unauthorized } from "@/lib/session";
 import { guardAiRequest } from "@/lib/ai/access";
+import { resolveImageForAI } from "@/lib/storage";
+import { reportError } from "@/lib/errors";
 import { evaluateEssayWithAI, extractVisualSpecFromImage } from "@/lib/ai/examiner";
 import { computeWeightedExamBand, countEssayWords } from "@/lib/ielts-utils";
 import type {
@@ -141,20 +143,25 @@ export async function POST(request: Request) {
           let visualContext: string | null =
             prompt.chartSpecJson || prompt.extractedVisualSpec || null;
 
-          if (!visualContext && prompt.imageDataUrl) {
+          const imageForAI =
+            !visualContext && prompt.userId === userId
+              ? await resolveImageForAI(db, userId, prompt.imageDataUrl)
+              : null;
+          if (imageForAI) {
             sendEvent({
               type: "progress",
               stage: `${taskPrefix}Extracting chart data from uploaded image...`,
             });
             visualContext = await extractVisualSpecFromImage(
-              prompt.imageDataUrl,
+              imageForAI,
               prompt.promptText,
               userId
             );
+            // Cache on the user's own prompt (never on shared curated rows).
             await db
               .update(schema.prompts)
               .set({ extractedVisualSpec: visualContext })
-              .where(eq(schema.prompts.id, prompt.id));
+              .where(and(eq(schema.prompts.id, prompt.id), eq(schema.prompts.userId, userId)));
           }
 
           // Inspect prior drafts for this (sessionId, promptId), distinguishing evaluated drafts from interrupted orphans
@@ -382,6 +389,7 @@ export async function POST(request: Request) {
           results: gradedResults,
         });
       } catch (err) {
+        await reportError({ source: "server", error: err, path: "/api/ai/evaluate", userId });
         const message =
           err instanceof Error ? err.message : "Failed to evaluate draft.";
         const isTimeout =
