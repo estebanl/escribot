@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 import { generatePromptWithAI } from "@/lib/ai/examiner";
 import type { PromptCategory, TaskType } from "@/lib/types";
 
@@ -8,6 +9,8 @@ export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as {
       taskType?: TaskType;
       category?: PromptCategory;
@@ -19,6 +22,7 @@ export async function POST(request: Request) {
       body.category || (taskType === "task1" ? "line" : "opinion");
 
     const generated = await generatePromptWithAI({
+      userId: user.id,
       taskType,
       category,
       topic: body.topic,
@@ -30,6 +34,7 @@ export async function POST(request: Request) {
 
     const record = {
       id,
+      userId: user.id,
       taskType,
       category,
       topic: generated.topic,

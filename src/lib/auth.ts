@@ -1,38 +1,107 @@
-import { SignJWT, jwtVerify } from "jose";
+import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { nextCookies } from "better-auth/next-js";
+import { getDb, schema, type Db } from "@/lib/db";
+import { provisionNewUser } from "@/lib/db/scope";
+import { isEmailConfigured, sendEmail } from "@/lib/email";
 
-export const AUTH_COOKIE_NAME = "fe_session";
-
-export function isPasscodeRequired(): boolean {
-  return Boolean(process.env.APP_PASSCODE && process.env.APP_PASSCODE.trim().length > 0);
+export function isGoogleSignInEnabled(): boolean {
+  return Boolean(
+    process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()
+  );
 }
 
-function getSigningSecret(): Uint8Array {
-  const raw =
-    process.env.APP_SECRET ||
-    process.env.APP_PASSCODE ||
-    "fluentescritor-local-dev-default-secret-v1";
-  return new TextEncoder().encode(raw.padEnd(32, "_fluent_escritor_hmac_key_"));
+/** Optional comma-separated allowlist; when empty, anyone may sign up. */
+function isSignupAllowed(email: string): boolean {
+  const allowed = (process.env.ALLOWED_SIGNUP_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowed.length === 0) return true;
+  const owner = process.env.OWNER_EMAIL?.trim().toLowerCase();
+  const candidate = email.trim().toLowerCase();
+  return allowed.includes(candidate) || candidate === owner;
 }
 
-export async function createSessionToken(): Promise<string> {
-  return new SignJWT({ authenticated: true, role: "owner" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("30d")
-    .sign(getSigningSecret());
+function createAuth(db: Db) {
+  const emailEnabled = isEmailConfigured();
+
+  return betterAuth({
+    appName: "FluentEscritor",
+    secret: process.env.BETTER_AUTH_SECRET || process.env.APP_SECRET,
+    database: drizzleAdapter(db, {
+      provider: "sqlite",
+      schema: {
+        user: schema.user,
+        session: schema.session,
+        account: schema.account,
+        verification: schema.verification,
+      },
+    }),
+    emailAndPassword: {
+      enabled: true,
+      minPasswordLength: 8,
+      // Only enforce verification when we can actually deliver the email.
+      requireEmailVerification: emailEnabled,
+      sendResetPassword: async ({ user, url }) => {
+        await sendEmail({
+          to: user.email,
+          subject: "Reset your FluentEscritor password",
+          text: `Open this link to choose a new password:\n\n${url}\n\nIf you did not request this, you can ignore this email.`,
+        });
+      },
+    },
+    emailVerification: {
+      sendOnSignUp: emailEnabled,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        await sendEmail({
+          to: user.email,
+          subject: "Verify your FluentEscritor email",
+          text: `Welcome to FluentEscritor. Confirm your email address by opening this link:\n\n${url}`,
+        });
+      },
+    },
+    socialProviders: isGoogleSignInEnabled()
+      ? {
+          google: {
+            clientId: process.env.GOOGLE_CLIENT_ID!.trim(),
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET!.trim(),
+          },
+        }
+      : undefined,
+    session: {
+      expiresIn: 60 * 60 * 24 * 30,
+      updateAge: 60 * 60 * 24,
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            if (!isSignupAllowed(user.email)) {
+              throw new APIError("FORBIDDEN", {
+                message: "Sign-ups are currently invite-only.",
+              });
+            }
+          },
+          after: async (user) => {
+            await provisionNewUser(db, { id: user.id, email: user.email });
+          },
+        },
+      },
+    },
+    // Must stay last so server-side auth calls can set cookies.
+    plugins: [nextCookies()],
+  });
 }
 
-export async function verifySessionToken(token: string | undefined): Promise<boolean> {
-  if (!isPasscodeRequired()) {
-    return true;
+let authInstance: ReturnType<typeof createAuth> | null = null;
+
+/** Lazily built so the database is migrated before Better Auth touches it. */
+export async function getAuth() {
+  if (!authInstance) {
+    authInstance = createAuth(await getDb());
   }
-  if (!token) {
-    return false;
-  }
-  try {
-    const { payload } = await jwtVerify(token, getSigningSecret());
-    return payload.authenticated === true;
-  } catch {
-    return false;
-  }
+  return authInstance;
 }

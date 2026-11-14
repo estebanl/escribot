@@ -1,29 +1,39 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
+import { getVisiblePrompt, visiblePrompts } from "@/lib/db/scope";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 import type { CriterionKey, SessionMode } from "@/lib/types";
 
 export async function GET() {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const db = await getDb();
 
     const sessions = await db
       .select()
       .from(schema.writingSessions)
+      .where(eq(schema.writingSessions.userId, user.id))
       .orderBy(desc(schema.writingSessions.startedAt));
 
     const allDrafts = await db
       .select()
       .from(schema.drafts)
+      .where(eq(schema.drafts.userId, user.id))
       .orderBy(desc(schema.drafts.createdAt));
 
     const allEvals = await db
       .select()
       .from(schema.evaluations)
+      .where(eq(schema.evaluations.userId, user.id))
       .orderBy(desc(schema.evaluations.createdAt));
 
-    const allPrompts = await db.select().from(schema.prompts);
+    const allPrompts = await db
+      .select()
+      .from(schema.prompts)
+      .where(visiblePrompts(user.id));
     const promptMap = new Map(allPrompts.map((p) => [p.id, p]));
     const evalByDraft = new Map(allEvals.map((e) => [e.draftId, e]));
 
@@ -118,6 +128,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as {
       mode?: SessionMode;
       task1PromptId?: string | null;
@@ -130,19 +142,26 @@ export async function POST(request: Request) {
     let task1PromptId = body.task1PromptId || null;
     let task2PromptId = body.task2PromptId || null;
 
+    // A session may only reference prompts this user can see.
+    for (const promptId of [task1PromptId, task2PromptId]) {
+      if (promptId && !(await getVisiblePrompt(db, user.id, promptId))) {
+        return NextResponse.json({ error: "Prompt not found." }, { status: 404 });
+      }
+    }
+
     if (mode === "simulator_full_60m") {
       if (!task1PromptId) {
         const t1s = await db
           .select()
           .from(schema.prompts)
-          .where(eq(schema.prompts.taskType, "task1"));
+          .where(and(eq(schema.prompts.taskType, "task1"), visiblePrompts(user.id)));
         task1PromptId = t1s[0]?.id || null;
       }
       if (!task2PromptId) {
         const t2s = await db
           .select()
           .from(schema.prompts)
-          .where(eq(schema.prompts.taskType, "task2"));
+          .where(and(eq(schema.prompts.taskType, "task2"), visiblePrompts(user.id)));
         task2PromptId = t2s[0]?.id || null;
       }
     }
@@ -152,6 +171,7 @@ export async function POST(request: Request) {
 
     const record = {
       id,
+      userId: user.id,
       mode,
       status: "in_progress",
       task1PromptId,

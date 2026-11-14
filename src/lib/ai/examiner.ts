@@ -39,9 +39,10 @@ import type {
 export async function extractVisualSpecFromImage(
   imageDataUrl: string,
   promptText: string,
+  userId: string,
   config?: ResolvedAIConfig
 ): Promise<string> {
-  const cfg = config || (await resolveUserAndAIConfig());
+  const cfg = config || (await resolveUserAndAIConfig(userId));
   if (!cfg.apiKey) {
     return "Uploaded visual chart/diagram screenshot (configure API key in Settings for live multimodal chart figure extraction).";
   }
@@ -50,6 +51,7 @@ export async function extractVisualSpecFromImage(
 
   try {
     const raw = await callLLM({
+      userId: cfg.userId,
       provider: cfg.provider,
       apiKey: cfg.apiKey,
       model: visionModel,
@@ -75,6 +77,7 @@ export async function extractVisualSpecFromImage(
  * ============================================================================ */
 
 export interface EvaluateEssayInput {
+  userId: string;
   taskType: TaskType;
   promptTitle: string;
   promptText: string;
@@ -331,7 +334,7 @@ export async function evaluateEssayWithAI(
   modelUsed: string;
   costUsd?: number;
 }> {
-  const cfg = await resolveUserAndAIConfig();
+  const cfg = await resolveUserAndAIConfig(input.userId);
   const wordCount = countEssayWords(input.essayText);
   const minWords = getMinimumWords(input.taskType);
 
@@ -500,6 +503,7 @@ Return ONLY a valid JSON object matching this exact structure:
   }> => {
     try {
       const resRubric = await callLLMWithMeta({
+        userId: cfg.userId,
         provider: cfg.provider,
         apiKey,
         model: cfg.graderModel,
@@ -521,6 +525,7 @@ Return ONLY a valid JSON object matching this exact structure:
       if (cfg.fastModel && cfg.fastModel !== cfg.graderModel) {
         input.onProgress?.("Switching to fast examiner model to complete band scoring...");
         const resFallback = await callLLMWithMeta({
+          userId: cfg.userId,
           provider: cfg.provider,
           apiKey,
           model: cfg.fastModel,
@@ -552,6 +557,7 @@ Return ONLY a valid JSON object matching this exact structure:
   }> => {
     try {
       const resCoach = await callLLMWithMeta({
+        userId: cfg.userId,
         provider: cfg.provider,
         apiKey,
         model: cfg.fastModel,
@@ -751,12 +757,13 @@ Return ONLY a valid JSON object matching this exact structure:
  * ============================================================================ */
 
 export async function checkOutlineWithAI(params: {
+  userId: string;
   taskType: TaskType;
   promptText: string;
   visualContext?: string | null;
   outline: OutlineInput;
 }): Promise<OutlineFeedback> {
-  const cfg = await resolveUserAndAIConfig();
+  const cfg = await resolveUserAndAIConfig(params.userId);
   const { taskType, promptText, visualContext, outline } = params;
 
   if (!cfg.apiKey) {
@@ -818,6 +825,7 @@ export async function checkOutlineWithAI(params: {
   }
 
   const raw = await callLLM({
+    userId: cfg.userId,
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
@@ -858,8 +866,11 @@ Return JSON:
   return extractJsonObject<OutlineFeedback>(raw);
 }
 
-export async function runToolkitWithAI(req: ToolkitRequest): Promise<ToolkitResponse> {
-  const cfg = await resolveUserAndAIConfig();
+export async function runToolkitWithAI(
+  userId: string,
+  req: ToolkitRequest
+): Promise<ToolkitResponse> {
+  const cfg = await resolveUserAndAIConfig(userId);
   const l1Profile = cfg.l1CoachingEnabled
     ? L1_LANGUAGE_PROFILES[cfg.nativeLanguage]
     : L1_LANGUAGE_PROFILES.neutral;
@@ -904,6 +915,7 @@ export async function runToolkitWithAI(req: ToolkitRequest): Promise<ToolkitResp
         }, and Academic Register: Does it have a clear topic sentence or overview signpost? (If it is a Task 1 Overview paragraph, ensure it contains NO raw numbers/percentages; if it is a Body paragraph, ensure it groups and compares specific figures.) Are ideas extended logically without mechanical linkers or journalistic verbs like "collapsed"? Give concise diagnosis + 2 surgical improvements that align strictly with our examiner grading standards (do not rewrite the entire essay).`;
 
   const raw = await callLLM({
+    userId: cfg.userId,
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
@@ -943,6 +955,7 @@ Return JSON:
  * ============================================================================ */
 
 export async function generatePromptWithAI(params: {
+  userId: string;
   taskType: TaskType;
   category: PromptCategory;
   topic?: string;
@@ -952,7 +965,7 @@ export async function generatePromptWithAI(params: {
   promptText: string;
   chartSpec?: ChartSpec;
 }> {
-  const cfg = await resolveUserAndAIConfig();
+  const cfg = await resolveUserAndAIConfig(params.userId);
   const chosenTopic = params.topic?.trim() || "Public Policy, Technology & Sustainability";
 
   if (!cfg.apiKey) {
@@ -996,6 +1009,7 @@ export async function generatePromptWithAI(params: {
       : "Omit chartSpec (set to null) because Task 2 is a discursive essay.";
 
   const raw = await callLLM({
+    userId: cfg.userId,
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
@@ -1488,11 +1502,12 @@ function levelGuidance(level: DrillLevel, currentBand: number, targetBand: numbe
 }
 
 export async function generateMicroDrillWithAI(params: {
+  userId: string;
   drillType: DrillType;
   level?: DrillLevel;
   vaultHighlights?: string[];
 }): Promise<MicroDrillChallenge> {
-  const cfg = await resolveUserAndAIConfig();
+  const cfg = await resolveUserAndAIConfig(params.userId);
   const level: DrillLevel = params.level || "advanced";
   const drillType: DrillType = BUILTIN_DRILL_TEMPLATES[params.drillType] ? params.drillType : "cohesion";
   const l1Code: NativeLanguageCode = cfg.l1CoachingEnabled ? cfg.nativeLanguage : "neutral";
@@ -1526,6 +1541,7 @@ export async function generateMicroDrillWithAI(params: {
       : "";
 
   const raw = await callLLM({
+    userId: cfg.userId,
     provider: cfg.provider,
     apiKey: cfg.apiKey!,
     model: cfg.fastModel,
@@ -1673,11 +1689,12 @@ function scoreScaffoldedDrillLocally(
 }
 
 export async function scoreMicroDrillWithAI(params: {
+  userId: string;
   challenge: MicroDrillChallenge;
   userResponse: string;
   level?: DrillLevel;
 }): Promise<MicroDrillScore> {
-  const cfg = await resolveUserAndAIConfig();
+  const cfg = await resolveUserAndAIConfig(params.userId);
   const { challenge, userResponse } = params;
   const level: DrillLevel = params.level || challenge.level || "advanced";
 
@@ -1711,6 +1728,7 @@ export async function scoreMicroDrillWithAI(params: {
   }
 
   const raw = await callLLM({
+    userId: cfg.userId,
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
@@ -1758,6 +1776,7 @@ async function scoreScaffoldedDrillWithAI(
     : "";
 
   const raw = await callLLM({
+    userId: cfg.userId,
     provider: cfg.provider,
     apiKey: cfg.apiKey!,
     model: cfg.fastModel,

@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { getOrCreateSettings } from "@/lib/db/scope";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 import { decryptString, encryptString, maskApiKey } from "@/lib/crypto";
 import { PROVIDER_DEFAULTS } from "@/lib/ai/providers";
-import { isPasscodeRequired } from "@/lib/auth";
 import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
 
 export async function GET() {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const db = await getDb();
-    const [row] = await db
-      .select()
-      .from(schema.userSettings)
-      .where(eq(schema.userSettings.id, 1));
+    const row = await getOrCreateSettings(db, user.id);
 
     let rawEncryptedMap: Record<string, string> = {};
     try {
@@ -112,7 +112,6 @@ export async function GET() {
       },
       keyStatus,
       activeProviderReady: activeReady,
-      passcodeConfigured: isPasscodeRequired(),
       providerDefaults: PROVIDER_DEFAULTS,
     });
   } catch (err) {
@@ -125,6 +124,8 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as {
       currentBand?: number;
       targetBand?: number;
@@ -139,10 +140,7 @@ export async function PUT(request: Request) {
     };
 
     const db = await getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.userSettings)
-      .where(eq(schema.userSettings.id, 1));
+    const existing = await getOrCreateSettings(db, user.id);
 
     let encryptedMap: Record<string, string> = {};
     try {
@@ -204,7 +202,7 @@ export async function PUT(request: Request) {
         encryptedApiKeys: JSON.stringify(encryptedMap),
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(schema.userSettings.id, 1));
+      .where(eq(schema.userSettings.userId, user.id));
 
     return NextResponse.json({ ok: true });
   } catch (err) {

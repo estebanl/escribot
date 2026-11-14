@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 
 interface OpenRouterModel {
   id: string;
@@ -162,6 +163,8 @@ async function getOrFetchModels(): Promise<CachedData["models"]> {
 
 export async function GET(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const { searchParams } = new URL(request.url);
     const filterType = searchParams.get("type"); // "vision" | "all"
 

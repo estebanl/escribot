@@ -1,6 +1,7 @@
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
-import { isPasscodeRequired } from "@/lib/auth";
+import { requireUser } from "@/lib/session";
+import { visiblePrompts } from "@/lib/db/scope";
 import { resolveUserAndAIConfig } from "@/lib/ai/providers";
 import { AppShell } from "@/components/AppShell";
 import { AnalyticsClient } from "@/components/AnalyticsClient";
@@ -9,25 +10,32 @@ import type { CriterionKey } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export default async function AnalyticsPage() {
+  const user = await requireUser();
   const db = await getDb();
-  const cfg = await resolveUserAndAIConfig();
+  const cfg = await resolveUserAndAIConfig(user.id);
 
   const sessions = await db
     .select()
     .from(schema.writingSessions)
+    .where(eq(schema.writingSessions.userId, user.id))
     .orderBy(desc(schema.writingSessions.startedAt));
 
   const allDrafts = await db
     .select()
     .from(schema.drafts)
+    .where(eq(schema.drafts.userId, user.id))
     .orderBy(desc(schema.drafts.createdAt));
 
   const allEvals = await db
     .select()
     .from(schema.evaluations)
+    .where(eq(schema.evaluations.userId, user.id))
     .orderBy(desc(schema.evaluations.createdAt));
 
-  const allPrompts = await db.select().from(schema.prompts);
+  const allPrompts = await db
+    .select()
+    .from(schema.prompts)
+    .where(visiblePrompts(user.id));
   const promptMap = new Map(allPrompts.map((p) => [p.id, p]));
 
   const chronological = [...allEvals].reverse();
@@ -103,7 +111,10 @@ export default async function AnalyticsPage() {
 
   const now = new Date();
   const currentMonthPrefix = now.toISOString().slice(0, 7); // "YYYY-MM"
-  const allUsage = await db.select().from(schema.aiUsage);
+  const allUsage = await db
+    .select()
+    .from(schema.aiUsage)
+    .where(eq(schema.aiUsage.userId, user.id));
   const monthlyUsage = allUsage.filter((u) => u.createdAt.startsWith(currentMonthPrefix));
   const usageSpend = monthlyUsage.reduce((acc, u) => acc + (u.costUsd || 0), 0);
   const evalsSpend = allEvals
@@ -117,7 +128,7 @@ export default async function AnalyticsPage() {
   }
 
   return (
-    <AppShell passcodeActive={isPasscodeRequired()}>
+    <AppShell user={user}>
       <AnalyticsClient
         targetBand={cfg.targetBand}
         totalEssaysGraded={allEvals.length}

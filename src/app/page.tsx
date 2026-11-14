@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
-import { isPasscodeRequired } from "@/lib/auth";
+import { requireUser } from "@/lib/session";
+import { getOrCreateSettings, visiblePrompts } from "@/lib/db/scope";
 import { resolveUserAndAIConfig } from "@/lib/ai/providers";
 import { computeDaysUntilExam } from "@/lib/ielts-utils";
 import { AppShell } from "@/components/AppShell";
@@ -9,28 +10,33 @@ import { StudioHomeClient } from "@/components/StudioHomeClient";
 export const dynamic = "force-dynamic";
 
 export default async function StudioHomePage() {
+  const user = await requireUser();
   const db = await getDb();
-  const aiCfg = await resolveUserAndAIConfig();
+  const aiCfg = await resolveUserAndAIConfig(user.id);
 
   const allPrompts = await db
     .select()
     .from(schema.prompts)
+    .where(visiblePrompts(user.id))
     .orderBy(desc(schema.prompts.createdAt));
 
   const sessions = await db
     .select()
     .from(schema.writingSessions)
+    .where(eq(schema.writingSessions.userId, user.id))
     .orderBy(desc(schema.writingSessions.startedAt))
     .limit(10);
 
   const allDrafts = await db
     .select()
     .from(schema.drafts)
+    .where(eq(schema.drafts.userId, user.id))
     .orderBy(desc(schema.drafts.version));
 
   const allEvals = await db
     .select({ draftId: schema.evaluations.draftId })
-    .from(schema.evaluations);
+    .from(schema.evaluations)
+    .where(eq(schema.evaluations.userId, user.id));
   const evaluatedDraftIds = new Set(allEvals.map((e) => e.draftId));
 
   const promptMap = new Map(allPrompts.map((p) => [p.id, p]));
@@ -52,15 +58,12 @@ export default async function StudioHomePage() {
     };
   });
 
-  const [settingsRow] = await db
-    .select()
-    .from(schema.userSettings)
-    .where(eq(schema.userSettings.id, 1));
+  const settingsRow = await getOrCreateSettings(db, user.id);
 
   const daysUntilExam = computeDaysUntilExam(settingsRow?.examDate);
 
   return (
-    <AppShell passcodeActive={isPasscodeRequired()}>
+    <AppShell user={user}>
       <StudioHomeClient
         initialPrompts={allPrompts}
         recentSessions={recentSessions}

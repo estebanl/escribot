@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
-import { isPasscodeRequired } from "@/lib/auth";
+import { requireUser } from "@/lib/session";
+import { getOwnedSession, getVisiblePrompt } from "@/lib/db/scope";
 import { AppShell } from "@/components/AppShell";
 import {
   EvaluationWorkbench,
@@ -16,12 +17,10 @@ export default async function SessionEvaluationPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = await params;
+  const user = await requireUser();
   const db = await getDb();
 
-  const [session] = await db
-    .select()
-    .from(schema.writingSessions)
-    .where(eq(schema.writingSessions.id, sessionId));
+  const session = await getOwnedSession(db, user.id, sessionId);
 
   if (!session) {
     notFound();
@@ -30,29 +29,28 @@ export default async function SessionEvaluationPage({
   const rawDrafts = await db
     .select()
     .from(schema.drafts)
-    .where(eq(schema.drafts.sessionId, sessionId))
+    .where(and(eq(schema.drafts.sessionId, sessionId), eq(schema.drafts.userId, user.id)))
     .orderBy(asc(schema.drafts.version));
 
   const hydratedDrafts: HydratedDraft[] = await Promise.all(
     rawDrafts.map(async (d) => {
-      const [prompt] = await db
-        .select()
-        .from(schema.prompts)
-        .where(eq(schema.prompts.id, d.promptId));
+      const prompt = await getVisiblePrompt(db, user.id, d.promptId);
       const [ev] = await db
         .select()
         .from(schema.evaluations)
-        .where(eq(schema.evaluations.draftId, d.id));
+        .where(
+          and(eq(schema.evaluations.draftId, d.id), eq(schema.evaluations.userId, user.id))
+        );
       return {
         ...d,
-        prompt: prompt || null,
+        prompt,
         evaluation: ev || null,
       };
     })
   );
 
   return (
-    <AppShell passcodeActive={isPasscodeRequired()}>
+    <AppShell user={user}>
       <EvaluationWorkbench
         initialSession={{
           id: session.id,

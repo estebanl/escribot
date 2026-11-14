@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { runToolkitWithAI } from "@/lib/ai/examiner";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 import type { ToolkitRequest } from "@/lib/types";
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as Partial<ToolkitRequest>;
 
     if (!body.tool || !body.selectedText?.trim() || !body.promptText) {
@@ -13,7 +16,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await runToolkitWithAI({
+    const result = await runToolkitWithAI(user.id, {
       tool: body.tool,
       taskType: body.taskType === "task1" ? "task1" : "task2",
       promptText: body.promptText,

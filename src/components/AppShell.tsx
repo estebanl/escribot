@@ -14,6 +14,7 @@ import {
   Moon,
   LogOut,
 } from "lucide-react";
+import { authClient } from "@/lib/auth-client";
 
 const NAV_ITEMS = [
   { href: "/", label: "Studio", icon: BookOpen, id: "nav-studio" },
@@ -34,10 +35,10 @@ function subscribeTheme(callback: () => void) {
 
 export function AppShell({
   children,
-  passcodeActive = false,
+  user,
 }: {
   children: React.ReactNode;
-  passcodeActive?: boolean;
+  user?: { name: string; email: string } | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -58,7 +59,7 @@ export function AppShell({
   }
 
   async function handleSignOut() {
-    await fetch("/api/auth", { method: "DELETE" });
+    await authClient.signOut();
     router.push("/login");
     router.refresh();
   }
@@ -124,12 +125,12 @@ export function AppShell({
               {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            {passcodeActive && (
+            {user && (
               <button
                 id="signout-button"
                 type="button"
                 onClick={handleSignOut}
-                title="Lock Workspace"
+                title={`Sign out (${user.email})`}
                 className="p-2 rounded-lg border border-line bg-canvas hover:bg-subtle text-ink-secondary hover:text-ink transition cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />

@@ -1,10 +1,11 @@
 import crypto from "crypto";
-import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { getOrCreateSettings } from "@/lib/db/scope";
 import { decryptString } from "@/lib/crypto";
 import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
 
 export interface ResolvedAIConfig {
+  userId: string;
   provider: AIProviderId;
   graderModel: string;
   fastModel: string;
@@ -69,12 +70,9 @@ export const PROVIDER_DEFAULTS: Record<AIProviderId, ProviderDefaults> = {
   },
 };
 
-export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
+export async function resolveUserAndAIConfig(userId: string): Promise<ResolvedAIConfig> {
   const db = await getDb();
-  const [settings] = await db
-    .select()
-    .from(schema.userSettings)
-    .where(eq(schema.userSettings.id, 1));
+  const settings = await getOrCreateSettings(db, userId);
 
   let storedKeys: Partial<Record<AIProviderId, string>> = {};
   if (settings?.encryptedApiKeys && settings.encryptedApiKeys !== "{}") {
@@ -124,6 +122,7 @@ export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
   }
 
   return {
+    userId,
     provider,
     graderModel,
     fastModel,
@@ -138,6 +137,8 @@ export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
 }
 
 export interface GenerateCompletionOptions {
+  /** Owner of the request; AI usage and spend are recorded against this user. */
+  userId: string;
   provider: AIProviderId;
   apiKey: string;
   model: string;
@@ -181,6 +182,7 @@ export async function callLLMWithMeta(
   opts: GenerateCompletionOptions
 ): Promise<LLMResultWithMeta> {
   const {
+    userId,
     provider,
     apiKey,
     model,
@@ -314,6 +316,7 @@ export async function callLLMWithMeta(
         const database = await getDb();
         await database.insert(schema.aiUsage).values({
           id: `use-${crypto.randomUUID().slice(0, 10)}`,
+          userId,
           feature: feature || "general",
           provider: "openrouter",
           modelUsed: actualModel,

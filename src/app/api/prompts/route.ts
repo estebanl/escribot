@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
+import { visiblePrompts } from "@/lib/db/scope";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 
 export async function GET(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const db = await getDb();
     const { searchParams } = new URL(request.url);
     const taskType = searchParams.get("taskType");
@@ -13,11 +17,12 @@ export async function GET(request: Request) {
       ? await db
           .select()
           .from(schema.prompts)
-          .where(eq(schema.prompts.taskType, taskType))
+          .where(and(eq(schema.prompts.taskType, taskType), visiblePrompts(user.id)))
           .orderBy(desc(schema.prompts.createdAt))
       : await db
           .select()
           .from(schema.prompts)
+          .where(visiblePrompts(user.id))
           .orderBy(desc(schema.prompts.createdAt));
 
     return NextResponse.json({ prompts: rows });
@@ -31,6 +36,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as {
       taskType?: "task1" | "task2";
       category?: string;
@@ -53,6 +60,7 @@ export async function POST(request: Request) {
 
     const newPrompt = {
       id,
+      userId: user.id,
       taskType: body.taskType,
       category:
         body.category || (body.taskType === "task1" ? "line" : "opinion"),

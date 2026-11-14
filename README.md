@@ -1,6 +1,6 @@
 # FluentEscritor
 
-**FluentEscritor** is an Academic IELTS Writing Coach & Authentic Computer-Delivered (Inspera) Exam Simulator built to help writers break past the **Band 6.5 → 7.5/8.0+ plateau**, synced across devices on Vercel + Turso.
+**FluentEscritor** is an Academic IELTS Writing Coach & Authentic Computer-Delivered (Inspera) Exam Simulator built to help writers break past the **Band 6.5 → 7.5/8.0+ plateau**, with private per-user accounts, deployed on Vercel + Turso.
 
 ## Core Capabilities
 
@@ -28,11 +28,23 @@ cp .env.example .env.local
 npm run dev
 ```
 
-By default in local development, `FluentEscritor` automatically creates and seeds `file:./local.db` (SQLite/LibSQL) on first boot—no manual migration command required.
+On first boot `FluentEscritor` creates `file:./local.db` (SQLite/LibSQL), applies the SQL migrations in `/drizzle`, and seeds the curated prompt bank — no manual migration command required. Open `http://localhost:3000/signup` to create your account.
+
+Without email configured, password-reset links are printed to the dev server console.
+
+### Accounts & data isolation
+
+- Sign-in is handled by [Better Auth](https://www.better-auth.com) (email + password, optional Google), with sessions stored in the same database.
+- Every essay, draft, evaluation, Vault item, drill, custom prompt, settings row, and AI usage record belongs to one user (`user_id`). Curated prompts are the only shared rows.
+- Server pages call `requireUser()` and API routes call `getCurrentUser()` (`src/lib/session.ts`); ownership filters live in `src/lib/db/scope.ts`.
+
+### Database migrations
+
+Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:generate`, and commit the new file in `/drizzle`. Migrations are applied automatically at startup (or manually with `npm run db:migrate`).
 
 ---
 
-## Deploying to Vercel (Cross-Device Sync)
+## Deploying to Vercel
 
 1. **Create a free Turso database**:
    ```bash
@@ -41,9 +53,20 @@ By default in local development, `FluentEscritor` automatically creates and seed
    turso db tokens create fluentescritor
    ```
 2. **Import the repository into Vercel** and set these Environment Variables:
-   - `APP_PASSCODE` — Your personal passcode to unlock the workspace across laptop, tablet, and phone (protected by an `HttpOnly` HMAC-signed cookie).
+   - `BETTER_AUTH_SECRET` — 32+ character random secret for session cookies (`openssl rand -base64 32`).
+   - `BETTER_AUTH_URL` — Public URL of the deployment, e.g. `https://your-app.vercel.app`.
    - `TURSO_DATABASE_URL` — `libsql://...` URL from Turso.
    - `TURSO_AUTH_TOKEN` — Auth token from Turso.
-   - `OPENROUTER_API_KEY` — Your OpenRouter API key from `openrouter.ai` (or configure keys inside the encrypted **Settings** UI after unlocking).
-   - *(Optional)* `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `APP_SECRET`.
-3. **Deploy**: Tables and the curated Academic IELTS starter bank initialize idempotently on first request.
+   - `OPENROUTER_API_KEY` — Platform OpenRouter key used for users who have not saved their own key in **Settings**.
+   - `APP_SECRET` — Secret for `AES-256-GCM` encryption of API keys saved in Settings.
+   - *(Recommended until usage quotas exist)* `ALLOWED_SIGNUP_EMAILS` — Comma-separated allowlist of emails that may sign up. Every account can spend the platform AI keys, so leave sign-ups closed unless you accept that cost.
+   - *(Optional)* `RESEND_API_KEY` + `EMAIL_FROM` — Enables email verification and emailed password-reset links.
+   - *(Optional)* `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` — Enables "Continue with Google" (redirect URI `<BETTER_AUTH_URL>/api/auth/callback/google`).
+   - *(Optional)* `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
+3. **Deploy**: Migrations and the curated Academic IELTS starter bank are applied idempotently on first request.
+
+### Upgrading a single-user (passcode) deployment
+
+1. Set `OWNER_EMAIL` to the email you will sign up with, plus `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`.
+2. Keep `APP_SECRET` unchanged (or keep `APP_PASSCODE` set if you never defined `APP_SECRET`) so API keys saved in Settings still decrypt.
+3. Deploy, then sign up immediately with that email: your existing essays, evaluations, Vault, drills, custom prompts, and settings are moved to your account. Until you do, that data is held by a placeholder owner and is not visible to anyone.

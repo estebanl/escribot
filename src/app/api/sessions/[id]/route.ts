@@ -1,46 +1,36 @@
 import { NextResponse } from "next/server";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { getOwnedSession, getVisiblePrompt } from "@/lib/db/scope";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
+
     const { id } = await context.params;
     const db = await getDb();
 
-    const [session] = await db
-      .select()
-      .from(schema.writingSessions)
-      .where(eq(schema.writingSessions.id, id));
-
+    const session = await getOwnedSession(db, user.id, id);
     if (!session) {
       return NextResponse.json({ error: "Writing session not found." }, { status: 404 });
     }
 
     const task1Prompt = session.task1PromptId
-      ? (
-          await db
-            .select()
-            .from(schema.prompts)
-            .where(eq(schema.prompts.id, session.task1PromptId))
-        )[0] || null
+      ? await getVisiblePrompt(db, user.id, session.task1PromptId)
       : null;
-
     const task2Prompt = session.task2PromptId
-      ? (
-          await db
-            .select()
-            .from(schema.prompts)
-            .where(eq(schema.prompts.id, session.task2PromptId))
-        )[0] || null
+      ? await getVisiblePrompt(db, user.id, session.task2PromptId)
       : null;
 
     const sessionDrafts = await db
       .select()
       .from(schema.drafts)
-      .where(eq(schema.drafts.sessionId, id))
+      .where(and(eq(schema.drafts.sessionId, id), eq(schema.drafts.userId, user.id)))
       .orderBy(asc(schema.drafts.version));
 
     const draftEvals = await Promise.all(
@@ -48,14 +38,15 @@ export async function GET(
         const [ev] = await db
           .select()
           .from(schema.evaluations)
-          .where(eq(schema.evaluations.draftId, d.id));
-        const [prompt] = await db
-          .select()
-          .from(schema.prompts)
-          .where(eq(schema.prompts.id, d.promptId));
+          .where(
+            and(
+              eq(schema.evaluations.draftId, d.id),
+              eq(schema.evaluations.userId, user.id)
+            )
+          );
         return {
           ...d,
-          prompt: prompt || null,
+          prompt: await getVisiblePrompt(db, user.id, d.promptId),
           evaluation: ev || null,
         };
       })

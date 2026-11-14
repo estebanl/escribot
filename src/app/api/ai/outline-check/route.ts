@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { getVisiblePrompt } from "@/lib/db/scope";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 import { checkOutlineWithAI, extractVisualSpecFromImage } from "@/lib/ai/examiner";
 import type { OutlineInput, TaskType } from "@/lib/types";
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as {
       promptId?: string;
       taskType?: TaskType;
@@ -23,10 +27,7 @@ export async function POST(request: Request) {
     let visualContext: string | null = null;
     if (body.promptId) {
       const db = await getDb();
-      const [prompt] = await db
-        .select()
-        .from(schema.prompts)
-        .where(eq(schema.prompts.id, body.promptId));
+      const prompt = await getVisiblePrompt(db, user.id, body.promptId);
 
       if (prompt) {
         if (prompt.chartSpecJson) {
@@ -36,7 +37,8 @@ export async function POST(request: Request) {
         } else if (prompt.imageDataUrl) {
           visualContext = await extractVisualSpecFromImage(
             prompt.imageDataUrl,
-            prompt.promptText
+            prompt.promptText,
+            user.id
           );
           await db
             .update(schema.prompts)
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
     }
 
     const feedback = await checkOutlineWithAI({
+      userId: user.id,
       taskType: body.taskType === "task1" ? "task1" : "task2",
       promptText: body.promptText,
       visualContext,
