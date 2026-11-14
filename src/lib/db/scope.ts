@@ -83,13 +83,20 @@ async function seedStarterVault(db: Db, userId: string) {
  */
 async function claimLegacyData(db: Db, userId: string): Promise<boolean> {
   const legacy = schema.LEGACY_USER_ID;
-  const [legacySettings] = await db
-    .select({ userId: schema.userSettings.userId })
-    .from(schema.userSettings)
-    .where(eq(schema.userSettings.userId, legacy));
-  if (!legacySettings) return false;
+  // Cheap early exit for the common case (nothing left to claim).
+  if (!(await hasLegacyData(db))) return false;
 
-  await db.transaction(async (tx) => {
+  // Two page loads can claim at the same time. Check again inside the
+  // transaction (libsql runs write transactions one at a time), so the second
+  // one sees the data is already claimed instead of deleting the settings row
+  // the first one just moved.
+  return db.transaction(async (tx) => {
+    const [stillLegacy] = await tx
+      .select({ userId: schema.userSettings.userId })
+      .from(schema.userSettings)
+      .where(eq(schema.userSettings.userId, legacy));
+    if (!stillLegacy) return false;
+
     await tx.delete(schema.userSettings).where(eq(schema.userSettings.userId, userId));
     await tx
       .update(schema.userSettings)
@@ -114,8 +121,8 @@ async function claimLegacyData(db: Db, userId: string): Promise<boolean> {
       .set({ userId })
       .where(eq(schema.microDrills.userId, legacy));
     await tx.update(schema.aiUsage).set({ userId }).where(eq(schema.aiUsage.userId, legacy));
+    return true;
   });
-  return true;
 }
 
 export function isOwnerEmail(email: string): boolean {
