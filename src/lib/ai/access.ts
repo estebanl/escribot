@@ -1,0 +1,132 @@
+import { NextResponse } from "next/server";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { PLANS, type PlanId } from "@/lib/plans";
+import { resolveUserAndAIConfig, type AIKeySource } from "@/lib/ai/providers";
+
+/** What a request spends: a graded essay, or one of the lighter AI helpers. */
+export type AIRequestKind = "evaluation" | "assist";
+
+// ai_usage.feature values that mark one billable unit of each kind.
+const EVALUATION_FEATURES = ["rubric_score", "rubric_score_fallback"];
+const ASSIST_FEATURES = [
+  "outline_check",
+  "toolkit",
+  "prompt_generation",
+  "drill_generate",
+  "drill_score",
+];
+
+const AI_REQUESTS_PER_MINUTE = 20;
+
+export interface UsageSummary {
+  plan: PlanId;
+  planLabel: string;
+  keySource: AIKeySource;
+  canChooseModels: boolean;
+  evaluations: { used: number; limit: number | null };
+  assists: { used: number; limit: number | null };
+  /** ISO timestamp of the next monthly reset (UTC). */
+  resetsAt: string;
+}
+
+function monthBounds(now = new Date()) {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return { start: start.toISOString(), next: next.toISOString() };
+}
+
+async function countPlatformUsage(userId: string, features: string[], since: string) {
+  const db = await getDb();
+  const [row] = await db
+    .select({ value: sql<number>`count(*)` })
+    .from(schema.aiUsage)
+    .where(
+      and(
+        eq(schema.aiUsage.userId, userId),
+        eq(schema.aiUsage.keySource, "platform"),
+        gte(schema.aiUsage.createdAt, since),
+        inArray(schema.aiUsage.feature, features)
+      )
+    );
+  return Number(row?.value ?? 0);
+}
+
+export async function getUsageSummary(userId: string): Promise<UsageSummary> {
+  const cfg = await resolveUserAndAIConfig(userId);
+  const limits = PLANS[cfg.plan];
+  const { start, next } = monthBounds();
+  const [evaluationsUsed, assistsUsed] = await Promise.all([
+    countPlatformUsage(userId, EVALUATION_FEATURES, start),
+    countPlatformUsage(userId, ASSIST_FEATURES, start),
+  ]);
+
+  return {
+    plan: cfg.plan,
+    planLabel: limits.label,
+    keySource: cfg.keySource,
+    canChooseModels: limits.canChooseModels,
+    evaluations: { used: evaluationsUsed, limit: limits.evaluationsPerMonth },
+    assists: { used: assistsUsed, limit: limits.assistsPerMonth },
+    resetsAt: next,
+  };
+}
+
+function tooManyRequests(error: string, code: string, retryAfterSeconds?: number) {
+  return NextResponse.json(
+    { error, code },
+    {
+      status: 429,
+      headers: retryAfterSeconds ? { "Retry-After": String(retryAfterSeconds) } : undefined,
+    }
+  );
+}
+
+/**
+ * Call at the top of every AI route. Returns a 429 response when the user is
+ * sending requests too fast or has used up their plan's monthly allowance on
+ * the platform keys; returns null when the request may proceed.
+ */
+export async function guardAiRequest(
+  userId: string,
+  kind: AIRequestKind,
+  units = 1
+): Promise<NextResponse | null> {
+  const rate = await checkRateLimit(`ai:${userId}`, AI_REQUESTS_PER_MINUTE, 60);
+  if (!rate.allowed) {
+    return tooManyRequests(
+      "You are sending AI requests too quickly. Please wait a moment and try again.",
+      "rate_limited",
+      rate.retryAfterSeconds
+    );
+  }
+
+  const cfg = await resolveUserAndAIConfig(userId);
+  // Own key: the user pays. No key at all: features fall back to local heuristics.
+  if (cfg.keySource !== "platform") return null;
+
+  const limits = PLANS[cfg.plan];
+  const limit = kind === "evaluation" ? limits.evaluationsPerMonth : limits.assistsPerMonth;
+  if (limit === null) return null;
+
+  const { start, next } = monthBounds();
+  const used = await countPlatformUsage(
+    userId,
+    kind === "evaluation" ? EVALUATION_FEATURES : ASSIST_FEATURES,
+    start
+  );
+  if (used + units <= limit) return null;
+
+  const resetDate = next.slice(0, 10);
+  const what = kind === "evaluation" ? "graded essays" : "AI coaching requests";
+  const remaining = Math.max(0, limit - used);
+  const detail =
+    remaining > 0 && units > 1
+      ? `This submission needs ${units} but only ${remaining} of your ${limit} monthly ${what} remain.`
+      : `You have used all ${limit} ${what} included in the ${limits.label} plan this month.`;
+  return tooManyRequests(
+    `${detail} Your allowance resets on ${resetDate}. To keep going now, add your own API key in Settings.`,
+    "quota_exceeded"
+  );
+}

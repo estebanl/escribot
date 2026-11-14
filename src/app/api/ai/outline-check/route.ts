@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { getVisiblePrompt } from "@/lib/db/scope";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { guardAiRequest } from "@/lib/ai/access";
 import { checkOutlineWithAI, extractVisualSpecFromImage } from "@/lib/ai/examiner";
 import type { OutlineInput, TaskType } from "@/lib/types";
 
@@ -23,6 +24,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const blocked = await guardAiRequest(user.id, "assist");
+    if (blocked) return blocked;
 
     let visualContext: string | null = null;
     if (body.promptId) {

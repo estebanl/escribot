@@ -66,6 +66,21 @@ export const verification = sqliteTable(
   (t) => [index("idx_verification_identifier").on(t.identifier)]
 );
 
+/** Better Auth's rate-limit counters for the /api/auth endpoints. */
+export const rateLimit = sqliteTable("rate_limit", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: integer("last_request").notNull(),
+});
+
+/** Fixed-window counters for our own API rate limits (src/lib/rate-limit.ts). */
+export const apiRateLimits = sqliteTable("api_rate_limits", {
+  key: text("key").primaryKey(),
+  windowStart: integer("window_start").notNull(),
+  count: integer("count").notNull(),
+});
+
 // ---------------------------------------------------------------------------
 // Application tables. Every row is owned by a user via `userId`; the only
 // shared rows are curated prompts, which have a NULL `userId`.
@@ -91,6 +106,7 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default("deepseek/deepseek-v4.1-flash-1017"),
   encryptedApiKeys: text("encrypted_api_keys").notNull().default("{}"),
+  plan: text("plan").notNull().default("free"), // "free" | "pro" (see src/lib/plans.ts)
   updatedAt: text("updated_at").notNull(),
 });
 
@@ -193,6 +209,7 @@ export const aiUsage = sqliteTable("ai_usage", {
   userId: text("user_id").notNull(),
   feature: text("feature").notNull(), // "rubric_score" | "annotations_rewrite" | "outline_check" | "toolkit" | "prompt_generation" | "drill_generate" | "drill_score" | "vision_extract"
   provider: text("provider").notNull(),
+  keySource: text("key_source").notNull().default("platform"), // "platform" (our key, counts toward quota) | "user" (their own key)
   modelUsed: text("model_used").notNull(),
   promptTokens: integer("prompt_tokens"),
   completionTokens: integer("completion_tokens"),

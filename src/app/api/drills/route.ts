@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { guardAiRequest } from "@/lib/ai/access";
 import { generateMicroDrillWithAI, scoreMicroDrillWithAI } from "@/lib/ai/examiner";
 import { isDrillLevel } from "@/lib/ielts-utils";
 import type { DrillLevel, DrillType, MicroDrillChallenge } from "@/lib/types";
@@ -46,6 +47,9 @@ export async function POST(request: Request) {
     const level: DrillLevel = isDrillLevel(body.level) ? body.level : "advanced";
 
     if (body.action === "generate") {
+      const blocked = await guardAiRequest(user.id, "assist");
+      if (blocked) return blocked;
+
       const vaultRows = await db
         .select()
         .from(schema.vaultItems)
@@ -90,6 +94,9 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
+
+      const blocked = await guardAiRequest(user.id, "assist");
+      if (blocked) return blocked;
 
       const score = await scoreMicroDrillWithAI({
         userId: user.id,

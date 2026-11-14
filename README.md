@@ -38,6 +38,14 @@ Without email configured, password-reset links are printed to the dev server con
 - Every essay, draft, evaluation, Vault item, drill, custom prompt, settings row, and AI usage record belongs to one user (`user_id`). Curated prompts are the only shared rows.
 - Server pages call `requireUser()` and API routes call `getCurrentUser()` (`src/lib/session.ts`); ownership filters live in `src/lib/db/scope.ts`.
 
+### Plans, quotas & rate limits
+
+- **Platform keys are metered.** Requests paid for by the deployment's env keys count toward the account's plan (`src/lib/plans.ts`): Free = 5 graded essays + 60 coaching requests per month, Pro = 100 + 1,500. Limits reset on the 1st (UTC). The `OWNER_EMAIL` account is unlimited.
+- **Own key = no limits.** A user who saves their own provider key in Settings pays for their own usage and is never metered.
+- **Model choice is plan-gated.** On platform keys, Free accounts always use the default provider and models; Pro and own-key users can choose.
+- **Rate limits** are stored in the database so they hold across serverless instances: 20 AI requests per minute per user, plus per-IP limits on sign-in, sign-up and password reset.
+- Until billing exists, a plan is changed directly in the database: `UPDATE user_settings SET plan = 'pro' WHERE user_id = '<id>';`
+
 ### Database migrations
 
 Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:generate`, and commit the new file in `/drizzle`. Migrations are applied automatically at startup (or manually with `npm run db:migrate`).
@@ -58,8 +66,8 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
    - `TURSO_DATABASE_URL` — `libsql://...` URL from Turso.
    - `TURSO_AUTH_TOKEN` — Auth token from Turso.
    - `OPENROUTER_API_KEY` — Platform OpenRouter key used for users who have not saved their own key in **Settings**.
-   - `APP_SECRET` — Secret for `AES-256-GCM` encryption of API keys saved in Settings.
-   - *(Recommended until usage quotas exist)* `ALLOWED_SIGNUP_EMAILS` — Comma-separated allowlist of emails that may sign up. Every account can spend the platform AI keys, so leave sign-ups closed unless you accept that cost.
+   - `APP_SECRET` — Required. Long random secret for `AES-256-GCM` encryption of API keys saved in Settings.
+   - *(Optional)* `ALLOWED_SIGNUP_EMAILS` — Comma-separated allowlist of emails that may sign up. Leave empty for open sign-ups; each Free account can then spend the platform AI keys up to its monthly quota.
    - *(Optional)* `RESEND_API_KEY` + `EMAIL_FROM` — Enables email verification and emailed password-reset links.
    - *(Optional)* `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` — Enables "Continue with Google" (redirect URI `<BETTER_AUTH_URL>/api/auth/callback/google`).
    - *(Optional)* `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
@@ -68,5 +76,5 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
 ### Upgrading a single-user (passcode) deployment
 
 1. Set `OWNER_EMAIL` to the email you will sign up with, plus `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`.
-2. Keep `APP_SECRET` unchanged (or keep `APP_PASSCODE` set if you never defined `APP_SECRET`) so API keys saved in Settings still decrypt.
+2. Set `APP_SECRET`. If you never defined it before, also keep `APP_PASSCODE` set until you have opened Settings and pressed Save once: keys encrypted with the old passcode are then re-encrypted with `APP_SECRET`.
 3. Deploy, then sign up immediately with that email: your existing essays, evaluations, Vault, drills, custom prompts, and settings are moved to your account. Until you do, that data is held by a placeholder owner and is not visible to anyone.

@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
 import { getOwnedSession, getVisiblePrompt } from "@/lib/db/scope";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { guardAiRequest } from "@/lib/ai/access";
 import { evaluateEssayWithAI, extractVisualSpecFromImage } from "@/lib/ai/examiner";
 import { computeWeightedExamBand, countEssayWords } from "@/lib/ielts-utils";
 import type {
@@ -88,6 +89,10 @@ export async function POST(request: Request) {
 
     validatedSubmissions.push({ sub, prompt });
   }
+
+  // One graded essay per submission (a full mock exam spends two).
+  const blocked = await guardAiRequest(userId, "evaluation", validatedSubmissions.length);
+  if (blocked) return blocked;
 
   const encoder = new TextEncoder();
 

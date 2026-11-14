@@ -15,6 +15,13 @@
       "when": 1794674809292,
       "tag": "0001_multi_user",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794675663189,
+      "tag": "0002_usage_limits",
+      "breakpoints": true
     }
   ]
 }

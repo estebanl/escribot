@@ -5,6 +5,7 @@ import { getOrCreateSettings } from "@/lib/db/scope";
 import { getCurrentUser, unauthorized } from "@/lib/session";
 import { decryptString, encryptString, maskApiKey } from "@/lib/crypto";
 import { PROVIDER_DEFAULTS } from "@/lib/ai/providers";
+import { getUsageSummary } from "@/lib/ai/access";
 import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
 
 export async function GET() {
@@ -113,6 +114,7 @@ export async function GET() {
       keyStatus,
       activeProviderReady: activeReady,
       providerDefaults: PROVIDER_DEFAULTS,
+      usage: await getUsageSummary(user.id),
     });
   } catch (err) {
     return NextResponse.json(
@@ -147,6 +149,13 @@ export async function PUT(request: Request) {
       encryptedMap = JSON.parse(existing?.encryptedApiKeys || "{}");
     } catch {
       encryptedMap = {};
+    }
+
+    // Re-encrypt keys saved under an older secret (see decryptString) so they
+    // end up protected by the current APP_SECRET.
+    for (const [prov, enc] of Object.entries(encryptedMap)) {
+      const plain = decryptString(enc);
+      if (plain) encryptedMap[prov] = encryptString(plain);
     }
 
     if (body.apiKeysToUpdate) {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { guardAiRequest } from "@/lib/ai/access";
 import { generatePromptWithAI } from "@/lib/ai/examiner";
 import type { PromptCategory, TaskType } from "@/lib/types";
 
@@ -20,6 +21,9 @@ export async function POST(request: Request) {
     const taskType: TaskType = body.taskType === "task1" ? "task1" : "task2";
     const category: PromptCategory =
       body.category || (taskType === "task1" ? "line" : "opinion");
+
+    const blocked = await guardAiRequest(user.id, "assist");
+    if (blocked) return blocked;
 
     const generated = await generatePromptWithAI({
       userId: user.id,

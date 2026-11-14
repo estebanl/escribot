@@ -37,8 +37,24 @@ function createAuth(db: Db) {
         session: schema.session,
         account: schema.account,
         verification: schema.verification,
+        rateLimit: schema.rateLimit,
       },
     }),
+    // Per-IP limits on the auth endpoints, stored in the database so they hold
+    // across serverless instances. Sign-in, sign-up and password reset get
+    // tighter limits than the session checks every page performs.
+    rateLimit: {
+      enabled: process.env.NODE_ENV === "production" || process.env.AUTH_RATE_LIMIT === "on",
+      storage: "database",
+      window: 60,
+      max: 100,
+      customRules: {
+        "/sign-in/email": { window: 60, max: 5 },
+        "/sign-up/email": { window: 3600, max: 10 },
+        "/request-password-reset": { window: 3600, max: 3 },
+        "/reset-password": { window: 600, max: 5 },
+      },
+    },
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 8,

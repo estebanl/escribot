@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runToolkitWithAI } from "@/lib/ai/examiner";
 import { getCurrentUser, unauthorized } from "@/lib/session";
+import { guardAiRequest } from "@/lib/ai/access";
 import type { ToolkitRequest } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -15,6 +16,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const blocked = await guardAiRequest(user.id, "assist");
+    if (blocked) return blocked;
 
     const result = await runToolkitWithAI(user.id, {
       tool: body.tool,
