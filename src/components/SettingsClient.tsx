@@ -30,6 +30,7 @@ interface UsageSummary {
   canChooseModels: boolean;
   evaluations: { used: number; limit: number | null };
   assists: { used: number; limit: number | null };
+  verificationRequired: boolean;
   resetsAt: string;
 }
 
@@ -422,6 +423,17 @@ export function SettingsClient({
                 timeZone: "UTC",
               })}
               . Add your own API key below to remove these limits.
+            </p>
+          )}
+
+          {usage.verificationRequired && (
+            <p
+              id="verification-required-note"
+              role="status"
+              className="text-sm p-3 rounded-lg border border-line-strong bg-subtle text-ink"
+            >
+              Verify your email address to use AI feedback on the Free plan. Upgrading to
+              Pro or adding your own API key also works.
             </p>
           )}
 

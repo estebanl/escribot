@@ -39,14 +39,32 @@ export const PLANS: Record<PlanId, PlanLimits> = {
 
 /**
  * @param storedPlan     user_settings.plan, a manual override ("pro" = complimentary Pro)
+ * @param account        the user's email and whether it is verified; the owner
+ *                       plan needs a verified OWNER_EMAIL so it cannot be claimed
+ *                       by signing up with someone else's address
  * @param hasPaidPro     whether the user has a Stripe subscription that grants Pro
  */
+/**
+ * Invite-approved addresses (ALLOWED_SIGNUP_EMAILS, OWNER_EMAIL) are trusted
+ * like verified ones for the Free plan's use of platform keys.
+ */
+export function isInvitedEmail(email: string): boolean {
+  const candidate = email.trim().toLowerCase();
+  const invited = (process.env.ALLOWED_SIGNUP_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return invited.includes(candidate);
+}
+
 export function resolvePlan(
   storedPlan: string | null | undefined,
-  email: string,
+  account: { email: string; emailVerified: boolean },
   hasPaidPro = false
 ): PlanId {
   const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
-  if (ownerEmail && email.trim().toLowerCase() === ownerEmail) return "owner";
+  if (ownerEmail && account.emailVerified && account.email.trim().toLowerCase() === ownerEmail) {
+    return "owner";
+  }
   return hasPaidPro || storedPlan === "pro" ? "pro" : "free";
 }

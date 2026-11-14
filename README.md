@@ -43,6 +43,7 @@ Without email configured, password-reset links are printed to the dev server con
 - **Platform keys are metered.** Requests paid for by the deployment's env keys count toward the account's plan (`src/lib/plans.ts`): Free = 5 graded essays + 60 coaching requests per month, Pro = 100 + 1,500. Limits reset on the 1st (UTC). The `OWNER_EMAIL` account is unlimited.
 - **Own key = no limits.** A user who saves their own provider key in Settings pays for their own usage and is never metered.
 - **Model choice is plan-gated.** On platform keys, Free accounts always use the default provider and models; Pro and own-key users can choose.
+- **Free AI needs a real address.** In production, Free accounts can use the platform keys only once their email is verified (or they signed in with Google, or are listed in `ALLOWED_SIGNUP_EMAILS`), so throwaway sign-ups cannot multiply the allowance. Set `FREE_PLAN_DAILY_AI_CAP` (e.g. `500`) to also cap total Free usage per day across all accounts.
 - **Rate limits** are stored in the database so they hold across serverless instances: 20 AI requests per minute per user, plus per-IP limits on sign-in, sign-up and password reset.
 - To give someone complimentary Pro without a subscription: `UPDATE user_settings SET plan = 'pro' WHERE user_id = '<id>';`
 
@@ -84,7 +85,8 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
    - `OPENROUTER_API_KEY` — Platform OpenRouter key used for users who have not saved their own key in **Settings**.
    - `APP_SECRET` — Required. Long random secret for `AES-256-GCM` encryption of API keys saved in Settings.
    - *(Optional)* `ALLOWED_SIGNUP_EMAILS` — Comma-separated allowlist of emails that may sign up. Leave empty for open sign-ups; each Free account can then spend the platform AI keys up to its monthly quota.
-   - *(Optional)* `RESEND_API_KEY` + `EMAIL_FROM` — Enables email verification and emailed password-reset links.
+   - *(Strongly recommended)* `RESEND_API_KEY` + `EMAIL_FROM` — Email verification and password-reset links. Without them, password reset is disabled and Free accounts can only use the platform AI keys via Google sign-in or `ALLOWED_SIGNUP_EMAILS`.
+   - *(Optional)* `FREE_PLAN_DAILY_AI_CAP` — Daily ceiling on Free-plan AI requests across all accounts.
    - *(Optional)* `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `STRIPE_WEBHOOK_SECRET` — Enables paid Pro (see **Billing** above).
    - *(Optional)* `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` — Enables "Continue with Google" (redirect URI `<BETTER_AUTH_URL>/api/auth/callback/google`).
    - *(Optional)* `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
@@ -94,4 +96,4 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
 
 1. Set `OWNER_EMAIL` to the email you will sign up with, plus `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`.
 2. Set `APP_SECRET`. If you never defined it before, also keep `APP_PASSCODE` set until you have opened Settings and pressed Save once: keys encrypted with the old passcode are then re-encrypted with `APP_SECRET`.
-3. Deploy, then sign up immediately with that email: your existing essays, evaluations, Vault, drills, custom prompts, and settings are moved to your account. Until you do, that data is held by a placeholder owner and is not visible to anyone.
+3. Deploy and sign up with that email, then verify it: through the emailed link (with email configured), by signing in with Google, or manually with `UPDATE user SET email_verified = 1 WHERE email = '<OWNER_EMAIL>';`. On your next page load your existing essays, evaluations, Vault, drills, custom prompts, and settings move to your account. Until then the data is held by a placeholder owner and is visible to no one. If someone else registered your address first, delete that account in the database (`DELETE FROM user WHERE email = '...'`) and sign up again.

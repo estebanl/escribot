@@ -186,6 +186,8 @@ export interface GenerateCompletionOptions {
   userId: string;
   /** "platform" requests count toward the user's plan quota. */
   keySource: AIKeySource;
+  /** The user's plan, recorded so Free usage can be capped deployment-wide. */
+  plan: PlanId;
   provider: AIProviderId;
   apiKey: string;
   model: string;
@@ -243,6 +245,7 @@ export async function callLLMWithMeta(
       feature: opts.feature || "general",
       provider: opts.provider,
       keySource: opts.keySource === "platform" ? "platform" : "user",
+      plan: opts.plan,
       modelUsed: result.modelUsed,
       promptTokens: result.promptTokens ?? null,
       completionTokens: result.completionTokens ?? null,

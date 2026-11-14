@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { PLANS, type PlanId } from "@/lib/plans";
+import { PLANS, isInvitedEmail, type PlanId } from "@/lib/plans";
 import { resolveUserAndAIConfig, type AIKeySource } from "@/lib/ai/providers";
 import { isBillingEnabled } from "@/lib/billing/stripe";
 
@@ -28,6 +28,8 @@ export interface UsageSummary {
   canChooseModels: boolean;
   evaluations: { used: number; limit: number | null };
   assists: { used: number; limit: number | null };
+  /** Free plan on platform keys is blocked until the email is verified. */
+  verificationRequired: boolean;
   /** ISO timestamp of the next monthly reset (UTC). */
   resetsAt: string;
 }
@@ -36,6 +38,48 @@ function monthBounds(now = new Date()) {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   return { start: start.toISOString(), next: next.toISOString() };
+}
+
+/**
+ * Free AI on the platform's keys needs an account tied to a real address:
+ * verified, or invited via ALLOWED_SIGNUP_EMAILS. Otherwise one person could
+ * multiply the Free allowance with throwaway sign-ups.
+ */
+async function isTrustedForFreeUse(userId: string): Promise<boolean> {
+  // Local development has no email delivery and no abuse to prevent.
+  if (process.env.NODE_ENV !== "production") return true;
+  const db = await getDb();
+  const [account] = await db
+    .select({ email: schema.user.email, emailVerified: schema.user.emailVerified })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId));
+  return Boolean(account && (account.emailVerified || isInvitedEmail(account.email)));
+}
+
+/** Optional ceiling on graded essays + coaching requests per UTC day across all Free accounts. */
+function getFreeDailyCap(): number | null {
+  const raw = Number(process.env.FREE_PLAN_DAILY_AI_CAP);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : null;
+}
+
+async function countFreePlatformUsageToday(): Promise<number> {
+  const now = new Date();
+  const dayStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  ).toISOString();
+  const db = await getDb();
+  const [row] = await db
+    .select({ value: sql<number>`count(*)` })
+    .from(schema.aiUsage)
+    .where(
+      and(
+        eq(schema.aiUsage.plan, "free"),
+        eq(schema.aiUsage.keySource, "platform"),
+        gte(schema.aiUsage.createdAt, dayStart),
+        inArray(schema.aiUsage.feature, [...EVALUATION_FEATURES, ...ASSIST_FEATURES])
+      )
+    );
+  return Number(row?.value ?? 0);
 }
 
 async function countPlatformUsage(userId: string, features: string[], since: string) {
@@ -58,9 +102,10 @@ export async function getUsageSummary(userId: string): Promise<UsageSummary> {
   const cfg = await resolveUserAndAIConfig(userId);
   const limits = PLANS[cfg.plan];
   const { start, next } = monthBounds();
-  const [evaluationsUsed, assistsUsed] = await Promise.all([
+  const [evaluationsUsed, assistsUsed, trusted] = await Promise.all([
     countPlatformUsage(userId, EVALUATION_FEATURES, start),
     countPlatformUsage(userId, ASSIST_FEATURES, start),
+    isTrustedForFreeUse(userId),
   ]);
 
   return {
@@ -70,6 +115,7 @@ export async function getUsageSummary(userId: string): Promise<UsageSummary> {
     canChooseModels: limits.canChooseModels,
     evaluations: { used: evaluationsUsed, limit: limits.evaluationsPerMonth },
     assists: { used: assistsUsed, limit: limits.assistsPerMonth },
+    verificationRequired: cfg.plan === "free" && cfg.keySource === "platform" && !trusted,
     resetsAt: next,
   };
 }
@@ -111,6 +157,29 @@ export async function guardAiRequest(
   const cfg = await resolveUserAndAIConfig(userId);
   // Own key: the user pays. No key at all: features fall back to local heuristics.
   if (cfg.keySource !== "platform") return null;
+
+  if (cfg.plan === "free") {
+    if (!(await isTrustedForFreeUse(userId))) {
+      return NextResponse.json(
+        {
+          error:
+            "Please verify your email address to use AI feedback on the Free plan, or add your own API key in Settings.",
+          code: "verification_required",
+        },
+        { status: 403 }
+      );
+    }
+
+    const dailyCap = getFreeDailyCap();
+    if (dailyCap !== null && (await countFreePlatformUsageToday()) + units > dailyCap) {
+      return tooManyRequests(
+        "Free AI feedback is at capacity for today. Please try again tomorrow, upgrade to Pro, or add your own API key in Settings.",
+        "free_capacity_reached",
+        undefined,
+        isBillingEnabled() ? { upgradeUrl: "/pricing" } : undefined
+      );
+    }
+  }
 
   const limits = PLANS[cfg.plan];
   const limit = kind === "evaluation" ? limits.evaluationsPerMonth : limits.assistsPerMonth;

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AuthForm } from "@/components/AuthForm";
 import { isGoogleSignInEnabled } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/session";
+import { isPasswordResetAvailable } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,11 @@ export default async function ForgotPasswordPage() {
 
   return (
     <Suspense>
-      <AuthForm mode="forgot" googleEnabled={isGoogleSignInEnabled()} />
+      <AuthForm
+        mode="forgot"
+        googleEnabled={isGoogleSignInEnabled()}
+        passwordResetEnabled={isPasswordResetAvailable()}
+      />
     </Suspense>
   );
 }

@@ -49,9 +49,12 @@ const labelClass =
 export function AuthForm({
   mode,
   googleEnabled = false,
+  passwordResetEnabled = true,
 }: {
   mode: AuthMode;
   googleEnabled?: boolean;
+  /** False when the deployment cannot deliver reset emails. */
+  passwordResetEnabled?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -184,110 +187,121 @@ export function AuthForm({
           </p>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5" id={`auth-${mode}-form`}>
-          {mode === "signup" && (
-            <div>
-              <label htmlFor="auth-name" className={labelClass}>
-                Name
-              </label>
-              <input
-                id="auth-name"
-                type="text"
-                required
-                autoComplete="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-          )}
-
-          {showEmail && (
-            <div>
-              <label htmlFor="auth-email" className={labelClass}>
-                Email
-              </label>
-              <input
-                id="auth-email"
-                type="email"
-                required
-                autoFocus
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-          )}
-
-          {showPassword && (
-            <div>
-              <div className="flex items-baseline justify-between">
-                <label htmlFor="auth-password" className={labelClass}>
-                  {mode === "reset" ? "New Password" : "Password"}
+        {mode === "forgot" && !passwordResetEnabled ? (
+          <p
+            id="password-reset-unavailable"
+            role="status"
+            className="text-sm p-3 rounded-lg border border-line-strong bg-subtle text-ink"
+          >
+            Password reset by email is not available on this site yet. Please contact the
+            site owner to regain access to your account.
+          </p>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-5" id={`auth-${mode}-form`}>
+            {mode === "signup" && (
+              <div>
+                <label htmlFor="auth-name" className={labelClass}>
+                  Name
                 </label>
-                {mode === "login" && (
-                  <Link
-                    href="/forgot-password"
-                    className="text-xs text-ink-secondary hover:text-accent transition"
-                  >
-                    Forgot password?
-                  </Link>
+                <input
+                  id="auth-name"
+                  type="text"
+                  required
+                  autoComplete="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            )}
+
+            {showEmail && (
+              <div>
+                <label htmlFor="auth-email" className={labelClass}>
+                  Email
+                </label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  required
+                  autoFocus
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            )}
+
+            {showPassword && (
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <label htmlFor="auth-password" className={labelClass}>
+                    {mode === "reset" ? "New Password" : "Password"}
+                  </label>
+                  {mode === "login" && passwordResetEnabled && (
+                    <Link
+                      href="/forgot-password"
+                      className="text-xs text-ink-secondary hover:text-accent transition"
+                    >
+                      Forgot password?
+                    </Link>
+                  )}
+                </div>
+                <input
+                  id="auth-password"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete={mode === "login" ? "current-password" : "new-password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={inputClass}
+                />
+                {mode !== "login" && (
+                  <p className="text-xs text-ink-muted mt-1.5">At least 8 characters.</p>
                 )}
               </div>
-              <input
-                id="auth-password"
-                type="password"
-                required
-                minLength={8}
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={inputClass}
-              />
-              {mode !== "login" && (
-                <p className="text-xs text-ink-muted mt-1.5">At least 8 characters.</p>
-              )}
-            </div>
-          )}
+            )}
 
-          {error && (
-            <div
-              id="auth-error-banner"
-              role="alert"
-              className="flex items-start gap-2.5 p-3 rounded-lg text-sm border"
-              style={{
-                backgroundColor: "var(--status-danger-soft)",
-                color: "var(--status-danger)",
-                borderColor: "var(--status-danger)",
-              }}
+            {error && (
+              <div
+                id="auth-error-banner"
+                role="alert"
+                className="flex items-start gap-2.5 p-3 rounded-lg text-sm border"
+                style={{
+                  backgroundColor: "var(--status-danger-soft)",
+                  color: "var(--status-danger)",
+                  borderColor: "var(--status-danger)",
+                }}
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {notice && (
+              <div
+                id="auth-notice-banner"
+                role="status"
+                className="flex items-start gap-2.5 p-3 rounded-lg text-sm border border-line-strong bg-subtle text-ink"
+              >
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-accent" />
+                <span>{notice}</span>
+              </div>
+            )}
+
+            <button
+              id="auth-submit-button"
+              type="submit"
+              disabled={loading || resetBlocked}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg font-medium text-sm transition disabled:opacity-50 cursor-pointer"
             >
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {notice && (
-            <div
-              id="auth-notice-banner"
-              role="status"
-              className="flex items-start gap-2.5 p-3 rounded-lg text-sm border border-line-strong bg-subtle text-ink"
-            >
-              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-accent" />
-              <span>{notice}</span>
-            </div>
-          )}
-
-          <button
-            id="auth-submit-button"
-            type="submit"
-            disabled={loading || resetBlocked}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg font-medium text-sm transition disabled:opacity-50 cursor-pointer"
-          >
-            <span>{loading ? copy.busy : copy.submit}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </form>
+              <span>{loading ? copy.busy : copy.submit}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </form>
+        )}
 
         {googleEnabled && (mode === "login" || mode === "signup") && (
           <button

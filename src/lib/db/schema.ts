@@ -231,10 +231,11 @@ export const aiUsage = sqliteTable("ai_usage", {
   feature: text("feature").notNull(), // "rubric_score" | "annotations_rewrite" | "outline_check" | "toolkit" | "prompt_generation" | "drill_generate" | "drill_score" | "vision_extract"
   provider: text("provider").notNull(),
   keySource: text("key_source").notNull().default("platform"), // "platform" (our key, counts toward quota) | "user" (their own key)
+  plan: text("plan"), // the user's plan when the request was made (NULL for rows before this was recorded)
   modelUsed: text("model_used").notNull(),
   promptTokens: integer("prompt_tokens"),
   completionTokens: integer("completion_tokens"),
   totalTokens: integer("total_tokens"),
   costUsd: real("cost_usd"),
   createdAt: text("created_at").notNull(),
-}, (t) => [index("idx_ai_usage_created").on(t.createdAt), index("idx_ai_usage_user").on(t.userId, t.createdAt)]);
+}, (t) => [index("idx_ai_usage_created").on(t.createdAt), index("idx_ai_usage_user").on(t.userId, t.createdAt), index("idx_ai_usage_plan").on(t.plan, t.keySource, t.createdAt)]);

@@ -4,7 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { getDb, schema, type Db } from "@/lib/db";
 import { provisionNewUser } from "@/lib/db/scope";
-import { isEmailConfigured, sendEmail } from "@/lib/email";
+import { isEmailConfigured, isPasswordResetAvailable, sendEmail } from "@/lib/email";
 
 export function isGoogleSignInEnabled(): boolean {
   return Boolean(
@@ -60,16 +60,23 @@ function createAuth(db: Db) {
       minPasswordLength: 8,
       // Only enforce verification when we can actually deliver the email.
       requireEmailVerification: emailEnabled,
-      sendResetPassword: async ({ user, url }) => {
-        await sendEmail({
-          to: user.email,
-          subject: "Reset your FluentEscritor password",
-          text: `Open this link to choose a new password:\n\n${url}\n\nIf you did not request this, you can ignore this email.`,
-        });
-      },
+      // Without a way to deliver the link, leave reset disabled rather than
+      // pretend an email was sent.
+      ...(isPasswordResetAvailable()
+        ? {
+            sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
+              await sendEmail({
+                to: user.email,
+                subject: "Reset your FluentEscritor password",
+                text: `Open this link to choose a new password:\n\n${url}\n\nIf you did not request this, you can ignore this email.`,
+              });
+            },
+          }
+        : {}),
     },
     emailVerification: {
-      sendOnSignUp: emailEnabled,
+      // In development the link is printed to the console (see sendEmail).
+      sendOnSignUp: emailEnabled || process.env.NODE_ENV !== "production",
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
         await sendEmail({
@@ -102,7 +109,11 @@ function createAuth(db: Db) {
             }
           },
           after: async (user) => {
-            await provisionNewUser(db, { id: user.id, email: user.email });
+            await provisionNewUser(db, {
+              id: user.id,
+              email: user.email,
+              emailVerified: user.emailVerified,
+            });
           },
         },
       },

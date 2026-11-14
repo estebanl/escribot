@@ -118,16 +118,46 @@ async function claimLegacyData(db: Db, userId: string): Promise<boolean> {
   return true;
 }
 
-/**
- * Runs once when an account is created: the OWNER_EMAIL account inherits the
- * data written before multi-user support; everyone else starts with default
- * settings and the starter Vault.
- */
-export async function provisionNewUser(db: Db, user: { id: string; email: string }) {
+export function isOwnerEmail(email: string): boolean {
   const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
-  if (ownerEmail && user.email.trim().toLowerCase() === ownerEmail) {
-    if (await claimLegacyData(db, user.id)) return;
+  return Boolean(ownerEmail && email.trim().toLowerCase() === ownerEmail);
+}
+
+async function hasLegacyData(db: Db): Promise<boolean> {
+  const [row] = await db
+    .select({ userId: schema.userSettings.userId })
+    .from(schema.userSettings)
+    .where(eq(schema.userSettings.userId, schema.LEGACY_USER_ID));
+  return Boolean(row);
+}
+
+/**
+ * Runs once when an account is created. Everyone starts with default
+ * settings and the starter Vault, except the OWNER_EMAIL account while
+ * pre-multi-user data is waiting to be claimed (it gets that data instead).
+ */
+export async function provisionNewUser(
+  db: Db,
+  user: { id: string; email: string; emailVerified: boolean }
+) {
+  if (isOwnerEmail(user.email) && (await hasLegacyData(db))) {
+    await claimLegacyDataIfOwner(db, user);
+    return;
   }
   await getOrCreateSettings(db, user.id);
   await seedStarterVault(db, user.id);
+}
+
+/**
+ * Hands pre-multi-user data to the OWNER_EMAIL account, but only once that
+ * address is verified (email link, Google sign-in, or set manually by the
+ * operator). Without this check anyone could sign up with the owner's
+ * address first and take the data. Safe to call on every page load.
+ */
+export async function claimLegacyDataIfOwner(
+  db: Db,
+  user: { id: string; email: string; emailVerified: boolean }
+): Promise<boolean> {
+  if (!user.emailVerified || !isOwnerEmail(user.email)) return false;
+  return claimLegacyData(db, user.id);
 }

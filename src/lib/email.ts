@@ -7,6 +7,14 @@ export function isEmailConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY?.trim() && process.env.EMAIL_FROM?.trim());
 }
 
+/**
+ * Password reset needs a way to deliver the link: real email in production,
+ * or the server console in development.
+ */
+export function isPasswordResetAvailable(): boolean {
+  return isEmailConfigured() || process.env.NODE_ENV !== "production";
+}
+
 export async function sendEmail(params: { to: string; subject: string; text: string }) {
   if (!isEmailConfigured()) {
     if (process.env.NODE_ENV === "production") {

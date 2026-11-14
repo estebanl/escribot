@@ -53,6 +53,7 @@ export async function extractVisualSpecFromImage(
     const raw = await callLLM({
       userId: cfg.userId,
       keySource: cfg.keySource,
+      plan: cfg.plan,
       provider: cfg.provider,
       apiKey: cfg.apiKey,
       model: visionModel,
@@ -506,6 +507,7 @@ Return ONLY a valid JSON object matching this exact structure:
       const resRubric = await callLLMWithMeta({
         userId: cfg.userId,
         keySource: cfg.keySource,
+        plan: cfg.plan,
         provider: cfg.provider,
         apiKey,
         model: cfg.graderModel,
@@ -529,6 +531,7 @@ Return ONLY a valid JSON object matching this exact structure:
         const resFallback = await callLLMWithMeta({
           userId: cfg.userId,
           keySource: cfg.keySource,
+          plan: cfg.plan,
           provider: cfg.provider,
           apiKey,
           model: cfg.fastModel,
@@ -562,6 +565,7 @@ Return ONLY a valid JSON object matching this exact structure:
       const resCoach = await callLLMWithMeta({
         userId: cfg.userId,
         keySource: cfg.keySource,
+        plan: cfg.plan,
         provider: cfg.provider,
         apiKey,
         model: cfg.fastModel,
@@ -831,6 +835,7 @@ export async function checkOutlineWithAI(params: {
   const raw = await callLLM({
     userId: cfg.userId,
     keySource: cfg.keySource,
+    plan: cfg.plan,
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
@@ -922,6 +927,7 @@ export async function runToolkitWithAI(
   const raw = await callLLM({
     userId: cfg.userId,
     keySource: cfg.keySource,
+    plan: cfg.plan,
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
@@ -1017,6 +1023,7 @@ export async function generatePromptWithAI(params: {
   const raw = await callLLM({
     userId: cfg.userId,
     keySource: cfg.keySource,
+    plan: cfg.plan,
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
@@ -1550,6 +1557,7 @@ export async function generateMicroDrillWithAI(params: {
   const raw = await callLLM({
     userId: cfg.userId,
     keySource: cfg.keySource,
+    plan: cfg.plan,
     provider: cfg.provider,
     apiKey: cfg.apiKey!,
     model: cfg.fastModel,
@@ -1738,6 +1746,7 @@ export async function scoreMicroDrillWithAI(params: {
   const raw = await callLLM({
     userId: cfg.userId,
     keySource: cfg.keySource,
+    plan: cfg.plan,
     provider: cfg.provider,
     apiKey: cfg.apiKey,
     model: cfg.fastModel,
@@ -1787,6 +1796,7 @@ async function scoreScaffoldedDrillWithAI(
   const raw = await callLLM({
     userId: cfg.userId,
     keySource: cfg.keySource,
+    plan: cfg.plan,
     provider: cfg.provider,
     apiKey: cfg.apiKey!,
     model: cfg.fastModel,

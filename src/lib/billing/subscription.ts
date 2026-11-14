@@ -32,9 +32,16 @@ export async function getEffectivePlan(db: Db, userId: string): Promise<PlanId> 
   const [settings, sub, [account]] = await Promise.all([
     getOrCreateSettings(db, userId),
     getSubscription(db, userId),
-    db.select({ email: schema.user.email }).from(schema.user).where(eq(schema.user.id, userId)),
+    db
+      .select({ email: schema.user.email, emailVerified: schema.user.emailVerified })
+      .from(schema.user)
+      .where(eq(schema.user.id, userId)),
   ]);
-  return resolvePlan(settings.plan, account?.email ?? "", hasProAccess(sub));
+  return resolvePlan(
+    settings.plan,
+    { email: account?.email ?? "", emailVerified: account?.emailVerified ?? false },
+    hasProAccess(sub)
+  );
 }
 
 /** Returns the user's Stripe customer id, creating the customer on first use. */
