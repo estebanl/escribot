@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { runToolkitWithAI } from "@/lib/ai/examiner";
+import { getCurrentUser, unauthorized } from "@/lib/session";
+import { guardAiRequest } from "@/lib/ai/access";
 import type { ToolkitRequest } from "@/lib/types";
+import { reportError } from "@/lib/errors";
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as Partial<ToolkitRequest>;
 
     if (!body.tool || !body.selectedText?.trim() || !body.promptText) {
@@ -13,7 +18,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await runToolkitWithAI({
+    const blocked = await guardAiRequest(user.id, "assist");
+    if (blocked) return blocked;
+
+    const result = await runToolkitWithAI(user.id, {
       tool: body.tool,
       taskType: body.taskType === "task1" ? "task1" : "task2",
       promptText: body.promptText,
@@ -23,6 +31,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ result });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/ai/toolkit" });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Toolkit check failed." },
       { status: 500 }

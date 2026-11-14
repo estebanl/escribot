@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getCurrentUser, unauthorized } from "@/lib/session";
+import { reportError } from "@/lib/errors";
 
 interface OpenRouterModel {
   id: string;
@@ -162,6 +164,8 @@ async function getOrFetchModels(): Promise<CachedData["models"]> {
 
 export async function GET(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const { searchParams } = new URL(request.url);
     const filterType = searchParams.get("type"); // "vision" | "all"
 
@@ -174,6 +178,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ models: allModels });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/ai/models" });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to fetch models" },
       { status: 500 }

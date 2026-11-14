@@ -1,16 +1,23 @@
 import crypto from "crypto";
-import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { getOrCreateSettings } from "@/lib/db/scope";
 import { decryptString } from "@/lib/crypto";
+import { PLANS, type PlanId } from "@/lib/plans";
+import { getEffectivePlan } from "@/lib/billing/subscription";
 import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
 
+/** Who pays for a request: the platform's env key, the user's own saved key, or nobody (no key). */
+export type AIKeySource = "platform" | "user" | "none";
+
 export interface ResolvedAIConfig {
+  userId: string;
   provider: AIProviderId;
   graderModel: string;
   fastModel: string;
   visionModel: string;
   apiKey: string | null;
-  allKeys: Partial<Record<AIProviderId, string>>;
+  keySource: AIKeySource;
+  plan: PlanId;
   currentBand: number;
   targetBand: number;
   nativeLanguage: NativeLanguageCode;
@@ -69,12 +76,18 @@ export const PROVIDER_DEFAULTS: Record<AIProviderId, ProviderDefaults> = {
   },
 };
 
-export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
+/** Which platform key is used when the plan does not allow choosing a provider. */
+const PLATFORM_PROVIDER_ORDER: AIProviderId[] = [
+  "openrouter",
+  "deepseek",
+  "gemini",
+  "openai",
+  "anthropic",
+];
+
+export async function resolveUserAndAIConfig(userId: string): Promise<ResolvedAIConfig> {
   const db = await getDb();
-  const [settings] = await db
-    .select()
-    .from(schema.userSettings)
-    .where(eq(schema.userSettings.id, 1));
+  const settings = await getOrCreateSettings(db, userId);
 
   let storedKeys: Partial<Record<AIProviderId, string>> = {};
   if (settings?.encryptedApiKeys && settings.encryptedApiKeys !== "{}") {
@@ -91,27 +104,56 @@ export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
     }
   }
 
-  const allKeys: Partial<Record<AIProviderId, string>> = {
-    openrouter:
-      storedKeys.openrouter || process.env.OPENROUTER_API_KEY?.trim() || undefined,
-    deepseek: storedKeys.deepseek || process.env.DEEPSEEK_API_KEY?.trim() || undefined,
-    gemini: storedKeys.gemini || process.env.GEMINI_API_KEY?.trim() || undefined,
-    openai: storedKeys.openai || process.env.OPENAI_API_KEY?.trim() || undefined,
-    anthropic:
-      storedKeys.anthropic || process.env.ANTHROPIC_API_KEY?.trim() || undefined,
+  const platformKeys: Partial<Record<AIProviderId, string>> = {
+    openrouter: process.env.OPENROUTER_API_KEY?.trim() || undefined,
+    deepseek: process.env.DEEPSEEK_API_KEY?.trim() || undefined,
+    gemini: process.env.GEMINI_API_KEY?.trim() || undefined,
+    openai: process.env.OPENAI_API_KEY?.trim() || undefined,
+    anthropic: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
   };
 
-  let provider = ((settings?.activeProvider as AIProviderId) || "openrouter") as AIProviderId;
-  // If active provider has no key configured, but openrouter has a key, auto-fallback to openrouter
-  if (!allKeys[provider] && allKeys.openrouter) {
-    provider = "openrouter";
+  const plan = await getEffectivePlan(db, userId);
+
+  const preferred = ((settings.activeProvider as AIProviderId) || "openrouter") as AIProviderId;
+  let provider: AIProviderId = preferred;
+  let keySource: AIKeySource = "none";
+  let apiKey: string | null = null;
+  // Settings model choices apply to the user's own keys, and to platform keys
+  // only on plans that allow it; otherwise the platform defaults are used.
+  let honourModelChoice = true;
+
+  const ownFallback = PLATFORM_PROVIDER_ORDER.find((p) => storedKeys[p]);
+
+  if (storedKeys[preferred]) {
+    // 1. The user's own key for their chosen provider.
+    apiKey = storedKeys[preferred]!;
+    keySource = "user";
+  } else if (ownFallback) {
+    // 2. Any own key beats spending the platform's budget.
+    provider = ownFallback;
+    apiKey = storedKeys[ownFallback]!;
+    keySource = "user";
+  } else {
+    // 3. Platform keys, metered by the plan's monthly quota.
+    const platformDefault = PLATFORM_PROVIDER_ORDER.find((p) => platformKeys[p]);
+    honourModelChoice = PLANS[plan].canChooseModels;
+    const platformProvider =
+      honourModelChoice && platformKeys[preferred] ? preferred : platformDefault;
+    if (platformProvider) {
+      provider = platformProvider;
+      apiKey = platformKeys[platformProvider]!;
+      keySource = "platform";
+    }
   }
+
+  // Saved model names belong to the preferred provider; they mean nothing elsewhere.
+  if (provider !== preferred) honourModelChoice = false;
 
   const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openrouter;
 
-  let graderModel = settings?.graderModel || defaults.graderModel;
-  let fastModel = settings?.fastModel || defaults.fastModel;
-  let visionModel = settings?.visionModel || defaults.visionModel;
+  let graderModel = (honourModelChoice && settings.graderModel) || defaults.graderModel;
+  let fastModel = (honourModelChoice && settings.fastModel) || defaults.fastModel;
+  let visionModel = (honourModelChoice && settings.visionModel) || defaults.visionModel;
 
   if (provider !== "openrouter") {
     if (graderModel.includes("/")) graderModel = defaults.graderModel;
@@ -124,20 +166,28 @@ export async function resolveUserAndAIConfig(): Promise<ResolvedAIConfig> {
   }
 
   return {
+    userId,
     provider,
     graderModel,
     fastModel,
     visionModel,
-    apiKey: allKeys[provider] || null,
-    allKeys,
-    currentBand: settings?.currentBand ?? 6.5,
-    targetBand: settings?.targetBand ?? 7.5,
-    nativeLanguage: (settings?.nativeLanguage as NativeLanguageCode) || "es",
-    l1CoachingEnabled: settings?.l1CoachingEnabled ?? true,
+    apiKey,
+    keySource,
+    plan,
+    currentBand: settings.currentBand,
+    targetBand: settings.targetBand,
+    nativeLanguage: (settings.nativeLanguage as NativeLanguageCode) || "es",
+    l1CoachingEnabled: settings.l1CoachingEnabled,
   };
 }
 
 export interface GenerateCompletionOptions {
+  /** Owner of the request; AI usage and spend are recorded against this user. */
+  userId: string;
+  /** "platform" requests count toward the user's plan quota. */
+  keySource: AIKeySource;
+  /** The user's plan, recorded so Free usage can be capped deployment-wide. */
+  plan: PlanId;
   provider: AIProviderId;
   apiKey: string;
   model: string;
@@ -177,15 +227,45 @@ function isAbortOrTimeout(err: unknown): boolean {
   );
 }
 
+/**
+ * Calls the model and records the request in ai_usage for every provider.
+ * That table drives per-user spend reporting and the plan quotas, so the
+ * insert is awaited: serverless functions may freeze right after responding.
+ */
 export async function callLLMWithMeta(
   opts: GenerateCompletionOptions
 ): Promise<LLMResultWithMeta> {
+  const result = await dispatchLLM(opts);
+
+  try {
+    const database = await getDb();
+    await database.insert(schema.aiUsage).values({
+      id: `use-${crypto.randomUUID()}`,
+      userId: opts.userId,
+      feature: opts.feature || "general",
+      provider: opts.provider,
+      keySource: opts.keySource === "platform" ? "platform" : "user",
+      plan: opts.plan,
+      modelUsed: result.modelUsed,
+      promptTokens: result.promptTokens ?? null,
+      completionTokens: result.completionTokens ?? null,
+      totalTokens: result.totalTokens ?? null,
+      costUsd: result.costUsd ?? null,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (logErr) {
+    console.warn("Failed to record AI usage in database:", logErr);
+  }
+
+  return result;
+}
+
+async function dispatchLLM(opts: GenerateCompletionOptions): Promise<LLMResultWithMeta> {
   const {
     provider,
     apiKey,
     model,
     fallbackModels,
-    feature,
     systemPrompt,
     userPrompt,
     imageDataUrl,
@@ -308,24 +388,6 @@ export async function callLLMWithMeta(
 
       const actualModel = data.model || model;
       const costUsd = typeof data.usage?.cost === "number" ? data.usage.cost : undefined;
-
-      // Await usage logging so serverless / edge environments persist spend before execution ends
-      try {
-        const database = await getDb();
-        await database.insert(schema.aiUsage).values({
-          id: `use-${crypto.randomUUID().slice(0, 10)}`,
-          feature: feature || "general",
-          provider: "openrouter",
-          modelUsed: actualModel,
-          promptTokens: data.usage?.prompt_tokens ?? null,
-          completionTokens: data.usage?.completion_tokens ?? null,
-          totalTokens: data.usage?.total_tokens ?? null,
-          costUsd: costUsd ?? null,
-          createdAt: new Date().toISOString(),
-        });
-      } catch (logErr) {
-        console.warn("Failed to record OpenRouter AI usage in database:", logErr);
-      }
 
       return {
         content,

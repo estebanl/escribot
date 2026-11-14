@@ -1,20 +1,26 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
+import { getCurrentUser, unauthorized } from "@/lib/session";
+import { reportError } from "@/lib/errors";
 
 export async function GET() {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const db = await getDb();
     const items = await db
       .select()
       .from(schema.vaultItems)
+      .where(eq(schema.vaultItems.userId, user.id))
       .orderBy(desc(schema.vaultItems.createdAt));
 
     return NextResponse.json({ items });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/vault" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to load Vault." },
+      { error: "Failed to load Vault." },
       { status: 500 }
     );
   }
@@ -22,6 +28,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as {
       itemType?: "error" | "collocation";
       criterion?: string;
@@ -42,6 +50,7 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
     const record = {
       id: `vault-${crypto.randomUUID().slice(0, 9)}`,
+      userId: user.id,
       sourceDraftId: null,
       itemType: body.itemType === "collocation" ? "collocation" : "error",
       criterion: body.criterion || "LR",
@@ -58,8 +67,9 @@ export async function POST(request: Request) {
     await db.insert(schema.vaultItems).values(record);
     return NextResponse.json({ item: record });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/vault" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to add Vault item." },
+      { error: "Failed to add Vault item." },
       { status: 500 }
     );
   }
@@ -67,6 +77,8 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as {
       id?: string;
       masteryLevel?: number;
@@ -80,7 +92,7 @@ export async function PATCH(request: Request) {
     const [existing] = await db
       .select()
       .from(schema.vaultItems)
-      .where(eq(schema.vaultItems.id, body.id));
+      .where(and(eq(schema.vaultItems.id, body.id), eq(schema.vaultItems.userId, user.id)));
 
     if (!existing) {
       return NextResponse.json({ error: "Vault item not found." }, { status: 404 });
@@ -96,12 +108,13 @@ export async function PATCH(request: Request) {
         reviewCount: existing.reviewCount + 1,
         nextReviewAt: nextDate,
       })
-      .where(eq(schema.vaultItems.id, body.id));
+      .where(and(eq(schema.vaultItems.id, body.id), eq(schema.vaultItems.userId, user.id)));
 
     return NextResponse.json({ ok: true, masteryLevel: clamped, nextReviewAt: nextDate });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/vault" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to update Vault item." },
+      { error: "Failed to update Vault item." },
       { status: 500 }
     );
   }
@@ -109,17 +122,22 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Missing id." }, { status: 400 });
     }
     const db = await getDb();
-    await db.delete(schema.vaultItems).where(eq(schema.vaultItems.id, id));
+    await db
+      .delete(schema.vaultItems)
+      .where(and(eq(schema.vaultItems.id, id), eq(schema.vaultItems.userId, user.id)));
     return NextResponse.json({ ok: true });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/vault" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to delete Vault item." },
+      { error: "Failed to delete Vault item." },
       { status: 500 }
     );
   }

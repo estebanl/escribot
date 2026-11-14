@@ -1,18 +1,33 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { getOrCreateSettings } from "@/lib/db/scope";
+import { getCurrentUser, unauthorized } from "@/lib/session";
 import { decryptString, encryptString, maskApiKey } from "@/lib/crypto";
 import { PROVIDER_DEFAULTS } from "@/lib/ai/providers";
-import { isPasscodeRequired } from "@/lib/auth";
+import { getUsageSummary } from "@/lib/ai/access";
+import { isBillingEnabled } from "@/lib/billing/stripe";
+import { getSubscription } from "@/lib/billing/subscription";
 import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
+import { reportError } from "@/lib/errors";
+
+async function getBillingStatus(db: Awaited<ReturnType<typeof getDb>>, userId: string) {
+  const sub = await getSubscription(db, userId);
+  return {
+    enabled: isBillingEnabled(),
+    hasSubscription: Boolean(sub?.stripeSubscriptionId),
+    status: sub?.status ?? null,
+    currentPeriodEnd: sub?.currentPeriodEnd ?? null,
+    cancelAtPeriodEnd: sub?.cancelAtPeriodEnd ?? false,
+  };
+}
 
 export async function GET() {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const db = await getDb();
-    const [row] = await db
-      .select()
-      .from(schema.userSettings)
-      .where(eq(schema.userSettings.id, 1));
+    const row = await getOrCreateSettings(db, user.id);
 
     let rawEncryptedMap: Record<string, string> = {};
     try {
@@ -112,12 +127,14 @@ export async function GET() {
       },
       keyStatus,
       activeProviderReady: activeReady,
-      passcodeConfigured: isPasscodeRequired(),
       providerDefaults: PROVIDER_DEFAULTS,
+      usage: await getUsageSummary(user.id),
+      billing: await getBillingStatus(db, user.id),
     });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/settings" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to load settings." },
+      { error: "Failed to load settings." },
       { status: 500 }
     );
   }
@@ -125,6 +142,8 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
     const body = (await request.json()) as {
       currentBand?: number;
       targetBand?: number;
@@ -136,19 +155,24 @@ export async function PUT(request: Request) {
       fastModel?: string;
       visionModel?: string;
       apiKeysToUpdate?: Partial<Record<AIProviderId, string | null>>;
+      completeOnboarding?: boolean;
     };
 
     const db = await getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.userSettings)
-      .where(eq(schema.userSettings.id, 1));
+    const existing = await getOrCreateSettings(db, user.id);
 
     let encryptedMap: Record<string, string> = {};
     try {
       encryptedMap = JSON.parse(existing?.encryptedApiKeys || "{}");
     } catch {
       encryptedMap = {};
+    }
+
+    // Re-encrypt keys saved under an older secret (see decryptString) so they
+    // end up protected by the current APP_SECRET.
+    for (const [prov, enc] of Object.entries(encryptedMap)) {
+      const plain = decryptString(enc);
+      if (plain) encryptedMap[prov] = encryptString(plain);
     }
 
     if (body.apiKeysToUpdate) {
@@ -202,14 +226,17 @@ export async function PUT(request: Request) {
         fastModel,
         visionModel,
         encryptedApiKeys: JSON.stringify(encryptedMap),
+        onboardedAt:
+          existing?.onboardedAt ?? (body.completeOnboarding ? new Date().toISOString() : null),
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(schema.userSettings.id, 1));
+      .where(eq(schema.userSettings.userId, user.id));
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    await reportError({ source: "server", error: err, path: "/api/settings" });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to save settings." },
+      { error: "Failed to save settings." },
       { status: 500 }
     );
   }

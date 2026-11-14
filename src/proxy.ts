@@ -1,35 +1,44 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { AUTH_COOKIE_NAME, isPasscodeRequired, verifySessionToken } from "@/lib/auth";
+import { getSessionCookie } from "better-auth/cookies";
 
+const PUBLIC_PATHS = [
+  "/terms",
+  "/privacy",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/pricing",
+  "/api/auth",
+  "/api/stripe/webhook", // authenticated by Stripe's signature, not a session
+  "/api/errors", // browser error reports, also from signed-out pages (rate limited)
+];
+
+/**
+ * Optimistic gate only: it checks that a session cookie is present so
+ * signed-out visitors are redirected early. The cookie is verified against the
+ * database in every page and API route via getCurrentUser()/requireUser().
+ */
 export async function proxy(request: NextRequest) {
-  if (!isPasscodeRequired()) {
-    return NextResponse.next();
-  }
-
   const { pathname } = request.nextUrl;
 
   if (
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico"
+    pathname === "/" || // landing page for signed-out visitors; the studio checks the session itself
+    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
   ) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-  const valid = await verifySessionToken(token);
-
-  if (!valid) {
+  if (!getSessionCookie(request)) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
-        { error: "Unauthorized — valid passcode session required." },
+        { error: "Unauthorized — please sign in." },
         { status: 401 }
       );
     }
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("next", pathname);
+    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 

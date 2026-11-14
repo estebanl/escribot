@@ -13,7 +13,10 @@ import {
   Sun,
   Moon,
   LogOut,
+  Sparkles,
+  Shield,
 } from "lucide-react";
+import { authClient } from "@/lib/auth-client";
 
 const NAV_ITEMS = [
   { href: "/", label: "Studio", icon: BookOpen, id: "nav-studio" },
@@ -34,10 +37,10 @@ function subscribeTheme(callback: () => void) {
 
 export function AppShell({
   children,
-  passcodeActive = false,
+  user,
 }: {
   children: React.ReactNode;
-  passcodeActive?: boolean;
+  user?: { name: string; email: string; canUpgrade?: boolean; isAdmin?: boolean } | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -58,7 +61,7 @@ export function AppShell({
   }
 
   async function handleSignOut() {
-    await fetch("/api/auth", { method: "DELETE" });
+    await authClient.signOut();
     router.push("/login");
     router.refresh();
   }
@@ -87,7 +90,7 @@ export function AppShell({
 
           <nav
             aria-label="Primary Navigation"
-            className="hidden md:flex items-center gap-1"
+            className="hidden lg:flex items-center gap-1"
           >
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
@@ -100,7 +103,7 @@ export function AppShell({
                   key={item.href}
                   id={item.id}
                   href={item.href}
-                  className={`flex items-center gap-2 px-3 h-16 border-b-2 text-sm font-medium transition ${
+                  className={`flex items-center gap-2 px-2 xl:px-3 h-16 border-b-2 text-sm font-medium whitespace-nowrap transition ${
                     active
                       ? "border-accent text-ink font-semibold"
                       : "border-transparent text-ink-secondary hover:text-ink hover:border-line-strong"
@@ -124,12 +127,37 @@ export function AppShell({
               {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            {passcodeActive && (
+            {user?.isAdmin && (
+              <Link
+                id="admin-link"
+                href="/admin"
+                title="Admin"
+                aria-label="Admin"
+                className="p-2 rounded-lg border border-line bg-canvas hover:bg-subtle text-ink-secondary hover:text-ink transition"
+              >
+                <Shield className="w-4 h-4" />
+              </Link>
+            )}
+
+            {user?.canUpgrade && (
+              <Link
+                id="upgrade-link"
+                href="/pricing"
+                title="Upgrade to Pro"
+                aria-label="Upgrade to Pro"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg text-sm font-medium transition"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span className="hidden xl:inline">Upgrade</span>
+              </Link>
+            )}
+
+            {user && (
               <button
                 id="signout-button"
                 type="button"
                 onClick={handleSignOut}
-                title="Lock Workspace"
+                title={`Sign out (${user.email})`}
                 className="p-2 rounded-lg border border-line bg-canvas hover:bg-subtle text-ink-secondary hover:text-ink transition cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
@@ -139,12 +167,30 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="flex-1 pb-20 md:pb-10">{children}</main>
+      <main className="flex-1 pb-10">{children}</main>
+
+      <footer className="border-t border-line mb-16 lg:mb-0">
+        <nav
+          aria-label="Footer"
+          className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-muted"
+        >
+          <Link href="/pricing" className="hover:text-ink">
+            Pricing
+          </Link>
+          <Link href="/terms" className="hover:text-ink">
+            Terms
+          </Link>
+          <Link href="/privacy" className="hover:text-ink">
+            Privacy
+          </Link>
+          <span>Not affiliated with the official IELTS partners.</span>
+        </nav>
+      </footer>
 
       {/* Mobile Companion Bottom Navigation */}
       <nav
         aria-label="Mobile Navigation"
-        className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t border-line bg-surface/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-line bg-surface/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around"
       >
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;

@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { getDb, schema } from "@/lib/db";
+import { getOwnedSession, getVisiblePrompt } from "@/lib/db/scope";
+import { getCurrentUser, unauthorized } from "@/lib/session";
+import { guardAiRequest } from "@/lib/ai/access";
+import { resolveImageForAI } from "@/lib/storage";
+import { reportError } from "@/lib/errors";
 import { evaluateEssayWithAI, extractVisualSpecFromImage } from "@/lib/ai/examiner";
 import { computeWeightedExamBand, countEssayWords } from "@/lib/ielts-utils";
 import type {
@@ -26,6 +31,10 @@ interface SingleDraftSubmission {
 }
 
 export async function POST(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) return unauthorized();
+  const userId = user.id;
+
   let body: {
     sessionId: string;
     submissions: SingleDraftSubmission[];
@@ -54,6 +63,10 @@ export async function POST(request: Request) {
 
   const db = await getDb();
 
+  if (!(await getOwnedSession(db, userId, body.sessionId))) {
+    return NextResponse.json({ error: "Writing session not found." }, { status: 404 });
+  }
+
   // Validate submissions & prompts synchronously before opening NDJSON stream
   const validatedSubmissions: Array<{
     sub: SingleDraftSubmission;
@@ -70,10 +83,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const [prompt] = await db
-      .select()
-      .from(schema.prompts)
-      .where(eq(schema.prompts.id, sub.promptId));
+    const prompt = await getVisiblePrompt(db, userId, sub.promptId);
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt not found." }, { status: 404 });
@@ -81,6 +91,10 @@ export async function POST(request: Request) {
 
     validatedSubmissions.push({ sub, prompt });
   }
+
+  // One graded essay per submission (a full mock exam spends two).
+  const blocked = await guardAiRequest(userId, "evaluation", validatedSubmissions.length);
+  if (blocked) return blocked;
 
   const encoder = new TextEncoder();
 
@@ -108,7 +122,10 @@ export async function POST(request: Request) {
 
       try {
         const now = new Date().toISOString();
-        const existingVault = await db.select().from(schema.vaultItems);
+        const existingVault = await db
+          .select({ originalText: schema.vaultItems.originalText })
+          .from(schema.vaultItems)
+          .where(eq(schema.vaultItems.userId, userId));
         const knownOriginals = new Set(
           existingVault.map((v) => v.originalText.trim().toLowerCase())
         );
@@ -126,19 +143,25 @@ export async function POST(request: Request) {
           let visualContext: string | null =
             prompt.chartSpecJson || prompt.extractedVisualSpec || null;
 
-          if (!visualContext && prompt.imageDataUrl) {
+          const imageForAI =
+            !visualContext && prompt.userId === userId
+              ? await resolveImageForAI(db, userId, prompt.imageDataUrl)
+              : null;
+          if (imageForAI) {
             sendEvent({
               type: "progress",
               stage: `${taskPrefix}Extracting chart data from uploaded image...`,
             });
             visualContext = await extractVisualSpecFromImage(
-              prompt.imageDataUrl,
-              prompt.promptText
+              imageForAI,
+              prompt.promptText,
+              userId
             );
+            // Cache on the user's own prompt (never on shared curated rows).
             await db
               .update(schema.prompts)
               .set({ extractedVisualSpec: visualContext })
-              .where(eq(schema.prompts.id, prompt.id));
+              .where(and(eq(schema.prompts.id, prompt.id), eq(schema.prompts.userId, userId)));
           }
 
           // Inspect prior drafts for this (sessionId, promptId), distinguishing evaluated drafts from interrupted orphans
@@ -147,6 +170,7 @@ export async function POST(request: Request) {
             .from(schema.drafts)
             .where(
               and(
+                eq(schema.drafts.userId, userId),
                 eq(schema.drafts.sessionId, body.sessionId),
                 eq(schema.drafts.promptId, sub.promptId)
               )
@@ -163,7 +187,12 @@ export async function POST(request: Request) {
             const [ev] = await db
               .select({ overallBand: schema.evaluations.overallBand })
               .from(schema.evaluations)
-              .where(eq(schema.evaluations.draftId, d.id));
+              .where(
+                and(
+                  eq(schema.evaluations.draftId, d.id),
+                  eq(schema.evaluations.userId, userId)
+                )
+              );
 
             if (ev) {
               evaluatedPriorDrafts.push({
@@ -181,6 +210,7 @@ export async function POST(request: Request) {
 
           // Run AI evaluation BEFORE writing draft row so interrupted attempts never leave orphan drafts
           const { payload, providerUsed, modelUsed, costUsd } = await evaluateEssayWithAI({
+            userId,
             taskType: sub.taskType,
             promptTitle: prompt.title,
             promptText: prompt.promptText,
@@ -202,12 +232,15 @@ export async function POST(request: Request) {
 
           // Clean up any historical un-evaluated orphan drafts for this (sessionId, promptId)
           for (const orphanId of orphanDraftIds) {
-            await db.delete(schema.drafts).where(eq(schema.drafts.id, orphanId));
+            await db
+              .delete(schema.drafts)
+              .where(and(eq(schema.drafts.id, orphanId), eq(schema.drafts.userId, userId)));
           }
 
           const draftId = `draft-${crypto.randomUUID().slice(0, 10)}`;
           await db.insert(schema.drafts).values({
             id: draftId,
+            userId,
             sessionId: body.sessionId,
             promptId: sub.promptId,
             taskType: sub.taskType,
@@ -229,6 +262,7 @@ export async function POST(request: Request) {
           const evalId = `eval-${crypto.randomUUID().slice(0, 10)}`;
           await db.insert(schema.evaluations).values({
             id: evalId,
+            userId,
             draftId,
             overallBand: payload.overallBand,
             taTrBand: payload.taTrBand,
@@ -255,6 +289,7 @@ export async function POST(request: Request) {
 
             await db.insert(schema.vaultItems).values({
               id: `vault-${crypto.randomUUID().slice(0, 9)}`,
+              userId,
               sourceDraftId: draftId,
               itemType: v.itemType,
               criterion: v.criterion,
@@ -286,7 +321,12 @@ export async function POST(request: Request) {
         const allSessionDrafts = await db
           .select()
           .from(schema.drafts)
-          .where(eq(schema.drafts.sessionId, body.sessionId))
+          .where(
+            and(
+              eq(schema.drafts.sessionId, body.sessionId),
+              eq(schema.drafts.userId, userId)
+            )
+          )
           .orderBy(desc(schema.drafts.version));
 
         let t1EvalBand: number | null = null;
@@ -297,13 +337,23 @@ export async function POST(request: Request) {
             const [e1] = await db
               .select({ overallBand: schema.evaluations.overallBand })
               .from(schema.evaluations)
-              .where(eq(schema.evaluations.draftId, d.id));
+              .where(
+                and(
+                  eq(schema.evaluations.draftId, d.id),
+                  eq(schema.evaluations.userId, userId)
+                )
+              );
             if (e1) t1EvalBand = e1.overallBand;
           } else if (d.taskType === "task2" && t2EvalBand === null) {
             const [e2] = await db
               .select({ overallBand: schema.evaluations.overallBand })
               .from(schema.evaluations)
-              .where(eq(schema.evaluations.draftId, d.id));
+              .where(
+                and(
+                  eq(schema.evaluations.draftId, d.id),
+                  eq(schema.evaluations.userId, userId)
+                )
+              );
             if (e2) t2EvalBand = e2.overallBand;
           }
         }
@@ -325,7 +375,12 @@ export async function POST(request: Request) {
               allSessionDrafts.reduce((acc, d) => acc + d.secondsSpent, 0),
             weightedBand,
           })
-          .where(eq(schema.writingSessions.id, body.sessionId));
+          .where(
+            and(
+              eq(schema.writingSessions.id, body.sessionId),
+              eq(schema.writingSessions.userId, userId)
+            )
+          );
 
         sendEvent({
           type: "result",
@@ -334,6 +389,7 @@ export async function POST(request: Request) {
           results: gradedResults,
         });
       } catch (err) {
+        await reportError({ source: "server", error: err, path: "/api/ai/evaluate", userId });
         const message =
           err instanceof Error ? err.message : "Failed to evaluate draft.";
         const isTimeout =

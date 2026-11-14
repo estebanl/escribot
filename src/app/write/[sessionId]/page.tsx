@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
-import { isPasscodeRequired } from "@/lib/auth";
+import { requireUser } from "@/lib/session";
+import { getOwnedSession, getVisiblePrompt } from "@/lib/db/scope";
 import { AppShell } from "@/components/AppShell";
 import { CoachWorkspace, type PreviousFocus } from "@/components/CoachWorkspace";
 import { InsperaSimulator } from "@/components/InsperaSimulator";
@@ -24,40 +25,28 @@ export default async function WriteSessionPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = await params;
+  const user = await requireUser();
   const db = await getDb();
 
-  const [session] = await db
-    .select()
-    .from(schema.writingSessions)
-    .where(eq(schema.writingSessions.id, sessionId));
+  const session = await getOwnedSession(db, user.id, sessionId);
 
   if (!session) {
     notFound();
   }
 
   const task1Prompt = session.task1PromptId
-    ? (
-        await db
-          .select()
-          .from(schema.prompts)
-          .where(eq(schema.prompts.id, session.task1PromptId))
-      )[0] || null
+    ? await getVisiblePrompt(db, user.id, session.task1PromptId)
     : null;
 
   const task2Prompt = session.task2PromptId
-    ? (
-        await db
-          .select()
-          .from(schema.prompts)
-          .where(eq(schema.prompts.id, session.task2PromptId))
-      )[0] || null
+    ? await getVisiblePrompt(db, user.id, session.task2PromptId)
     : null;
 
   // Restore any previously saved draft rows for this session (e.g. from an interrupted or in-progress attempt)
   const existingDrafts = await db
     .select()
     .from(schema.drafts)
-    .where(eq(schema.drafts.sessionId, sessionId))
+    .where(and(eq(schema.drafts.sessionId, sessionId), eq(schema.drafts.userId, user.id)))
     .orderBy(desc(schema.drafts.version));
 
   if (session.mode === "coach") {
@@ -80,7 +69,12 @@ export default async function WriteSessionPage({
       })
       .from(schema.evaluations)
       .innerJoin(schema.drafts, eq(schema.evaluations.draftId, schema.drafts.id))
-      .where(eq(schema.drafts.taskType, activePrompt.taskType))
+      .where(
+        and(
+          eq(schema.drafts.taskType, activePrompt.taskType),
+          eq(schema.drafts.userId, user.id)
+        )
+      )
       .orderBy(desc(schema.evaluations.createdAt))
       .limit(25);
 
@@ -106,7 +100,7 @@ export default async function WriteSessionPage({
         : null;
 
     return (
-      <AppShell passcodeActive={isPasscodeRequired()}>
+      <AppShell user={user}>
         <CoachWorkspace
           sessionId={session.id}
           prompt={activePrompt}
