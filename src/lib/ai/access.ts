@@ -4,6 +4,7 @@ import { getDb, schema } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { PLANS, type PlanId } from "@/lib/plans";
 import { resolveUserAndAIConfig, type AIKeySource } from "@/lib/ai/providers";
+import { isBillingEnabled } from "@/lib/billing/stripe";
 
 /** What a request spends: a graded essay, or one of the lighter AI helpers. */
 export type AIRequestKind = "evaluation" | "assist";
@@ -73,9 +74,14 @@ export async function getUsageSummary(userId: string): Promise<UsageSummary> {
   };
 }
 
-function tooManyRequests(error: string, code: string, retryAfterSeconds?: number) {
+function tooManyRequests(
+  error: string,
+  code: string,
+  retryAfterSeconds?: number,
+  extra?: Record<string, unknown>
+) {
   return NextResponse.json(
-    { error, code },
+    { error, code, ...extra },
     {
       status: 429,
       headers: retryAfterSeconds ? { "Retry-After": String(retryAfterSeconds) } : undefined,
@@ -125,8 +131,17 @@ export async function guardAiRequest(
     remaining > 0 && units > 1
       ? `This submission needs ${units} but only ${remaining} of your ${limit} monthly ${what} remain.`
       : `You have used all ${limit} ${what} included in the ${limits.label} plan this month.`;
+  const canUpgrade = cfg.plan === "free" && isBillingEnabled();
+  const pro = PLANS.pro;
+  const nextStep = canUpgrade
+    ? `To keep going now, upgrade to Pro (${
+        kind === "evaluation" ? pro.evaluationsPerMonth : pro.assistsPerMonth
+      } ${what} a month) on the Pricing page, or add your own API key in Settings.`
+    : "To keep going now, add your own API key in Settings.";
   return tooManyRequests(
-    `${detail} Your allowance resets on ${resetDate}. To keep going now, add your own API key in Settings.`,
-    "quota_exceeded"
+    `${detail} Your allowance resets on ${resetDate}. ${nextStep}`,
+    "quota_exceeded",
+    undefined,
+    canUpgrade ? { upgradeUrl: "/pricing" } : undefined
   );
 }

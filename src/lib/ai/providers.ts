@@ -1,9 +1,9 @@
 import crypto from "crypto";
-import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { getOrCreateSettings } from "@/lib/db/scope";
 import { decryptString } from "@/lib/crypto";
-import { PLANS, resolvePlan, type PlanId } from "@/lib/plans";
+import { PLANS, type PlanId } from "@/lib/plans";
+import { getEffectivePlan } from "@/lib/billing/subscription";
 import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
 
 /** Who pays for a request: the platform's env key, the user's own saved key, or nobody (no key). */
@@ -112,11 +112,7 @@ export async function resolveUserAndAIConfig(userId: string): Promise<ResolvedAI
     anthropic: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
   };
 
-  const [account] = await db
-    .select({ email: schema.user.email })
-    .from(schema.user)
-    .where(eq(schema.user.id, userId));
-  const plan = resolvePlan(settings.plan, account?.email ?? "");
+  const plan = await getEffectivePlan(db, userId);
 
   const preferred = ((settings.activeProvider as AIProviderId) || "openrouter") as AIProviderId;
   let provider: AIProviderId = preferred;

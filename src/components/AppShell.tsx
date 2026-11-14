@@ -13,6 +13,7 @@ import {
   Sun,
   Moon,
   LogOut,
+  Sparkles,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
@@ -38,7 +39,7 @@ export function AppShell({
   user,
 }: {
   children: React.ReactNode;
-  user?: { name: string; email: string } | null;
+  user?: { name: string; email: string; canUpgrade?: boolean } | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -88,7 +89,7 @@ export function AppShell({
 
           <nav
             aria-label="Primary Navigation"
-            className="hidden md:flex items-center gap-1"
+            className="hidden lg:flex items-center gap-1"
           >
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
@@ -101,7 +102,7 @@ export function AppShell({
                   key={item.href}
                   id={item.id}
                   href={item.href}
-                  className={`flex items-center gap-2 px-3 h-16 border-b-2 text-sm font-medium transition ${
+                  className={`flex items-center gap-2 px-2 xl:px-3 h-16 border-b-2 text-sm font-medium whitespace-nowrap transition ${
                     active
                       ? "border-accent text-ink font-semibold"
                       : "border-transparent text-ink-secondary hover:text-ink hover:border-line-strong"
@@ -125,6 +126,19 @@ export function AppShell({
               {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
+            {user?.canUpgrade && (
+              <Link
+                id="upgrade-link"
+                href="/pricing"
+                title="Upgrade to Pro"
+                aria-label="Upgrade to Pro"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg text-sm font-medium transition"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span className="hidden xl:inline">Upgrade</span>
+              </Link>
+            )}
+
             {user && (
               <button
                 id="signout-button"
@@ -140,12 +154,12 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="flex-1 pb-20 md:pb-10">{children}</main>
+      <main className="flex-1 pb-20 lg:pb-10">{children}</main>
 
       {/* Mobile Companion Bottom Navigation */}
       <nav
         aria-label="Mobile Navigation"
-        className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t border-line bg-surface/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-line bg-surface/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around"
       >
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;

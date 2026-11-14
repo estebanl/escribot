@@ -3,6 +3,10 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { getAuth } from "@/lib/auth";
+import { getDb } from "@/lib/db";
+import { getEffectivePlan } from "@/lib/billing/subscription";
+import { isBillingEnabled } from "@/lib/billing/stripe";
+import type { PlanId } from "@/lib/plans";
 
 export interface SessionUser {
   id: string;
@@ -18,11 +22,18 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   return { id: session.user.id, name: session.user.name, email: session.user.email };
 });
 
-/** For server pages: returns the signed-in user or redirects to /login. */
-export async function requireUser(): Promise<SessionUser> {
+export interface PageUser extends SessionUser {
+  plan: PlanId;
+  /** Show upgrade prompts: billing is configured and the user is on Free. */
+  canUpgrade: boolean;
+}
+
+/** For server pages: returns the signed-in user (with plan) or redirects to /login. */
+export async function requireUser(): Promise<PageUser> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  return user;
+  const plan = await getEffectivePlan(await getDb(), user.id);
+  return { ...user, plan, canUpgrade: plan === "free" && isBillingEnabled() };
 }
 
 /** For API routes: `const user = await getCurrentUser(); if (!user) return unauthorized();` */

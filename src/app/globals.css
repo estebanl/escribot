@@ -245,3 +245,36 @@ h2.font-serif {
   background: var(--border-strong);
   border-radius: 9999px;
 }
+
+/* Pricing page call-to-action buttons */
+.pricing-cta,
+.pricing-cta-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.pricing-cta {
+  background-color: var(--accent-primary);
+  color: var(--accent-primary-fg);
+}
+.pricing-cta:hover {
+  background-color: var(--accent-primary-hover);
+}
+.pricing-cta:disabled {
+  opacity: 0.5;
+}
+.pricing-cta-secondary {
+  border: 1px solid var(--border-strong);
+  color: var(--ink-primary);
+}
+.pricing-cta-secondary:hover {
+  background-color: var(--bg-subtle);
+}

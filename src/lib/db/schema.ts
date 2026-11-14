@@ -66,6 +66,26 @@ export const verification = sqliteTable(
   (t) => [index("idx_verification_identifier").on(t.identifier)]
 );
 
+/**
+ * Stripe billing state, one row per user (one Stripe customer per user).
+ * Written only by the Stripe webhook, except stripe_customer_id which is set
+ * when the user first starts a checkout.
+ */
+export const subscriptions = sqliteTable("subscriptions", {
+  userId: text("user_id").primaryKey(),
+  stripeCustomerId: text("stripe_customer_id").notNull().unique(),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  status: text("status"), // Stripe subscription status; NULL until the first subscription
+  priceId: text("price_id"),
+  currentPeriodEnd: text("current_period_end"),
+  cancelAtPeriodEnd: integer("cancel_at_period_end", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  // `created` (unix seconds) of the last Stripe event applied, to ignore stale or out-of-order deliveries.
+  lastEventAt: integer("last_event_at").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+});
+
 /** Better Auth's rate-limit counters for the /api/auth endpoints. */
 export const rateLimit = sqliteTable("rate_limit", {
   id: text("id").primaryKey(),
@@ -106,7 +126,8 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default("deepseek/deepseek-v4.1-flash-1017"),
   encryptedApiKeys: text("encrypted_api_keys").notNull().default("{}"),
-  plan: text("plan").notNull().default("free"), // "free" | "pro" (see src/lib/plans.ts)
+  // Manual override ("pro" = complimentary Pro). Paid Pro comes from `subscriptions`.
+  plan: text("plan").notNull().default("free"),
   updatedAt: text("updated_at").notNull(),
 });
 

@@ -6,7 +6,20 @@ import { getCurrentUser, unauthorized } from "@/lib/session";
 import { decryptString, encryptString, maskApiKey } from "@/lib/crypto";
 import { PROVIDER_DEFAULTS } from "@/lib/ai/providers";
 import { getUsageSummary } from "@/lib/ai/access";
+import { isBillingEnabled } from "@/lib/billing/stripe";
+import { getSubscription } from "@/lib/billing/subscription";
 import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
+
+async function getBillingStatus(db: Awaited<ReturnType<typeof getDb>>, userId: string) {
+  const sub = await getSubscription(db, userId);
+  return {
+    enabled: isBillingEnabled(),
+    hasSubscription: Boolean(sub?.stripeSubscriptionId),
+    status: sub?.status ?? null,
+    currentPeriodEnd: sub?.currentPeriodEnd ?? null,
+    cancelAtPeriodEnd: sub?.cancelAtPeriodEnd ?? false,
+  };
+}
 
 export async function GET() {
   try {
@@ -115,6 +128,7 @@ export async function GET() {
       activeProviderReady: activeReady,
       providerDefaults: PROVIDER_DEFAULTS,
       usage: await getUsageSummary(user.id),
+      billing: await getBillingStatus(db, user.id),
     });
   } catch (err) {
     return NextResponse.json(

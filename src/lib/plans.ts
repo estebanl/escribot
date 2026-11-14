@@ -37,8 +37,16 @@ export const PLANS: Record<PlanId, PlanLimits> = {
   },
 };
 
-export function resolvePlan(storedPlan: string | null | undefined, email: string): PlanId {
+/**
+ * @param storedPlan     user_settings.plan, a manual override ("pro" = complimentary Pro)
+ * @param hasPaidPro     whether the user has a Stripe subscription that grants Pro
+ */
+export function resolvePlan(
+  storedPlan: string | null | undefined,
+  email: string,
+  hasPaidPro = false
+): PlanId {
   const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
   if (ownerEmail && email.trim().toLowerCase() === ownerEmail) return "owner";
-  return storedPlan === "pro" ? "pro" : "free";
+  return hasPaidPro || storedPlan === "pro" ? "pro" : "free";
 }

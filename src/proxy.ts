@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password", "/api/auth"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/pricing",
+  "/api/auth",
+  "/api/stripe/webhook", // authenticated by Stripe's signature, not a session
+];
 
 /**
  * Optimistic gate only: it checks that a session cookie is present so

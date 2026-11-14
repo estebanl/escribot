@@ -44,7 +44,23 @@ Without email configured, password-reset links are printed to the dev server con
 - **Own key = no limits.** A user who saves their own provider key in Settings pays for their own usage and is never metered.
 - **Model choice is plan-gated.** On platform keys, Free accounts always use the default provider and models; Pro and own-key users can choose.
 - **Rate limits** are stored in the database so they hold across serverless instances: 20 AI requests per minute per user, plus per-IP limits on sign-in, sign-up and password reset.
-- Until billing exists, a plan is changed directly in the database: `UPDATE user_settings SET plan = 'pro' WHERE user_id = '<id>';`
+- To give someone complimentary Pro without a subscription: `UPDATE user_settings SET plan = 'pro' WHERE user_id = '<id>';`
+
+### Billing (Stripe)
+
+Paid Pro runs on Stripe Checkout and the Stripe customer portal; the app never handles card details.
+
+1. In Stripe, create a **Pro** product with a recurring price. Suggested: **$9/month** and **$90/year** (two months free).
+2. In **Settings → Billing → Customer portal**, enable cancellations, payment-method updates, invoice history and (if you created both prices) switching between them.
+3. Add a webhook endpoint at `<BETTER_AUTH_URL>/api/stripe/webhook` for `customer.subscription.created`, `.updated`, `.deleted`, `.paused` and `.resumed`.
+4. Set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO_MONTHLY`, optionally `STRIPE_PRICE_PRO_YEARLY`, and `STRIPE_WEBHOOK_SECRET`.
+
+How it works:
+
+- `/pricing` is public. Free users see an **Upgrade** button in the header, in Settings, and in the message shown when they run out of their monthly allowance.
+- Checkout creates one Stripe customer per user. The webhook stores the subscription in the `subscriptions` table; `active`, `trialing` and `past_due` grant Pro (past-due keeps access while Stripe retries the card).
+- **Manage billing** in Settings opens the Stripe portal for cancelling, changing card or billing period, and invoices. A cancelled subscription keeps Pro until the end of the paid period.
+- Test locally with the Stripe CLI: `stripe listen --forward-to localhost:3000/api/stripe/webhook` and use its `whsec_...` secret.
 
 ### Database migrations
 
@@ -69,6 +85,7 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
    - `APP_SECRET` — Required. Long random secret for `AES-256-GCM` encryption of API keys saved in Settings.
    - *(Optional)* `ALLOWED_SIGNUP_EMAILS` — Comma-separated allowlist of emails that may sign up. Leave empty for open sign-ups; each Free account can then spend the platform AI keys up to its monthly quota.
    - *(Optional)* `RESEND_API_KEY` + `EMAIL_FROM` — Enables email verification and emailed password-reset links.
+   - *(Optional)* `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `STRIPE_WEBHOOK_SECRET` — Enables paid Pro (see **Billing** above).
    - *(Optional)* `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` — Enables "Continue with Google" (redirect URI `<BETTER_AUTH_URL>/api/auth/callback/google`).
    - *(Optional)* `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
 3. **Deploy**: Migrations and the curated Academic IELTS starter bank are applied idempotently on first request.
