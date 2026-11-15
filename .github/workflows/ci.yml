@@ -90,7 +90,13 @@ jobs:
       # Aspire serves the Cosmos DB emulator over HTTPS with the ASP.NET Core development
       # certificate. A fresh runner has none, so create one that exists only for this job.
       - name: Create a development certificate
-        run: dotnet dev-certs https --trust
+        run: |
+          # .NET on Linux trusts the certificate through this OpenSSL directory.
+          export SSL_CERT_DIR="$HOME/.aspnet/dev-certs/trust:/usr/lib/ssl/certs"
+          echo "SSL_CERT_DIR=$SSL_CERT_DIR" >> "$GITHUB_ENV"
+          # Exit code 4 means trusted by OpenSSL and .NET but not by browsers, which the
+          # runner does not have.
+          dotnet dev-certs https --trust || [ $? -eq 4 ]
       - run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
       - name: Build Docker image
         run: docker build --tag fluentescritor-api:ci .
