@@ -87,6 +87,10 @@ jobs:
           global-json-file: server/global.json
       - run: dotnet restore
       - run: dotnet build --no-restore --configuration Release
+      # Aspire serves the Cosmos DB emulator over HTTPS with the ASP.NET Core development
+      # certificate. A fresh runner has none, so create one that exists only for this job.
+      - name: Create a development certificate
+        run: dotnet dev-certs https --trust
       - run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
       - name: Build Docker image
         run: docker build --tag fluentescritor-api:ci .
