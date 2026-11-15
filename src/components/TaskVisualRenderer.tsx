@@ -638,7 +638,7 @@ export function TaskVisualRenderer({
     return <SpecContent spec={spec} compact={compact} isNested={isNested} />;
   }
 
-  // If BOTH are available (e.g. Cambridge IELTS 21 prompts)
+  // If BOTH are available (an uploaded image plus an extracted spec)
   return (
     <div className={isNested ? "" : "mt-4"}>
       <div className="flex items-center justify-between gap-2 mb-2 px-1">
