@@ -47,3 +47,55 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ------------------------------------------------------------------------------
+# .NET / Aspire / Azure (migration, see issue #7)
+# ------------------------------------------------------------------------------
+
+# build output
+[Bb]in/
+[Oo]bj/
+/artifacts/
+/publish/
+TestResults/
+*.trx
+
+# IDE and per-user files
+.vs/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+
+# local settings: secrets belong in .NET user secrets or Aspire parameters,
+# never in a settings file inside the repository
+appsettings.Local.json
+appsettings.*.Local.json
+local.settings.json
+secrets.json
+*.pfx
+*.p12
+*.key
+
+# publish profiles can embed deployment credentials
+*.pubxml
+*.pubxml.user
+*.publishsettings
+[Pp]roperties/[Pp]ublish[Pp]rofiles/
+
+# Azure CLI, azd and Aspire deployment state (subscription, tenant and resource ids)
+.azure/
+.aspire/
+aspire-manifest.json
+*.azureauth
+
+# emulator data (Cosmos DB emulator, Azurite)
+__azurite__/
+__blobstorage__/
+__queuestorage__/
+azurite/
+__azurite_db_*.json
+.cosmos-emulator/
+
+# front-end build output (Vite)
+dist/
