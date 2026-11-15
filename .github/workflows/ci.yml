@@ -65,3 +65,66 @@ jobs:
       - name: Server log
         if: always()
         run: cat server.log || true
+
+  dotnet:
+    # The .NET server (server/). Uses no repository secrets: the one secret the app needs
+    # is generated per run. The AppHost test starts the Cosmos DB and Azurite emulators as
+    # containers on the runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: server
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: server/global.json
+      - run: dotnet restore
+      - run: dotnet build --no-restore --configuration Release
+      # Aspire serves the Cosmos DB emulator over HTTPS with the ASP.NET Core development
+      # certificate. A fresh runner has none, so create one that exists only for this job.
+      - name: Create a development certificate
+        run: |
+          # .NET on Linux trusts the certificate through this OpenSSL directory.
+          export SSL_CERT_DIR="$HOME/.aspnet/dev-certs/trust:/usr/lib/ssl/certs"
+          echo "SSL_CERT_DIR=$SSL_CERT_DIR" >> "$GITHUB_ENV"
+          # Exit code 4 means trusted by OpenSSL and .NET but not by browsers, which the
+          # runner does not have.
+          dotnet dev-certs https --trust || [ $? -eq 4 ]
+      - run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
+      - name: Build Docker image
+        run: docker build --tag fluentescritor-api:ci .
+      - name: Image starts only with its secret
+        run: |
+          # Placeholder connections: creating the clients makes no network call.
+          settings=(
+            --env App__PublicUrl=https://app.example.test
+            --env "ConnectionStrings__cosmos=AccountEndpoint=https://localhost:8081/;AccountKey=$(openssl rand -base64 64 | tr -d '\n');"
+            --env ConnectionStrings__blobs=UseDevelopmentStorage=true
+          )
+
+          if docker run --rm "${settings[@]}" fluentescritor-api:ci > no-secret.log 2>&1; then
+            echo "The container started without App__EncryptionSecret."
+            exit 1
+          fi
+          if ! grep -q "App:EncryptionSecret is required" no-secret.log; then
+            echo "The container failed for a different reason:"
+            cat no-secret.log
+            exit 1
+          fi
+
+          docker run --detach --name api --publish 8080:8080 "${settings[@]}" \
+            --env App__EncryptionSecret="$(openssl rand -hex 32)" \
+            fluentescritor-api:ci
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:8080/alive && exit 0
+            sleep 1
+          done
+          docker logs api
+          exit 1

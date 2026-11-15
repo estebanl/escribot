@@ -1,0 +1,25 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!--
+      The orchestrator and dashboard come from NuGet at the pinned Aspire version, so a plain
+      "dotnet run" or "dotnet test" works on any machine and in CI without the Aspire CLI.
+      ASPIRE010 only recommends the CLI bundle instead.
+    -->
+    <AspireUseCliBundle>false</AspireUseCliBundle>
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+    <!-- Identifies the local user-secrets store, which lives outside the repository. Not a secret. -->
+    <UserSecretsId>715017bd-d04f-4ab6-a1c6-8c0e85134662</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Azure.CosmosDB" />
+    <PackageReference Include="Aspire.Hosting.Azure.Storage" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FluentEscritor.Api\FluentEscritor.Api.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -98,6 +98,63 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
 
 ---
 
+## Local development (.NET)
+
+The app is being moved to a .NET 11 server on Azure (see issue #7). The new server lives in `server/` next to the Next.js app, which keeps working until the move is finished. So far it is a skeleton: health endpoints, configuration, and connections to Cosmos DB and Blob Storage.
+
+**You need:** the [.NET 11 SDK](https://dotnet.microsoft.com/download) and a running container runtime (Docker Desktop or Podman). The Cosmos DB emulator and Azurite run as containers.
+
+```bash
+cd server
+dotnet run --project src/FluentEscritor.AppHost
+```
+
+This starts the API, the Linux-based Cosmos DB emulator and Azurite, and prints a link to the Aspire dashboard, where you can see each resource with its logs, traces and metrics. The first run downloads the emulator images.
+
+| Project | Purpose |
+|---|---|
+| `src/FluentEscritor.Api` | ASP.NET Core minimal API |
+| `src/FluentEscritor.AppHost` | Aspire AppHost: starts the API and the emulators for local development |
+| `src/FluentEscritor.ServiceDefaults` | Shared OpenTelemetry, health checks, service discovery and HTTP resilience |
+| `tests/FluentEscritor.Api.Tests` | xUnit tests |
+
+### Settings and secrets
+
+No secret has a default value in the code, and none belongs in a file inside the repository. The API refuses to start if a required setting is missing.
+
+| Setting | Environment variable | Required |
+|---|---|---|
+| `App:EncryptionSecret` | `App__EncryptionSecret` | Always. At least 32 characters. Protects the API keys users save. |
+| `App:PublicUrl` | `App__PublicUrl` | In production, where it must use HTTPS. |
+| `ConnectionStrings:cosmos` | `ConnectionStrings__cosmos` | Always. Supplied by the AppHost locally. |
+| `ConnectionStrings:blobs` | `ConnectionStrings__blobs` | Always. Supplied by the AppHost locally. |
+
+When you run the AppHost, it generates a random `App:EncryptionSecret` the first time and saves it in [.NET user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets), which are stored in your user profile, outside the repository. To set your own value instead:
+
+```bash
+cd server
+dotnet user-secrets set "Parameters:encryption-secret" "$(openssl rand -hex 32)" --project src/FluentEscritor.AppHost
+```
+
+To run the API on its own, without the AppHost, give it the same settings through user secrets or environment variables.
+
+### Tests
+
+```bash
+cd server
+dotnet test                                      # everything; needs a container runtime
+dotnet test --filter "Category!=Integration"     # skips the test that starts the emulators
+```
+
+### Docker image
+
+```bash
+cd server
+docker build -t fluentescritor-api .
+```
+
+The image contains the API only: no secrets and no development settings. It listens on port 8080 and answers `/alive` (the process is up) and `/health` (Cosmos DB and Blob Storage are reachable).
+
 ## Deploying to Vercel
 
 1. **Create a free Turso database**:
