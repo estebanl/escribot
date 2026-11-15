@@ -9,6 +9,11 @@ namespace FluentEscritor.Api.Data.Cosmos;
 /// which is also its partition key, is <c>kind:sha256(key)</c>, so a lookup is a single
 /// point read and the key itself (a session token, for example) is never stored.
 /// Creating a lookup fails if it exists, which is what makes emails unique.
+/// <para>
+/// A lookup can be created as a reservation (<c>pending</c>) for a document that is
+/// written next, in another partition. Confirming a reservation and taking an abandoned
+/// one over are both conditional writes to the same document, so only one of them wins.
+/// </para>
 /// </summary>
 internal sealed class LookupStore(CosmosStore store, TimeProvider time)
 {
@@ -29,6 +34,56 @@ internal sealed class LookupStore(CosmosStore store, TimeProvider time)
         return CosmosStore.CreateAsync(Container, id, Document(id, kind, userId, DocumentJson.Now(time), expiresAt), cancellationToken);
     }
 
+    /// <summary>Creates a pending lookup. Returns false if the key is already taken.</summary>
+    public Task<bool> TryReserveAsync(string kind, string key, string userId, CancellationToken cancellationToken)
+    {
+        var id = Id(kind, key);
+        return CosmosStore.CreateAsync(Container, id, Document(id, kind, userId, DocumentJson.Now(time), null, pending: true), cancellationToken);
+    }
+
+    /// <summary>
+    /// Makes the user's reservation permanent. Returns false if the lookup is gone or now
+    /// belongs to someone else, in which case the caller does not hold the key.
+    /// </summary>
+    public async Task<bool> ConfirmAsync(string kind, string key, string userId, CancellationToken cancellationToken)
+    {
+        var id = Id(kind, key);
+        var result = await CosmosStore.UpdateAsync(Container, id, id, current =>
+        {
+            if (Owner(current) != userId || !IsPending(current))
+            {
+                return null;
+            }
+
+            current.Remove(PendingProperty);
+            return current;
+        }, cancellationToken);
+
+        return result is not null && Owner(result) == userId;
+    }
+
+    /// <summary>
+    /// Moves a reservation that <paramref name="fromUserId"/> never confirmed to
+    /// <paramref name="userId"/>, as a new reservation. Returns false if it was confirmed,
+    /// removed or taken by someone else in the meantime.
+    /// </summary>
+    public async Task<bool> TryTakeOverAsync(string kind, string key, string fromUserId, string userId, CancellationToken cancellationToken)
+    {
+        var id = Id(kind, key);
+        var taken = false;
+        var result = await CosmosStore.UpdateAsync(Container, id, id, current =>
+        {
+            taken = Owner(current) == fromUserId && IsPending(current);
+            return taken ? Document(id, kind, userId, DocumentJson.Now(time), null, pending: true) : null;
+        }, cancellationToken);
+
+        return result is not null && taken;
+    }
+
+    /// <summary>Removes the user's reservation if it is still theirs and still pending.</summary>
+    public Task<bool> DeleteReservationAsync(string kind, string key, string userId, CancellationToken cancellationToken) =>
+        CosmosStore.DeleteIfAsync(Container, Id(kind, key), Id(kind, key), current => Owner(current) == userId && IsPending(current), cancellationToken);
+
     public async Task<LookupEntry?> FindAsync(string kind, string key, CancellationToken cancellationToken)
     {
         var document = await CosmosStore.ReadAsync(Container, Id(kind, key), Id(kind, key), cancellationToken);
@@ -40,7 +95,8 @@ internal sealed class LookupStore(CosmosStore store, TimeProvider time)
         var entry = new LookupEntry(
             document["userId"]!.GetValue<string>(),
             document["createdAt"]!.GetValue<DateTimeOffset>(),
-            document["expiresAt"]?.GetValue<DateTimeOffset>());
+            document["expiresAt"]?.GetValue<DateTimeOffset>(),
+            IsPending(document));
 
         // Cosmos DB removes expired documents in the background, so check as well.
         return entry.ExpiresAt is { } expiresAt && expiresAt <= DocumentJson.Now(time) ? null : entry;
@@ -70,7 +126,13 @@ internal sealed class LookupStore(CosmosStore store, TimeProvider time)
         }
     }
 
-    private JsonObject Document(string id, string kind, string userId, DateTimeOffset createdAt, DateTimeOffset? expiresAt)
+    private const string PendingProperty = "pending";
+
+    private static string Owner(JsonObject document) => document["userId"]!.GetValue<string>();
+
+    private static bool IsPending(JsonObject document) => document[PendingProperty]?.GetValue<bool>() == true;
+
+    private JsonObject Document(string id, string kind, string userId, DateTimeOffset createdAt, DateTimeOffset? expiresAt, bool pending = false)
     {
         var document = new JsonObject
         {
@@ -79,6 +141,11 @@ internal sealed class LookupStore(CosmosStore store, TimeProvider time)
             ["userId"] = userId,
             ["createdAt"] = DocumentJson.Timestamp(createdAt),
         };
+
+        if (pending)
+        {
+            document[PendingProperty] = true;
+        }
 
         if (expiresAt is { } expires)
         {
@@ -90,7 +157,8 @@ internal sealed class LookupStore(CosmosStore store, TimeProvider time)
     }
 }
 
-internal sealed record LookupEntry(string UserId, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt);
+/// <param name="Pending">A reservation whose owner has not confirmed it yet.</param>
+internal sealed record LookupEntry(string UserId, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt, bool Pending = false);
 
 internal sealed class CosmosAuthSessionStore(LookupStore lookups) : IAuthSessionStore
 {

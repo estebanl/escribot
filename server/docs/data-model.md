@@ -67,7 +67,8 @@ What changed from the relational shape:
   session. An evaluation is large and a session can have several drafts, so embedding would
   rewrite a growing document on every save and move towards the 2 MB document limit.
   Because they share the session's partition and carry `sessionId`, a session with all its
-  drafts and evaluations is still **one query**, and deleting it is **one transaction**.
+  drafts and evaluations is still **one query**, and deleting it is **one transaction**
+  (see [Concurrency](#concurrency) for sessions with 100 documents or more).
 - **No join tables or foreign keys.** Ownership is the partition.
 - **Timestamps** are UTC strings with exactly three decimals (`2026-11-15T18:04:05.123Z`),
   the format the existing API already returns, so they sort correctly as strings.
@@ -82,7 +83,7 @@ All single-partition unless stated.
 | Settings, creating defaults on first use | Point read; create if missing |
 | List sessions, drafts, evaluations, vault items, drills, images | `type = X`, newest first |
 | A session with its drafts and evaluations | One query on `sessionId` |
-| Delete a session and everything under it | One transactional batch |
+| Delete a session and everything under it | One transactional batch per 100 documents, the session document last |
 | Monthly AI quota | `COUNT` of `aiUsage` since a date, filtered by feature and key source |
 | Storage used | `SUM(bytes)` of `image` |
 | Export everything | `SELECT * FROM c` in the partition |
@@ -120,13 +121,22 @@ is one point read.
 | `stripe` | Stripe customer id | Finding the user for a Stripe webhook |
 
 - **Uniqueness.** Creating a document fails if the id exists. Creating an account writes the
-  email lookup first; whoever creates it owns the address.
+  email lookup first, as a reservation (`pending: true`), then the account, then confirms
+  the lookup by removing `pending`. The sign-up whose confirmation succeeds owns the address.
 - **Keys are hashed.** Emails can contain characters that are not allowed in an id, and a
   session token must not be stored at all: a copy of the database does not give anyone a
   working session.
 - **No cross-partition transaction.** A lookup and the account it points to are separate
-  writes. If account creation stops after the lookup is written, the next sign-up with that
-  email finds a lookup whose account does not exist and takes it over.
+  writes. If account creation stops after the lookup is written, the reservation stays
+  pending. A later sign-up with that email takes it over only if it is still pending, has no
+  account and is older than two minutes; a younger one is treated as a sign-up in progress
+  and the address is reported as taken. Confirming and taking over are both ETag-conditional
+  writes to the lookup, so exactly one succeeds: a sign-up that was merely slow fails to
+  confirm, removes the account it wrote and reports the address as taken. If the account was
+  written but never confirmed, the next sign-up confirms it instead.
+- **Stripe customer.** The subscription document is written first, then the lookup. Creating
+  a subscription that already exists checks the lookup and writes it if it is missing, so a
+  retry repairs a half-finished attempt.
 - Each lookup carries `userId`, so deleting a user can find and remove all of theirs.
 
 ## `counters`: atomic counters
@@ -197,7 +207,10 @@ and the user's image blobs first (issues 10, 11 and 13).
 - Subscription updates pass a function that can return the record unchanged, which is how a
   stale Stripe event is skipped without a write.
 - Writes inside one partition that must happen together (deleting a session, saving several
-  vault items) use a transactional batch.
+  vault items) use a transactional batch. A batch holds at most 100 operations. A session
+  with more documents than that is deleted in several batches with the session document in
+  the last one, so a failure part way leaves the session in place and deleting it again
+  finishes the job; it is never left as drafts or evaluations without a session.
 
 ## Repository interfaces
 

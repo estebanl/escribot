@@ -59,7 +59,8 @@ public interface ISubscriptionRepository
 
     /// <summary>
     /// Records the user's Stripe customer. If the user already has one, that existing
-    /// subscription is returned unchanged.
+    /// subscription is returned unchanged. Either way the subscription can be found by
+    /// its Stripe customer id once this returns, so it is safe to call again after a failure.
     /// </summary>
     Task<Subscription> CreateAsync(string userId, string stripeCustomerId, CancellationToken cancellationToken = default);
 
@@ -111,7 +112,11 @@ public interface IWritingRepository
 
     Task SaveSessionAsync(string userId, WritingSession session, CancellationToken cancellationToken = default);
 
-    /// <summary>Deletes the session with its drafts and evaluations, all or nothing.</summary>
+    /// <summary>
+    /// Deletes the session with its drafts and evaluations. Up to 99 of them go with the
+    /// session in one transaction. With more, the session itself is deleted last, so after
+    /// a failure the session still exists and calling this again completes the deletion.
+    /// </summary>
     Task<bool> DeleteSessionAsync(string userId, string sessionId, CancellationToken cancellationToken = default);
 
     Task<Draft?> GetDraftAsync(string userId, string draftId, CancellationToken cancellationToken = default);

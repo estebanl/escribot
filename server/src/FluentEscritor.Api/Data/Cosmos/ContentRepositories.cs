@@ -109,15 +109,20 @@ internal sealed class CosmosWritingRepository(CosmosStore store, UserDocuments d
 
     public async Task<bool> DeleteSessionAsync(string userId, string sessionId, CancellationToken cancellationToken = default)
     {
+        var sessionDocumentId = DocumentTypes.Session.DocumentId(sessionId);
         var ids = (await QuerySessionDocumentsAsync(userId, sessionId, "c.id", cancellationToken))
             .Select(r => r["id"]!.GetValue<string>())
             .ToList();
-        if (!ids.Contains(DocumentTypes.Session.DocumentId(sessionId)))
+        if (!ids.Remove(sessionDocumentId))
         {
             return false;
         }
 
-        // One partition, so the session and everything under it go in a single transaction.
+        // One partition, so the session and everything under it go in a single transaction,
+        // unless there are more documents than one transaction holds. The session document
+        // therefore goes last: if a batch fails, the session is still there and deleting it
+        // again removes whatever is left, so nothing under it can be stranded.
+        ids.Add(sessionDocumentId);
         await CosmosStore.BatchAsync(store.Users, userId, ids, (batch, id) => batch.DeleteItem(id), cancellationToken);
         return true;
     }

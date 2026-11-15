@@ -43,15 +43,88 @@ public class RepositoryTests(AppHostFixture fixture)
     }
 
     [Fact]
-    public async Task An_email_lookup_left_by_a_failed_sign_up_does_not_block_the_address()
+    public async Task An_email_reservation_left_by_a_failed_sign_up_does_not_block_the_address_for_long()
     {
         var email = $"orphan-{_userId}@example.test";
-        await fixture.Get<LookupStore>().TryCreateAsync(LookupStore.Email, email, "user-that-was-never-written", null, default);
+        var (accounts, lookups, clock) = AccountsWithClock();
+        await lookups.TryReserveAsync(LookupStore.Email, email, "user-that-was-never-written", default);
 
-        var result = await fixture.Get<IUserAccountRepository>().CreateAsync(TestData.Account(_userId, email));
+        // Still recent: it could be a sign-up that is about to write its account.
+        clock.Now += CosmosUserAccountRepository.ReservationGracePeriod - TimeSpan.FromSeconds(1);
+        Assert.Equal(CreateAccountResult.EmailTaken, await accounts.CreateAsync(TestData.Account(_userId, email)));
+        Assert.Null(await accounts.GetAsync(_userId));
 
-        Assert.Equal(CreateAccountResult.Created, result);
-        Assert.Equal(_userId, (await fixture.Get<IUserAccountRepository>().FindByEmailAsync(email))!.Id);
+        clock.Now += TimeSpan.FromSeconds(2);
+        Assert.Equal(CreateAccountResult.Created, await accounts.CreateAsync(TestData.Account(_userId, email)));
+
+        Assert.Equal(_userId, (await accounts.FindByEmailAsync(email))!.Id);
+        Assert.False((await lookups.FindAsync(LookupStore.Email, email, default))!.Pending);
+    }
+
+    [Fact]
+    public async Task A_sign_up_whose_reservation_was_taken_over_withdraws_its_account()
+    {
+        // The interleaving from the review: the first sign-up reserves the address and
+        // stalls, a second one takes the reservation over, then the first one resumes.
+        var email = $"stalled-{_userId}@example.test";
+        var (accounts, lookups, clock) = AccountsWithClock();
+        var slow = $"{_userId}-slow";
+        await lookups.TryReserveAsync(LookupStore.Email, email, slow, default);
+
+        clock.Now += CosmosUserAccountRepository.ReservationGracePeriod;
+        Assert.Equal(CreateAccountResult.Created, await accounts.CreateAsync(TestData.Account(_userId, email)));
+
+        // What the stalled sign-up does when it resumes: it cannot confirm.
+        Assert.False(await lookups.ConfirmAsync(LookupStore.Email, email, slow, default));
+        Assert.False(await lookups.DeleteReservationAsync(LookupStore.Email, email, slow, default));
+        Assert.False(await lookups.TryTakeOverAsync(LookupStore.Email, email, _userId, slow, default));
+        Assert.Equal(_userId, (await accounts.FindByEmailAsync(email))!.Id);
+    }
+
+    [Fact]
+    public async Task Only_one_sign_up_takes_over_an_abandoned_reservation()
+    {
+        var email = $"contested-{_userId}@example.test";
+        var (accounts, lookups, clock) = AccountsWithClock();
+        await lookups.TryReserveAsync(LookupStore.Email, email, "user-that-was-never-written", default);
+        clock.Now += CosmosUserAccountRepository.ReservationGracePeriod;
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(i => accounts.CreateAsync(TestData.Account($"{_userId}-{i}", email))));
+
+        Assert.Single(results, r => r == CreateAccountResult.Created);
+        var winner = Array.IndexOf(results, CreateAccountResult.Created);
+        Assert.Equal($"{_userId}-{winner}", (await accounts.FindByEmailAsync(email))!.Id);
+        for (var i = 0; i < results.Length; i++)
+        {
+            Assert.Equal(i == winner, await accounts.GetAsync($"{_userId}-{i}") is not null);
+        }
+    }
+
+    [Fact]
+    public async Task An_account_written_without_confirming_its_reservation_keeps_the_address()
+    {
+        var email = $"unconfirmed-{_userId}@example.test";
+        var (accounts, lookups, clock) = AccountsWithClock();
+        await accounts.CreateAsync(TestData.Account(_userId, email));
+        // Put the lookup back to how a sign-up that stopped before confirming leaves it.
+        await lookups.DeleteAsync(LookupStore.Email, email, default);
+        await lookups.TryReserveAsync(LookupStore.Email, email, _userId, default);
+        clock.Now += CosmosUserAccountRepository.ReservationGracePeriod;
+
+        var result = await accounts.CreateAsync(TestData.Account(AppHostFixture.NewUserId(), email));
+
+        Assert.Equal(CreateAccountResult.EmailTaken, result);
+        Assert.False((await lookups.FindAsync(LookupStore.Email, email, default))!.Pending);
+        Assert.Equal(_userId, (await accounts.FindByEmailAsync(email))!.Id);
+    }
+
+    /// <summary>The account repository on a clock the test moves, against the same database.</summary>
+    private (CosmosUserAccountRepository Accounts, LookupStore Lookups, ManualTimeProvider Clock) AccountsWithClock()
+    {
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var lookups = new LookupStore(fixture.Get<CosmosStore>(), clock);
+        return (new CosmosUserAccountRepository(fixture.Get<UserDocuments>(), lookups, clock), lookups, clock);
     }
 
     [Fact]
@@ -168,6 +241,22 @@ public class RepositoryTests(AppHostFixture fixture)
         Assert.Equal(_userId, (await subscriptions.FindByStripeCustomerIdAsync(customerId))!.UserId);
         Assert.Null(await subscriptions.FindByStripeCustomerIdAsync(AppHostFixture.NewId("cus")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => subscriptions.CreateAsync(AppHostFixture.NewUserId(), customerId));
+    }
+
+    [Fact]
+    public async Task Creating_a_subscription_again_restores_a_missing_stripe_lookup()
+    {
+        var subscriptions = fixture.Get<ISubscriptionRepository>();
+        var customerId = AppHostFixture.NewId("cus");
+        await subscriptions.CreateAsync(_userId, customerId);
+        // As if the first attempt had stopped after writing the subscription.
+        await fixture.Get<LookupStore>().DeleteAsync(LookupStore.StripeCustomer, customerId, default);
+        Assert.Null(await subscriptions.FindByStripeCustomerIdAsync(customerId));
+
+        var again = await subscriptions.CreateAsync(_userId, AppHostFixture.NewId("cus"));
+
+        Assert.Equal(customerId, again.StripeCustomerId);
+        Assert.Equal(_userId, (await subscriptions.FindByStripeCustomerIdAsync(customerId))!.UserId);
     }
 
     [Fact]
@@ -299,6 +388,38 @@ public class RepositoryTests(AppHostFixture fixture)
         Assert.Empty(await writing.ListEvaluationsAsync(_userId));
         Assert.NotNull(await writing.GetDraftAsync(_userId, "d2"));
         Assert.NotNull(await fixture.Get<IVaultRepository>().GetAsync(_userId, "s1"));
+    }
+
+    [Fact]
+    public async Task Deleting_a_session_with_more_documents_than_one_batch_removes_them_all()
+    {
+        var writing = fixture.Get<IWritingRepository>();
+        await writing.SaveSessionAsync(_userId, TestData.Session("s1"));
+        await writing.SaveSessionAsync(_userId, TestData.Session("s2"));
+        await writing.SaveDraftAsync(_userId, TestData.Draft("kept", "s2"));
+        await Task.WhenAll(Enumerable.Range(0, 2 * CosmosStore.MaxBatchSize + 5)
+            .Select(i => writing.SaveDraftAsync(_userId, TestData.Draft($"d{i}", "s1"))));
+
+        Assert.True(await writing.DeleteSessionAsync(_userId, "s1"));
+
+        Assert.Null(await writing.GetOwnedSessionAsync(_userId, "s1"));
+        Assert.Equal(["kept"], (await writing.ListDraftsAsync(_userId)).Select(d => d.Id));
+    }
+
+    [Fact]
+    public async Task A_session_whose_deletion_stopped_part_way_can_be_deleted_again()
+    {
+        var writing = fixture.Get<IWritingRepository>();
+        await writing.SaveSessionAsync(_userId, TestData.Session("s1"));
+        await writing.SaveDraftAsync(_userId, TestData.Draft("d1", "s1"));
+        await writing.SaveDraftAsync(_userId, TestData.Draft("d2", "s1"));
+        // The state an interrupted deletion leaves: some children gone, the session still there.
+        await fixture.Get<UserDocuments>().DeleteAsync(DocumentTypes.Draft, _userId, "d1", default);
+
+        Assert.True(await writing.DeleteSessionAsync(_userId, "s1"));
+
+        Assert.Empty(await writing.ListDraftsAsync(_userId));
+        Assert.Null(await writing.GetOwnedSessionAsync(_userId, "s1"));
     }
 
     // ---- Vault, drills, usage, images ----

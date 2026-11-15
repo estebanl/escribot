@@ -83,6 +83,39 @@ internal sealed class CosmosStore(CosmosClient client)
     }
 
     /// <summary>
+    /// Deletes the document only if <paramref name="condition"/> holds for the version that
+    /// is deleted. Returns false if it does not exist or the condition does not hold.
+    /// </summary>
+    public static async Task<bool> DeleteIfAsync(Container container, string partitionKey, string id, Func<JsonObject, bool> condition, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < MaxConcurrencyRetries; attempt++)
+        {
+            var (current, etag) = await ReadWithETagAsync(container, partitionKey, id, cancellationToken);
+            if (current is null || !condition(current))
+            {
+                return false;
+            }
+
+            var options = new ItemRequestOptions { IfMatchEtag = etag, EnableContentResponseOnWrite = false };
+            using var response = await container.DeleteItemStreamAsync(id, new PartitionKey(partitionKey), options, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.PreconditionFailed)
+            {
+                continue;
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return false;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return true;
+        }
+
+        throw new InvalidOperationException("The document kept changing while it was being deleted.");
+    }
+
+    /// <summary>
     /// Reads the document, applies <paramref name="change"/>, and writes it back only if
     /// nobody else wrote in between; otherwise starts again from the newer version.
     /// <paramref name="change"/> returns null to leave the document as it is.
@@ -171,7 +204,11 @@ internal sealed class CosmosStore(CosmosClient client)
         return results;
     }
 
-    /// <summary>Applies the operations in one partition as a single transaction per batch of 100.</summary>
+    /// <summary>
+    /// Applies the operations in one partition as a single transaction per batch of 100, in
+    /// the order given. More than 100 operations are therefore not one transaction: if a
+    /// later batch fails, the earlier ones stay applied.
+    /// </summary>
     public static async Task BatchAsync<T>(Container container, string partitionKey, IReadOnlyList<T> items, Action<TransactionalBatch, T> add, CancellationToken cancellationToken)
     {
         foreach (var chunk in items.Chunk(MaxBatchSize))

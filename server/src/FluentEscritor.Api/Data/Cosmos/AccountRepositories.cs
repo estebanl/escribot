@@ -4,6 +4,12 @@ namespace FluentEscritor.Api.Data.Cosmos;
 
 internal sealed class CosmosUserAccountRepository(UserDocuments documents, LookupStore lookups, TimeProvider time) : IUserAccountRepository
 {
+    /// <summary>
+    /// How long an unconfirmed email reservation is left to the sign-up that made it.
+    /// Uniqueness does not depend on this value: a slower sign-up fails to confirm.
+    /// </summary>
+    internal static readonly TimeSpan ReservationGracePeriod = TimeSpan.FromMinutes(2);
+
     public async Task<CreateAccountResult> CreateAsync(UserAccount account, CancellationToken cancellationToken = default)
     {
         DocumentId.Require(account.Id, nameof(account));
@@ -15,17 +21,12 @@ internal sealed class CosmosUserAccountRepository(UserDocuments documents, Looku
 
         // The lookup is written first: it is what makes the email unique. A lookup and an
         // account live in different partitions, so the pair cannot be one transaction.
-        if (!await lookups.TryCreateAsync(LookupStore.Email, email, account.Id, null, cancellationToken))
+        // Instead the lookup starts as a reservation and is confirmed once the account is
+        // written; only the request whose confirmation succeeds has created the account.
+        if (!await lookups.TryReserveAsync(LookupStore.Email, email, account.Id, cancellationToken)
+            && !await TryTakeOverAbandonedReservationAsync(email, account.Id, cancellationToken))
         {
-            var existing = await lookups.FindAsync(LookupStore.Email, email, cancellationToken);
-            if (existing is null || await GetAsync(existing.UserId, cancellationToken) is not null)
-            {
-                return CreateAccountResult.EmailTaken;
-            }
-
-            // The lookup points at an account that was never written (an earlier attempt
-            // stopped half way), so the address is free: take the lookup over.
-            await lookups.ReplaceAsync(LookupStore.Email, email, account.Id, DocumentJson.Now(time), null, cancellationToken);
+            return CreateAccountResult.EmailTaken;
         }
 
         var now = DocumentJson.Now(time);
@@ -39,11 +40,50 @@ internal sealed class CosmosUserAccountRepository(UserDocuments documents, Looku
         }
         catch
         {
-            await lookups.DeleteAsync(LookupStore.Email, email, CancellationToken.None);
+            await lookups.DeleteReservationAsync(LookupStore.Email, email, account.Id, CancellationToken.None);
             throw;
         }
 
+        if (!await lookups.ConfirmAsync(LookupStore.Email, email, account.Id, cancellationToken))
+        {
+            // This request took so long that its reservation was judged abandoned and
+            // another sign-up now holds the address: withdraw the account just written.
+            await documents.DeleteAsync(DocumentTypes.Account, account.Id, null, CancellationToken.None);
+            return CreateAccountResult.EmailTaken;
+        }
+
         return CreateAccountResult.Created;
+    }
+
+    /// <summary>
+    /// The email already has a lookup. Returns true only if that lookup was an abandoned
+    /// reservation (an earlier sign-up stopped before writing its account) and it now
+    /// belongs to <paramref name="userId"/>.
+    /// </summary>
+    private async Task<bool> TryTakeOverAbandonedReservationAsync(string email, string userId, CancellationToken cancellationToken)
+    {
+        var existing = await lookups.FindAsync(LookupStore.Email, email, cancellationToken);
+        if (existing is null || !existing.Pending)
+        {
+            return false;
+        }
+
+        var owner = await GetAsync(existing.UserId, cancellationToken);
+        if (owner?.NormalizedEmail == email)
+        {
+            // The account was written but its sign-up stopped before confirming: finish it.
+            await lookups.ConfirmAsync(LookupStore.Email, email, existing.UserId, cancellationToken);
+            return false;
+        }
+
+        // A sign-up that is still running has no account yet either, so a missing account
+        // alone proves nothing. Leave a recent reservation to its owner.
+        if (DocumentJson.Now(time) - existing.CreatedAt < ReservationGracePeriod)
+        {
+            return false;
+        }
+
+        return await lookups.TryTakeOverAsync(LookupStore.Email, email, existing.UserId, userId, cancellationToken);
     }
 
     public Task<UserAccount?> GetAsync(string userId, CancellationToken cancellationToken = default) =>
@@ -123,17 +163,31 @@ internal sealed class CosmosSubscriptionRepository(UserDocuments documents, Look
 
         // The subscription document is what gives a user exactly one customer.
         var subscription = new Subscription { UserId = userId, StripeCustomerId = stripeCustomerId, UpdatedAt = DocumentJson.Now(time) };
-        if (!await documents.CreateAsync(DocumentTypes.Subscription, userId, subscription, cancellationToken))
+        var created = await documents.CreateAsync(DocumentTypes.Subscription, userId, subscription, cancellationToken);
+        if (!created)
         {
-            return (await GetAsync(userId, cancellationToken))!;
+            subscription = await GetAsync(userId, cancellationToken)
+                ?? throw new InvalidOperationException("The subscription was deleted while it was being created.");
+
+            // An earlier attempt may have stopped between the two writes, so the existing
+            // subscription is only returned once its lookup is known to be there.
+            var entry = await lookups.FindAsync(LookupStore.StripeCustomer, subscription.StripeCustomerId, cancellationToken);
+            if (entry?.UserId == userId)
+            {
+                return subscription;
+            }
         }
 
-        if (!await lookups.TryCreateAsync(LookupStore.StripeCustomer, stripeCustomerId, userId, null, cancellationToken))
+        if (!await lookups.TryCreateAsync(LookupStore.StripeCustomer, subscription.StripeCustomerId, userId, null, cancellationToken))
         {
-            var owner = await lookups.FindAsync(LookupStore.StripeCustomer, stripeCustomerId, cancellationToken);
+            var owner = await lookups.FindAsync(LookupStore.StripeCustomer, subscription.StripeCustomerId, cancellationToken);
             if (owner?.UserId != userId)
             {
-                await documents.DeleteAsync(DocumentTypes.Subscription, userId, null, CancellationToken.None);
+                if (created)
+                {
+                    await documents.DeleteAsync(DocumentTypes.Subscription, userId, null, CancellationToken.None);
+                }
+
                 throw new InvalidOperationException("This Stripe customer already belongs to another user.");
             }
         }
