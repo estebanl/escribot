@@ -100,20 +100,27 @@ jobs:
       - run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
       - name: Build Docker image
         run: docker build --tag fluentescritor-api:ci .
-      - name: Image refuses to start without its secret
+      - name: Image starts only with its secret
         run: |
-          if docker run --rm fluentescritor-api:ci > no-secret.log 2>&1; then
+          # Placeholder connections: creating the clients makes no network call.
+          settings=(
+            --env App__PublicUrl=https://app.example.test
+            --env "ConnectionStrings__cosmos=AccountEndpoint=https://localhost:8081/;AccountKey=$(openssl rand -base64 64 | tr -d '\n');"
+            --env ConnectionStrings__blobs=UseDevelopmentStorage=true
+          )
+
+          if docker run --rm "${settings[@]}" fluentescritor-api:ci > no-secret.log 2>&1; then
             echo "The container started without App__EncryptionSecret."
             exit 1
           fi
-          grep -q "App:EncryptionSecret is required" no-secret.log
-      - name: Image starts with its settings
-        run: |
-          docker run --detach --name api --publish 8080:8080 \
+          if ! grep -q "App:EncryptionSecret is required" no-secret.log; then
+            echo "The container failed for a different reason:"
+            cat no-secret.log
+            exit 1
+          fi
+
+          docker run --detach --name api --publish 8080:8080 "${settings[@]}" \
             --env App__EncryptionSecret="$(openssl rand -hex 32)" \
-            --env App__PublicUrl=https://app.example.test \
-            --env ConnectionStrings__cosmos="AccountEndpoint=https://localhost:8081/;AccountKey=$(openssl rand -base64 64 | tr -d '\n');" \
-            --env ConnectionStrings__blobs=UseDevelopmentStorage=true \
             fluentescritor-api:ci
           for i in $(seq 1 30); do
             curl -sf -o /dev/null http://localhost:8080/alive && exit 0
