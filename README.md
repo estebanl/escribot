@@ -100,7 +100,7 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
 
 ## Local development (.NET)
 
-The app is being moved to a .NET 11 server on Azure (see issue #7). The new server lives in `server/` next to the Next.js app, which keeps working until the move is finished. So far it has health endpoints, configuration, and the data layer: the Cosmos DB containers and the repositories over them, described in [server/docs/data-model.md](server/docs/data-model.md). It has no application endpoints yet.
+The app is being moved to a .NET 11 server on Azure (see issue #7). The new server lives in `server/` next to the Next.js app, which keeps working until the move is finished. So far it has health endpoints, configuration, the data layer (the Cosmos DB containers and the repositories over them, described in [server/docs/data-model.md](server/docs/data-model.md)) and sign-in, described in [server/docs/sign-in.md](server/docs/sign-in.md). The rest of the application endpoints are not there yet.
 
 **You need:** the [.NET 11 SDK](https://dotnet.microsoft.com/download) and a running container runtime (Docker Desktop or Podman). The Cosmos DB emulator and Azurite run as containers.
 
@@ -129,6 +129,10 @@ No secret has a default value in the code, and none belongs in a file inside the
 | `App:PublicUrl` | `App__PublicUrl` | In production, where it must use HTTPS. |
 | `ConnectionStrings:cosmos` | `ConnectionStrings__cosmos` | Always. Supplied by the AppHost locally. |
 | `ConnectionStrings:blobs` | `ConnectionStrings__blobs` | Always. Supplied by the AppHost locally. |
+| `App:TrustForwardedHeaders` | `App__TrustForwardedHeaders` | Set to `true` behind the Azure Container Apps ingress, and only behind a proxy. |
+|  | `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS` | Optional. Same meaning as in the Next.js app. |
+|  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Both turn on "Continue with Google". |
+|  | `AZURE_COMMUNICATION_CONNECTION_STRING`, `EMAIL_FROM` | Optional. Both turn on email through Azure Communication Services. |
 
 When you run the AppHost, it generates a random `App:EncryptionSecret` the first time and saves it in [.NET user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets), which are stored in your user profile, outside the repository. To set your own value instead:
 

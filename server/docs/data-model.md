@@ -119,6 +119,8 @@ is one point read.
 | `email` | Lower-cased email | Sign-in, and making emails unique |
 | `session` | Session token | Validating a session cookie; expires by `ttl` |
 | `stripe` | Stripe customer id | Finding the user for a Stripe webhook |
+| `verify-email` | Token from a verification email | Verifying an address; single use, expires by `ttl` after an hour |
+| `reset-password` | Token from a reset email | Choosing a new password; single use, expires by `ttl` after an hour |
 
 - **Uniqueness.** Creating a document fails if the id exists. Creating an account writes the
   email lookup first, as a reservation (`pending: true`), then the account, then confirms
@@ -137,6 +139,8 @@ is one point read.
 - **Stripe customer.** The subscription document is written first, then the lookup. Creating
   a subscription that already exists checks the lookup and writes it if it is missing, so a
   retry repairs a half-finished attempt.
+- **Emailed tokens** are used up by deleting their document: of several requests with the
+  same token, only the one whose delete finds the document gets the user.
 - Each lookup carries `userId`, so deleting a user can find and remove all of theirs.
 
 ## `counters`: atomic counters
@@ -190,14 +194,16 @@ key are listed instead.
 
 **Delete** runs in this order, and can be run again if interrupted:
 
-1. Delete the user's lookups (email, sessions, Stripe customer), so nobody can sign in as or
-   be billed as the user from this point on.
-2. Delete every document in the user's partition in transactional batches of 100. This
-   covers document types added later without changing the code.
+1. Delete the user's lookups (email, sessions, Stripe customer, emailed tokens), so nobody
+   can sign in as or be billed as the user from this point on.
+2. Delete every document in the user's partition in transactional batches of 100, with the
+   account document in the last batch. This covers document types added later without
+   changing the code.
 3. Remove the user id from their error events, which are kept for debugging until they expire.
 
-Blobs and the Stripe customer are outside this layer: the caller deletes the Stripe customer
-and the user's image blobs first (issues 10, 11 and 13).
+Blobs and the Stripe customer are outside this layer. `AccountDeletion` (in `Auth/`) deletes
+the user's image blobs first and then calls this; deleting the Stripe customer is added
+there with billing.
 
 ## Concurrency
 
@@ -220,6 +226,7 @@ Defined in `FluentEscritor.Api/Data/Repositories.cs`.
 |---|---|---|
 | `IUserAccountRepository` | Accounts, unique by email | Better Auth `user`, `account` |
 | `IAuthSessionStore` | Session token → user | Better Auth `session` |
+| `IOneTimeTokenStore` | Emailed verification and reset tokens | Better Auth `verification` |
 | `ISettingsRepository` | `GetOrCreateAsync`, `UpdateAsync` | `getOrCreateSettings` |
 | `ISubscriptionRepository` | Billing state, lookup by Stripe customer | `src/lib/billing/subscription.ts` |
 | `IPromptRepository` | `ListVisibleAsync`, `GetVisibleAsync`, own prompts | `visiblePrompts`, `getVisiblePrompt` |
@@ -235,13 +242,9 @@ Defined in `FluentEscritor.Api/Data/Repositories.cs`.
 
 ## Not carried over
 
-- `verification` (email and reset tokens): ASP.NET Core Identity issues signed tokens that
-  need no storage. If issue 10 needs stored tokens, they fit in `lookups` with a `ttl`.
 - `rate_limit` (Better Auth's own counters): replaced by `IRateLimiter`.
 - The legacy single-user data claim and `LEGACY_USER_ID`: there is no live data.
 - Inline image bytes in the database (`data_base64`): images are always in Blob Storage.
-- The starter Vault items given to new users: new-user provisioning belongs to issue 10,
-  which can save them with `IVaultRepository.SaveManyAsync`.
 
 ## Open points for review
 

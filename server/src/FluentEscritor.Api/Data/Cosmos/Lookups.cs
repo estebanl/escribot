@@ -20,6 +20,8 @@ internal sealed class LookupStore(CosmosStore store, TimeProvider time)
     public const string Email = "email";
     public const string SessionToken = "session";
     public const string StripeCustomer = "stripe";
+    public const string EmailVerificationToken = "verify-email";
+    public const string PasswordResetToken = "reset-password";
 
     private Container Container => store.Lookups;
 
@@ -189,4 +191,41 @@ internal sealed class CosmosAuthSessionStore(LookupStore lookups) : IAuthSession
 
     public Task RemoveAllForUserAsync(string userId, CancellationToken cancellationToken = default) =>
         lookups.DeleteAllForUserAsync(userId, LookupStore.SessionToken, cancellationToken);
+}
+
+internal sealed class CosmosOneTimeTokenStore(LookupStore lookups) : IOneTimeTokenStore
+{
+    public async Task CreateAsync(OneTimeTokenPurpose purpose, string token, string userId, DateTimeOffset expiresAt, CancellationToken cancellationToken = default)
+    {
+        DocumentId.Require(userId, nameof(userId));
+        if (!await lookups.TryCreateAsync(Kind(purpose), token, userId, expiresAt, cancellationToken))
+        {
+            throw new InvalidOperationException("This token already exists.");
+        }
+    }
+
+    public async Task<string?> FindUserIdAsync(OneTimeTokenPurpose purpose, string token, CancellationToken cancellationToken = default) =>
+        (await lookups.FindAsync(Kind(purpose), token, cancellationToken))?.UserId;
+
+    public async Task<string?> RedeemAsync(OneTimeTokenPurpose purpose, string token, CancellationToken cancellationToken = default)
+    {
+        var entry = await lookups.FindAsync(Kind(purpose), token, cancellationToken);
+        if (entry is null)
+        {
+            return null;
+        }
+
+        // Deleting is what uses the token up: only one caller's delete finds the document.
+        return await lookups.DeleteAsync(Kind(purpose), token, cancellationToken) ? entry.UserId : null;
+    }
+
+    public Task RemoveAllForUserAsync(OneTimeTokenPurpose purpose, string userId, CancellationToken cancellationToken = default) =>
+        lookups.DeleteAllForUserAsync(userId, Kind(purpose), cancellationToken);
+
+    private static string Kind(OneTimeTokenPurpose purpose) => purpose switch
+    {
+        OneTimeTokenPurpose.EmailVerification => LookupStore.EmailVerificationToken,
+        OneTimeTokenPurpose.PasswordReset => LookupStore.PasswordResetToken,
+        _ => throw new ArgumentOutOfRangeException(nameof(purpose)),
+    };
 }

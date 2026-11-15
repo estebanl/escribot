@@ -24,6 +24,7 @@ internal static class DataExtensions
 
         services.AddSingleton<IUserAccountRepository, CosmosUserAccountRepository>();
         services.AddSingleton<IAuthSessionStore, CosmosAuthSessionStore>();
+        services.AddSingleton<IOneTimeTokenStore, CosmosOneTimeTokenStore>();
         services.AddSingleton<ISettingsRepository, CosmosSettingsRepository>();
         services.AddSingleton<ISubscriptionRepository, CosmosSubscriptionRepository>();
 

@@ -38,12 +38,17 @@ internal sealed class CosmosUserDataRepository(CosmosStore store, UserDocuments 
         DocumentId.Require(userId, nameof(userId));
 
         // Lookups first: once they are gone nobody can sign in as, or be billed as, this
-        // user, even if a later step fails and the deletion has to be run again.
+        // user, even if a later step fails and the deletion has to be run again. This also
+        // removes the user's sessions and any emailed tokens that are still valid.
         await lookups.DeleteAllForUserAsync(userId, null, cancellationToken);
 
         // Whatever is in the partition goes, including document types added later.
+        // The account goes in the last batch, so an interrupted deletion never leaves
+        // documents behind without the account they belonged to.
+        var accountId = DocumentTypes.Account.DocumentId(null);
         var ids = await documents.QueryAsync<string>(userId, "SELECT VALUE c.id FROM c", cancellationToken);
-        await CosmosStore.BatchAsync(store.Users, userId, ids, (batch, id) => batch.DeleteItem(id), cancellationToken);
+        var ordered = ids.OrderBy(id => id == accountId).ToList();
+        await CosmosStore.BatchAsync(store.Users, userId, ordered, (batch, id) => batch.DeleteItem(id), cancellationToken);
 
         await errors.DetachUserAsync(userId, cancellationToken);
     }

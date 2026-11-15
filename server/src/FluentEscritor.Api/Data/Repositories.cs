@@ -42,6 +42,26 @@ public interface IAuthSessionStore
     Task RemoveAllForUserAsync(string userId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Single-use tokens sent by email, each found by the token itself and tied to one user.
+/// Only a hash of each token is stored, and an expired token is never returned.
+/// </summary>
+public interface IOneTimeTokenStore
+{
+    Task CreateAsync(OneTimeTokenPurpose purpose, string token, string userId, DateTimeOffset expiresAt, CancellationToken cancellationToken = default);
+
+    /// <summary>The user the token was issued to, without using the token up.</summary>
+    Task<string?> FindUserIdAsync(OneTimeTokenPurpose purpose, string token, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Uses the token up and returns the user it was issued to. Of several callers with
+    /// the same token, only one gets the user; the others get null.
+    /// </summary>
+    Task<string?> RedeemAsync(OneTimeTokenPurpose purpose, string token, CancellationToken cancellationToken = default);
+
+    Task RemoveAllForUserAsync(OneTimeTokenPurpose purpose, string userId, CancellationToken cancellationToken = default);
+}
+
 public interface ISettingsRepository
 {
     /// <summary>Returns the user's settings, creating them with defaults on first use.</summary>
@@ -227,7 +247,8 @@ public interface IUserDataRepository
 
     /// <summary>
     /// Deletes every document the user owns, their lookups (email, sessions, Stripe
-    /// customer), and detaches their id from error events. Safe to run again if interrupted.
+    /// customer, emailed tokens), and detaches their id from error events. The account
+    /// document is deleted last. Safe to run again if interrupted.
     /// Blobs are not touched: list the user's images and delete those blobs first.
     /// </summary>
     Task DeleteAllAsync(string userId, CancellationToken cancellationToken = default);

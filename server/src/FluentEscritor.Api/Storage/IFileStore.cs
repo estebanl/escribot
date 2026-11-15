@@ -8,4 +8,7 @@ public interface IFileStore
 {
     /// <summary>Throws if the storage account cannot be reached.</summary>
     Task PingAsync(CancellationToken cancellationToken);
+
+    /// <summary>Deletes the file with that name. Does nothing if there is no such file.</summary>
+    Task DeleteAsync(string name, CancellationToken cancellationToken);
 }
