@@ -1,0 +1,20 @@
+# Only the API, the service defaults and the shared definitions are needed to build the image.
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/*.user
+tests/
+src/FluentEscritor.AppHost/
+
+# Never send local settings or secrets to the build.
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+**/secrets.json
+**/.env*
+**/*.pfx
+**/*.pem
+**/*.key
+.azure/
+.aspire/

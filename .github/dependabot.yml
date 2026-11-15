@@ -14,5 +14,18 @@ updates:
     schedule:
       interval: weekly
 
-  # NuGet is added with the .NET solution (#8); Dependabot reports an error
-  # for an ecosystem that has no project files yet.
+  - package-ecosystem: nuget
+    directory: /server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      aspire:
+        patterns: ["Aspire.*"]
+      opentelemetry:
+        patterns: ["OpenTelemetry.*"]
+
+  - package-ecosystem: docker
+    directory: /server
+    schedule:
+      interval: weekly
