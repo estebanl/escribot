@@ -15,6 +15,7 @@ COPY src/FluentEscritor.Api/FluentEscritor.Api.csproj src/FluentEscritor.Api/
 COPY src/FluentEscritor.ServiceDefaults/FluentEscritor.ServiceDefaults.csproj src/FluentEscritor.ServiceDefaults/
 RUN dotnet restore src/FluentEscritor.Api/FluentEscritor.Api.csproj
 
+COPY src/Shared/ src/Shared/
 COPY src/FluentEscritor.Api/ src/FluentEscritor.Api/
 COPY src/FluentEscritor.ServiceDefaults/ src/FluentEscritor.ServiceDefaults/
 RUN dotnet publish src/FluentEscritor.Api/FluentEscritor.Api.csproj \

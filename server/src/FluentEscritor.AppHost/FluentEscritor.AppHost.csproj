@@ -19,6 +19,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The database and container definitions, shared by the AppHost and the API. -->
+    <Compile Include="..\Shared\DataModelSchema.cs" Link="Shared\DataModelSchema.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FluentEscritor.Api\FluentEscritor.Api.csproj" />
   </ItemGroup>
 

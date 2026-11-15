@@ -1,4 +1,4 @@
-# Only the API and the service defaults are needed to build the image.
+# Only the API, the service defaults and the shared definitions are needed to build the image.
 **/bin/
 **/obj/
 **/.vs/

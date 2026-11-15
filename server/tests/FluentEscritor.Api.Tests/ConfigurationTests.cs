@@ -13,14 +13,12 @@ public class ConfigurationTests
     [InlineData("Production")]
     public void App_refuses_to_start_without_the_encryption_secret(string environment)
     {
-        using var factory = new ApiFactory
+        var exception = StartupFailure<OptionsValidationException>(() => new ApiFactory
         {
             EnvironmentName = environment,
             EncryptionSecret = null,
             PublicUrl = "https://app.example.test",
-        };
-
-        var exception = Assert.Throws<OptionsValidationException>(() => factory.CreateClient());
+        });
 
         Assert.Contains("App:EncryptionSecret is required", exception.Message);
     }
@@ -28,9 +26,7 @@ public class ConfigurationTests
     [Fact]
     public void App_refuses_to_start_in_production_without_the_public_url()
     {
-        using var factory = new ApiFactory { EnvironmentName = "Production" };
-
-        var exception = Assert.Throws<OptionsValidationException>(() => factory.CreateClient());
+        var exception = StartupFailure<OptionsValidationException>(() => new ApiFactory { EnvironmentName = "Production" });
 
         Assert.Contains("App:PublicUrl is required in production", exception.Message);
     }
@@ -38,9 +34,7 @@ public class ConfigurationTests
     [Fact]
     public void App_refuses_to_start_without_the_storage_connections()
     {
-        using var factory = new ApiFactory { UseFakeStorage = false };
-
-        var exception = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+        var exception = StartupFailure<InvalidOperationException>(() => new ApiFactory { UseFakeStorage = false });
 
         Assert.Contains("ConnectionStrings", exception.Message);
     }
@@ -84,6 +78,28 @@ public class ConfigurationTests
         var result = Validate("Development", new AppOptions { EncryptionSecret = TestSecrets.NewSecret() });
 
         Assert.True(result.Succeeded);
+    }
+
+    /// <summary>
+    /// Starts the app, which is expected to fail, and returns the failure. The app and the
+    /// test host run on different threads: when the app fails and disposes its services
+    /// before the test host has read from them, the test host reports that disposal
+    /// instead of the real cause. That says nothing about the app, so it is tried again.
+    /// </summary>
+    private static TException StartupFailure<TException>(Func<ApiFactory> createFactory)
+        where TException : Exception
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            using var factory = createFactory();
+            try
+            {
+                return Assert.Throws<TException>(() => factory.CreateClient());
+            }
+            catch (Xunit.Sdk.ThrowsException ex) when (ex.InnerException is ObjectDisposedException && attempt < 20)
+            {
+            }
+        }
     }
 
     private static ValidateOptionsResult Validate(string environment, AppOptions options) =>

@@ -6,7 +6,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The database and container definitions, shared by the AppHost and the API. -->
+    <Compile Include="..\Shared\DataModelSchema.cs" Link="Shared\DataModelSchema.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FluentEscritor.ServiceDefaults\FluentEscritor.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The curated prompt bank, seeded into the database at startup. -->
+    <EmbeddedResource Include="Data\Seed\curated-prompts.json" />
+    <Content Remove="Data\Seed\curated-prompts.json" />
   </ItemGroup>
 
   <ItemGroup>

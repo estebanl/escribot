@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using FluentEscritor.Api.Configuration;
+using FluentEscritor.Api.Data;
 using FluentEscritor.Api.Storage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -57,6 +58,10 @@ public sealed class ApiFactory : WebApplicationFactory<AppOptions>
                 services.RemoveAll<IFileStore>();
                 services.AddSingleton<IDocumentDatabase>(new FakeStore(DocumentDatabaseFailure));
                 services.AddSingleton<IFileStore>(new FakeStore(FileStoreFailure));
+
+                // Nothing to seed into: there is no database behind the fakes.
+                var seeder = services.Single(d => d.ImplementationType == typeof(CuratedPromptSeeder));
+                services.Remove(seeder);
             }
 
             ConfigureServices?.Invoke(services);

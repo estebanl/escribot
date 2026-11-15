@@ -100,7 +100,7 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
 
 ## Local development (.NET)
 
-The app is being moved to a .NET 11 server on Azure (see issue #7). The new server lives in `server/` next to the Next.js app, which keeps working until the move is finished. So far it is a skeleton: health endpoints, configuration, and connections to Cosmos DB and Blob Storage.
+The app is being moved to a .NET 11 server on Azure (see issue #7). The new server lives in `server/` next to the Next.js app, which keeps working until the move is finished. So far it has health endpoints, configuration, and the data layer: the Cosmos DB containers and the repositories over them, described in [server/docs/data-model.md](server/docs/data-model.md). It has no application endpoints yet.
 
 **You need:** the [.NET 11 SDK](https://dotnet.microsoft.com/download) and a running container runtime (Docker Desktop or Podman). The Cosmos DB emulator and Azurite run as containers.
 
@@ -109,12 +109,13 @@ cd server
 dotnet run --project src/FluentEscritor.AppHost
 ```
 
-This starts the API, the Linux-based Cosmos DB emulator and Azurite, and prints a link to the Aspire dashboard, where you can see each resource with its logs, traces and metrics. The first run downloads the emulator images.
+This starts the API, the Linux-based Cosmos DB emulator and Azurite, creates the database and its containers in the emulator, and prints a link to the Aspire dashboard, where you can see each resource with its logs, traces and metrics. The first run downloads the emulator images.
 
 | Project | Purpose |
 |---|---|
 | `src/FluentEscritor.Api` | ASP.NET Core minimal API |
 | `src/FluentEscritor.AppHost` | Aspire AppHost: starts the API and the emulators for local development |
+| `src/Shared` | The database and container definitions, compiled into both the AppHost and the API |
 | `src/FluentEscritor.ServiceDefaults` | Shared OpenTelemetry, health checks, service discovery and HTTP resilience |
 | `tests/FluentEscritor.Api.Tests` | xUnit tests |
 
@@ -143,7 +144,7 @@ To run the API on its own, without the AppHost, give it the same settings throug
 ```bash
 cd server
 dotnet test                                      # everything; needs a container runtime
-dotnet test --filter "Category!=Integration"     # skips the test that starts the emulators
+dotnet test --filter "Category!=Integration"     # skips the tests that start the emulators
 ```
 
 ### Docker image

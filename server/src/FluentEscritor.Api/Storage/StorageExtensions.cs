@@ -1,3 +1,5 @@
+using FluentEscritor.Api.Data;
+
 namespace FluentEscritor.Api.Storage;
 
 internal static class StorageExtensions
@@ -18,11 +20,15 @@ internal static class StorageExtensions
     {
         // The integrations' own health checks are off: readiness goes through our
         // interfaces instead, so it tests the same path the app uses.
-        builder.AddAzureCosmosClient(CosmosConnectionName, settings => settings.DisableHealthChecks = true);
+        builder.AddAzureCosmosClient(
+            CosmosConnectionName,
+            settings => settings.DisableHealthChecks = true,
+            DataExtensions.ConfigureCosmosClient);
         builder.AddAzureBlobServiceClient(BlobsConnectionName, settings => settings.DisableHealthChecks = true);
 
         builder.Services.AddSingleton<IDocumentDatabase, CosmosDocumentDatabase>();
         builder.Services.AddSingleton<IFileStore, BlobFileStore>();
+        builder.Services.AddRepositories();
 
         builder.Services.AddHealthChecks()
             .AddCheck<DocumentDatabaseHealthCheck>("document-database", tags: ["ready"], timeout: HealthCheckTimeout)
