@@ -99,6 +99,22 @@ public sealed record UserDataExport
     public IReadOnlyList<ImageMetadata> Images { get; init; } = [];
 }
 
+/// <summary>Documents to save for one user in one go, for restoring a backup.</summary>
+public sealed record UserDataImport
+{
+    public IReadOnlyList<Prompt> Prompts { get; init; } = [];
+
+    public IReadOnlyList<WritingSession> Sessions { get; init; } = [];
+
+    public IReadOnlyList<Draft> Drafts { get; init; } = [];
+
+    public IReadOnlyList<Evaluation> Evaluations { get; init; } = [];
+
+    public IReadOnlyList<VaultItem> VaultItems { get; init; } = [];
+
+    public IReadOnlyList<MicroDrill> MicroDrills { get; init; } = [];
+}
+
 public sealed record AccountStats(int Total, int Verified, int CreatedLast7Days, int CreatedLast30Days);
 
 public sealed record AdminAccountRow(

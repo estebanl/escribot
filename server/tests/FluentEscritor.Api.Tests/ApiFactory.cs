@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using FluentEscritor.Api.Configuration;
 using FluentEscritor.Api.Data;
+using FluentEscritor.Api.Email;
 using FluentEscritor.Api.Storage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -37,6 +38,36 @@ public sealed class ApiFactory : WebApplicationFactory<AppOptions>
 
     public Action<IServiceCollection>? ConfigureServices { get; init; }
 
+    /// <summary>The clock of the app and of <see cref="Data"/>. Move it to let sessions, links and rate-limit windows expire.</summary>
+    internal ManualTimeProvider Clock { get; } = new(DateTimeOffset.UtcNow);
+
+    /// <summary>What the app has stored, when <see cref="UseFakeStorage"/> is on.</summary>
+    public InMemoryData Data => _data ??= new InMemoryData(Clock);
+
+    public FakeFileStore Files { get; } = new();
+
+    /// <summary>The emails the app sent. Set <see cref="UseRealEmailSender"/> to keep the app's own sender instead.</summary>
+    public RecordingEmailSender Emails { get; } = new();
+
+    public bool UseRealEmailSender { get; init; }
+
+    private InMemoryData? _data;
+
+    /// <summary>Settings that make the app treat email as configured. The values are placeholders; nothing is sent.</summary>
+    public static Dictionary<string, string?> EmailConfigured() => new()
+    {
+        ["AZURE_COMMUNICATION_CONNECTION_STRING"] = $"endpoint=https://email.example.test/;accesskey={Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))}",
+        ["EMAIL_FROM"] = "FluentEscritor <no-reply@example.test>",
+    };
+
+    /// <summary>A browser-like client: keeps cookies, talks HTTPS, and does not follow redirects.</summary>
+    public HttpClient CreateBrowser() => CreateClient(new WebApplicationFactoryClientOptions
+    {
+        BaseAddress = new Uri("https://localhost"),
+        AllowAutoRedirect = false,
+        HandleCookies = true,
+    });
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(EnvironmentName);
@@ -57,18 +88,43 @@ public sealed class ApiFactory : WebApplicationFactory<AppOptions>
                 services.RemoveAll<IDocumentDatabase>();
                 services.RemoveAll<IFileStore>();
                 services.AddSingleton<IDocumentDatabase>(new FakeStore(DocumentDatabaseFailure));
-                services.AddSingleton<IFileStore>(new FakeStore(FileStoreFailure));
+                services.AddSingleton<IFileStore>(FileStoreFailure is null ? Files : new FakeFileStore(FileStoreFailure));
+
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(Clock);
+                Replace<IUserAccountRepository>(services);
+                Replace<IAuthSessionStore>(services);
+                Replace<IOneTimeTokenStore>(services);
+                Replace<ISettingsRepository>(services);
+                Replace<IVaultRepository>(services);
+                Replace<IImageRepository>(services);
+                Replace<IRateLimiter>(services);
+                Replace<IUserDataRepository>(services);
+                Replace<IErrorEventRepository>(services);
 
                 // Nothing to seed into: there is no database behind the fakes.
                 var seeder = services.Single(d => d.ImplementationType == typeof(CuratedPromptSeeder));
                 services.Remove(seeder);
             }
 
+            if (!UseRealEmailSender)
+            {
+                services.RemoveAll<IEmailSender>();
+                services.AddSingleton<IEmailSender>(Emails);
+            }
+
             ConfigureServices?.Invoke(services);
         });
     }
 
-    private sealed class FakeStore(Exception? failure) : IDocumentDatabase, IFileStore
+    private void Replace<T>(IServiceCollection services)
+        where T : class
+    {
+        services.RemoveAll<T>();
+        services.AddSingleton(_ => (T)(object)Data);
+    }
+
+    private sealed class FakeStore(Exception? failure) : IDocumentDatabase
     {
         public Task PingAsync(CancellationToken cancellationToken) =>
             failure is null ? Task.CompletedTask : Task.FromException(failure);

@@ -22,6 +22,9 @@ internal static class DataModelSchema
     /// <summary>Error events are removed by Cosmos DB 30 days after they are written.</summary>
     public static readonly ContainerDefinition Errors = new("errors", "/day", DefaultTimeToLiveSeconds: 30 * 24 * 60 * 60);
 
+    /// <summary>The Blob Storage container that holds uploaded files (chart images).</summary>
+    public const string FilesBlobContainer = "files";
+
     public static readonly IReadOnlyList<ContainerDefinition> Containers = [Users, Shared, Lookups, Counters, Errors];
 }
 

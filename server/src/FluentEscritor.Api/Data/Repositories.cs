@@ -42,6 +42,26 @@ public interface IAuthSessionStore
     Task RemoveAllForUserAsync(string userId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Single-use tokens sent by email, each found by the token itself and tied to one user.
+/// Only a hash of each token is stored, and an expired token is never returned.
+/// </summary>
+public interface IOneTimeTokenStore
+{
+    Task CreateAsync(OneTimeTokenPurpose purpose, string token, string userId, DateTimeOffset expiresAt, CancellationToken cancellationToken = default);
+
+    /// <summary>The user the token was issued to, without using the token up.</summary>
+    Task<string?> FindUserIdAsync(OneTimeTokenPurpose purpose, string token, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Uses the token up and returns the user it was issued to. Of several callers with
+    /// the same token, only one gets the user; the others get null.
+    /// </summary>
+    Task<string?> RedeemAsync(OneTimeTokenPurpose purpose, string token, CancellationToken cancellationToken = default);
+
+    Task RemoveAllForUserAsync(OneTimeTokenPurpose purpose, string userId, CancellationToken cancellationToken = default);
+}
+
 public interface ISettingsRepository
 {
     /// <summary>Returns the user's settings, creating them with defaults on first use.</summary>
@@ -226,8 +246,19 @@ public interface IUserDataRepository
     Task<UserDataExport> ExportAsync(string userId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Saves everything in <paramref name="import"/> as the user's own, in the order
+    /// prompts, sessions, drafts, evaluations, vault items, drills. Up to 100 documents
+    /// of moderate size are saved as one transaction; a larger import is saved in several,
+    /// so a failure part way leaves the earlier ones saved.
+    /// </summary>
+    Task ImportAsync(string userId, UserDataImport import, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes every document the user owns, their lookups (email, sessions, Stripe
-    /// customer), and detaches their id from error events. Safe to run again if interrupted.
+    /// customer, emailed tokens), and detaches their id from error events. The user's
+    /// documents go first, then the lookups with the email one last, then the account
+    /// document. Until the documents are gone the user can therefore still sign in, so a
+    /// deletion that failed part way can be run again by the user. Safe to run again.
     /// Blobs are not touched: list the user's images and delete those blobs first.
     /// </summary>
     Task DeleteAllAsync(string userId, CancellationToken cancellationToken = default);

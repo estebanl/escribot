@@ -35,6 +35,12 @@ public enum CreateAccountResult
     EmailTaken,
 }
 
+public enum OneTimeTokenPurpose
+{
+    EmailVerification,
+    PasswordReset,
+}
+
 /// <summary>A signed-in browser session, found by its token. Only a hash of the token is stored.</summary>
 public sealed record AuthSession(string UserId, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);
 

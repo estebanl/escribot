@@ -1,0 +1,34 @@
+[
+  {
+    "itemType": "error",
+    "criterion": "L1",
+    "originalText": "Actually, metropolitan rail networks face severe capacity constraints.",
+    "upgradedText": "Currently, metropolitan rail networks face severe capacity constraints.",
+    "explanation": "Spanish → English false cognate: 'actualmente' means 'currently / at present', whereas English 'actually' means 'in fact / contrary to expectation'.",
+    "exampleSentence": "At present, public subsidies account for nearly forty percent of regional transit revenue."
+  },
+  {
+    "itemType": "error",
+    "criterion": "L1",
+    "originalText": "Tuition fees have risen sharply over the past decade, however, enrolment in STEM degrees has remained resilient.",
+    "upgradedText": "Although tuition fees have risen sharply over the past decade, enrolment in STEM degrees has remained resilient.",
+    "explanation": "Comma splice with conjunctive adverb ('however'). In formal English academic prose, join independent clauses with a semicolon ('; however,') or subordinate one clause ('Although...').",
+    "exampleSentence": "Municipal cycling spending peaked in 2016; nevertheless, commuter adoption continued to climb steadily."
+  },
+  {
+    "itemType": "collocation",
+    "criterion": "CC",
+    "originalText": "Secondly, because factories are automated, fewer low-skilled people have jobs.",
+    "upgradedText": "This rapid industrial automation has simultaneously contracted demand for routine manual labour.",
+    "explanation": "Replaces mechanical sequence linkers ('Secondly') with demonstrative nominalisation ('This rapid industrial automation...'), a hallmark of Band 8.0+ Coherence & Cohesion.",
+    "exampleSentence": "Such demographic shifts place considerable fiscal pressure on state pension systems."
+  },
+  {
+    "itemType": "collocation",
+    "criterion": "LR",
+    "originalText": "Banning cars will definitely destroy small downtown shops.",
+    "upgradedText": "Unphased vehicle restrictions risk disproportionately eroding footfall for independent retailers.",
+    "explanation": "Academic hedging ('risk disproportionately eroding') avoids sweeping absolutes ('will definitely destroy'), elevating both Task Response nuance and Lexical Resource.",
+    "exampleSentence": "Stringent punitive levies tend to burden lower-income commuters unless paired with reliable transit alternatives."
+  }
+]
