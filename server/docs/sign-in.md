@@ -83,10 +83,17 @@ the reset email links straight to the `/reset-password?token=...` page.
   everywhere and cancels its other reset links. A verification link signs in only the
   first time it is opened; opening it again just goes on to the app, because mail
   scanners often open links before the person does.
-- **Google and an unverified account.** Accounts are matched by email address, and only
-  if Google says the address is verified. If the matching account was never verified,
-  its password was set by someone who never proved they own the address: that password
-  and its sessions are removed when the Google sign-in takes the account over.
+- **Google and existing accounts.** An account already linked to a Google identity is
+  entered by that identity. Otherwise accounts are matched by email address, and only
+  when Google itself knows who controls the address today: a Gmail address, or a Google
+  Workspace account (it carries its domain in `hd`). For any other address Google checked
+  the mailbox once, when the Google Account was made, so `email_verified` proves nothing
+  now. Such a sign-in never enters or links an existing account (`/login?error=
+  google_account_not_linked`), and a new account from it starts unverified and gets the
+  verification email like any other.
+- **Google and an unverified account.** If the matching account was never verified, its
+  password was set by someone who never proved they own the address: that password and
+  its sessions are removed when a Google sign-in that does prove it takes the account over.
 - **Cross-site requests:** a `POST`, `PUT`, `PATCH` or `DELETE` to `/api` with an `Origin`
   header must come from the app's own address (`App:PublicUrl` or the address requested).
 - **Redirect targets** taken from a request (`callbackURL`, `redirectTo`) are used only if

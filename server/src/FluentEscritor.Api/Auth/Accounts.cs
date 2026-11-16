@@ -72,9 +72,13 @@ public enum AccountCreation
     EmailTaken,
     NotAllowed,
     Invalid,
+
+    /// <summary>An account with this address exists, and the external sign-in is not proof enough to enter it.</summary>
+    NotLinked,
 }
 
-public sealed record AccountCreationResult(AccountCreation Outcome, AppUser? User = null, string? Error = null);
+/// <param name="IsNew">The account was created by this call.</param>
+public sealed record AccountCreationResult(AccountCreation Outcome, AppUser? User = null, string? Error = null, bool IsNew = false);
 
 /// <summary>Creating accounts, by password or through an external sign-in, under the same rules.</summary>
 public sealed partial class AccountService(
@@ -116,17 +120,24 @@ public sealed partial class AccountService(
             LogProvisioningFailed(logger, ex);
         }
 
-        return new(AccountCreation.Created, user);
+        return new(AccountCreation.Created, user, IsNew: true);
     }
 
     /// <summary>
-    /// Finds or creates the account for someone who signed in with an external provider
-    /// that has verified their email address. Accounts are matched by that address.
+    /// Finds or creates the account for someone who signed in with an external provider.
+    /// <para>
+    /// An account already linked to this provider identity is simply entered. Otherwise
+    /// accounts are matched by email address, and that is only safe when the provider
+    /// proves the person controls the address now (<paramref name="emailProven"/>). When
+    /// it does not, an existing account is never entered or linked, and a new account
+    /// starts unverified like one created with a password.
+    /// </para>
     /// </summary>
     public async Task<AccountCreationResult> SignInExternalAsync(
         string provider,
         string providerKey,
         string email,
+        bool emailProven,
         string? name,
         string? image,
         CancellationToken cancellationToken = default)
@@ -136,7 +147,7 @@ public sealed partial class AccountService(
         if (user is null)
         {
             var created = await CreateAsync(
-                new AppUser { Email = email, Name = name ?? string.Empty, Image = image, EmailVerified = true, ExternalLogins = [login] },
+                new AppUser { Email = email, Name = name ?? string.Empty, Image = image, EmailVerified = emailProven, ExternalLogins = [login] },
                 password: null,
                 cancellationToken);
             if (created.Outcome != AccountCreation.EmailTaken)
@@ -144,7 +155,7 @@ public sealed partial class AccountService(
                 return created;
             }
 
-            // Someone created the account between the two calls: link to it instead.
+            // Someone created the account between the two calls: treat it as existing.
             user = await users.FindByEmailAsync(email);
             if (user is null)
             {
@@ -152,8 +163,14 @@ public sealed partial class AccountService(
             }
         }
 
+        var linked = user.ExternalLogins.Any(l => l.Provider == provider && l.ProviderKey == providerKey);
+        if (!linked && !emailProven)
+        {
+            return new(AccountCreation.NotLinked, Error: "An account with this email already exists. Sign in with your password.");
+        }
+
         var changed = false;
-        if (!user.EmailVerified)
+        if (emailProven && !user.EmailVerified)
         {
             // Until now nobody had shown that they control this address, so whoever set
             // the password may not be its owner. The provider has now vouched for this
@@ -169,7 +186,7 @@ public sealed partial class AccountService(
             changed = true;
         }
 
-        if (!user.ExternalLogins.Any(l => l.Provider == provider && l.ProviderKey == providerKey))
+        if (!linked)
         {
             user.ExternalLogins.Add(login);
             changed = true;

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using FluentEscritor.Api.Configuration;
+using FluentEscritor.Api.Email;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.OAuth;
@@ -17,6 +18,7 @@ internal static class GoogleSignIn
 
     private const string EmailVerifiedClaim = "email_verified";
     private const string PictureClaim = "picture";
+    private const string HostedDomainClaim = "hd";
 
     public static AuthenticationBuilder AddGoogleSignIn(this AuthenticationBuilder builder, AuthSettings settings)
     {
@@ -27,6 +29,7 @@ internal static class GoogleSignIn
             options.CallbackPath = CallbackPath;
             options.ClaimActions.MapJsonKey(EmailVerifiedClaim, "email_verified");
             options.ClaimActions.MapJsonKey(PictureClaim, "picture");
+            options.ClaimActions.MapJsonKey(HostedDomainClaim, "hd");
             options.Events.OnTicketReceived = CompleteAsync;
             options.Events.OnRemoteFailure = context =>
             {
@@ -55,7 +58,6 @@ internal static class GoogleSignIn
 
         context.HandleResponse();
 
-        // Accounts are matched by email address, so an address Google has not verified proves nothing.
         if (string.IsNullOrEmpty(subject) || string.IsNullOrEmpty(email) || !emailVerified)
         {
             http.Response.Redirect("/login?error=google_email_not_verified");
@@ -66,21 +68,41 @@ internal static class GoogleSignIn
             Provider,
             subject,
             email,
+            IsGoogleAuthoritativeFor(email, principal!.FindFirstValue(HostedDomainClaim)),
             principal!.FindFirstValue(ClaimTypes.Name),
             principal!.FindFirstValue(PictureClaim),
             http.RequestAborted);
 
         if (result.User is null)
         {
-            http.Response.Redirect(result.Outcome == AccountCreation.NotAllowed
-                ? "/login?error=signup_not_allowed"
-                : "/login?error=google_sign_in_failed");
+            http.Response.Redirect(result.Outcome switch
+            {
+                AccountCreation.NotAllowed => "/login?error=signup_not_allowed",
+                AccountCreation.NotLinked => "/login?error=google_account_not_linked",
+                _ => "/login?error=google_sign_in_failed",
+            });
             return;
+        }
+
+        // A new account whose address Google could not vouch for verifies it by email, like any other.
+        if (result.IsNew && !result.User.EmailVerified && http.RequestServices.GetRequiredService<EmailSettings>().SendsVerificationLinks)
+        {
+            await http.RequestServices.GetRequiredService<AuthEmails>().TrySendVerificationAsync(http, result.User, context.ReturnUri, http.RequestAborted);
         }
 
         await http.RequestServices.GetRequiredService<SessionManager>().StartAsync(http, result.User.Id, http.RequestAborted);
         http.Response.Redirect(LocalPath.OrRoot(context.ReturnUri));
     }
+    /// <summary>
+    /// Whether Google itself knows who controls the address today. It does for Gmail
+    /// addresses and for Google Workspace accounts, which carry their domain in <c>hd</c>.
+    /// For any other address Google only checked the mailbox when the Google Account was
+    /// made, and <c>email_verified</c> stays true even if the mailbox has since changed hands.
+    /// </summary>
+    internal static bool IsGoogleAuthoritativeFor(string email, string? hostedDomain) =>
+        !string.IsNullOrEmpty(hostedDomain)
+        || email.EndsWith("@gmail.com", StringComparison.OrdinalIgnoreCase)
+        || email.EndsWith("@googlemail.com", StringComparison.OrdinalIgnoreCase);
 }
 
 internal static class LocalPath

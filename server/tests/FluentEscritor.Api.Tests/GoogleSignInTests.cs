@@ -109,6 +109,88 @@ public class GoogleSignInTests
         Assert.Empty(factory.Data.Sessions);
     }
 
+    // A Google Account can be made with any address. For one that is neither Gmail nor
+    // Google Workspace, Google checked the mailbox once and never again.
+
+    [Fact]
+    public async Task A_google_account_with_an_address_google_does_not_control_cannot_enter_an_existing_account()
+    {
+        var password = $"pw-{TestSecrets.NewSecret()}";
+        await using var factory = Factory(new FakeGoogle { Email = Email, HostedDomain = null });
+        using var owner = factory.CreateBrowser();
+        (await AuthEndpointTests.SignUpAsync(owner, Email, password)).Dispose();
+        (await owner.GetAsync(AuthEndpointTests.Link(factory.Emails.Sent.Single().Text))).Dispose();
+
+        using var stranger = factory.CreateBrowser();
+        using var callback = await SignInWithGoogleAsync(stranger, "/");
+
+        Assert.Equal("/login?error=google_account_not_linked", callback.Headers.Location!.OriginalString);
+        using var me = await stranger.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
+        var account = Assert.Single(factory.Data.Accounts.Values);
+        Assert.Empty(account.ExternalLogins);
+        Assert.NotNull(account.PasswordHash);
+        using var ownerStillIn = await owner.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.OK, ownerStillIn.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_unverified_account_is_not_taken_over_on_the_word_of_an_address_google_does_not_control()
+    {
+        var password = $"pw-{TestSecrets.NewSecret()}";
+        await using var factory = Factory(new FakeGoogle { Email = Email, HostedDomain = null });
+        using var owner = factory.CreateBrowser();
+        (await AuthEndpointTests.SignUpAsync(owner, Email, password)).Dispose();
+
+        using var callback = await SignInWithGoogleAsync(factory.CreateBrowser(), "/");
+
+        Assert.Equal("/login?error=google_account_not_linked", callback.Headers.Location!.OriginalString);
+        var account = Assert.Single(factory.Data.Accounts.Values);
+        Assert.NotNull(account.PasswordHash);
+        Assert.False(account.EmailVerified);
+    }
+
+    [Fact]
+    public async Task A_new_account_with_such_an_address_starts_unverified_and_is_not_the_owner()
+    {
+        await using var factory = Factory(new FakeGoogle { Email = Email, HostedDomain = null }, new() { ["OWNER_EMAIL"] = Email });
+        using var browser = factory.CreateBrowser();
+
+        using var callback = await SignInWithGoogleAsync(browser, "/vault");
+
+        Assert.Equal("/vault", callback.Headers.Location!.OriginalString);
+        Assert.False(factory.Data.Accounts.Values.Single().EmailVerified);
+        using var me = await browser.GetAsync("/api/auth/me");
+        var user = (await AuthEndpointTests.Json(me)).GetProperty("user");
+        Assert.False(user.GetProperty("isOwner").GetBoolean());
+        Assert.False(user.GetProperty("isAdmin").GetBoolean());
+
+        // It verifies by email like any other account, and can keep signing in with Google meanwhile.
+        var email = Assert.Single(factory.Emails.Sent);
+        Assert.Equal("Verify your FluentEscritor email", email.Subject);
+        using var again = await SignInWithGoogleAsync(factory.CreateBrowser(), "/");
+        Assert.Equal("/", again.Headers.Location!.OriginalString);
+        Assert.Single(factory.Data.Accounts);
+        Assert.Single(factory.Emails.Sent);
+
+        (await browser.GetAsync(AuthEndpointTests.Link(email.Text))).Dispose();
+        using var verified = await browser.GetAsync("/api/auth/me");
+        Assert.True((await AuthEndpointTests.Json(verified)).GetProperty("user").GetProperty("isOwner").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("ana@gmail.com", null, true)]
+    [InlineData("Ana@GoogleMail.com", null, true)]
+    [InlineData("ana@company.example", "company.example", true)]
+    [InlineData("ana@company.example", null, false)]
+    [InlineData("ana@company.example", "", false)]
+    [InlineData("ana@notgmail.com", null, false)]
+    [InlineData("gmail.com@company.example", null, false)]
+    public void Google_vouches_only_for_gmail_and_workspace_addresses(string email, string? hostedDomain, bool expected)
+    {
+        Assert.Equal(expected, Auth.GoogleSignIn.IsGoogleAuthoritativeFor(email, hostedDomain));
+    }
+
     [Fact]
     public async Task The_allowlist_applies_to_google_sign_ups_too()
     {
@@ -191,13 +273,16 @@ public class GoogleSignInTests
 
         public bool EmailVerified { get; init; } = true;
 
+        /// <summary>The Google Workspace domain. Null for a personal Google Account.</summary>
+        public string? HostedDomain { get; set; } = "example.test";
+
         public string? Name { get; init; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             object body = request.Method == HttpMethod.Post
                 ? new { access_token = "an-access-token", token_type = "Bearer", expires_in = 3600 }
-                : new { sub = Subject, id = Subject, email = Email, email_verified = EmailVerified, name = Name };
+                : new { sub = Subject, id = Subject, email = Email, email_verified = EmailVerified, name = Name, hd = HostedDomain };
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
