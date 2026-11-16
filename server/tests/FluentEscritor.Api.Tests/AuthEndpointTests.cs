@@ -3,7 +3,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentEscritor.Api.Auth;
+using FluentEscritor.Api.Data;
 using FluentEscritor.Api.Data.Models;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace FluentEscritor.Api.Tests;
 
@@ -235,11 +238,16 @@ public partial class AuthEndpointTests
         using var me = await browser.GetAsync("/api/auth/me");
         Assert.True((await Json(me)).GetProperty("user").GetProperty("emailVerified").GetBoolean());
 
-        // The link works once.
+        // Opening it again (a mail scanner may have been first) is not an error, but it signs nobody in.
         using var other = factory.CreateBrowser();
         using var again = await other.GetAsync(link);
-        Assert.Equal("/?error=invalid_token", again.Headers.Location!.OriginalString);
+        Assert.Equal("/", again.Headers.Location!.OriginalString);
         Assert.False(again.Headers.Contains("Set-Cookie"));
+        using var notSignedIn = await other.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, notSignedIn.StatusCode);
+
+        using var madeUp = await other.GetAsync("/api/auth/verify-email?token=not-a-token");
+        Assert.Equal("/?error=invalid_token", madeUp.Headers.Location!.OriginalString);
     }
 
     [Fact]
@@ -460,6 +468,45 @@ public partial class AuthEndpointTests
         Assert.Equal(HttpStatusCode.OK, benStillThere.StatusCode);
         Assert.Equal(4, factory.Data.Vault[benId].Count);
         Assert.Single(factory.Data.Images[benId]);
+    }
+
+    [Fact]
+    public async Task A_deletion_that_fails_part_way_can_be_repeated_by_the_user()
+    {
+        FailsOnce? userData = null;
+        await using var factory = new ApiFactory
+        {
+            ConfigureServices = services =>
+            {
+                var inner = services.BuildServiceProvider().GetRequiredService<IUserDataRepository>();
+                services.RemoveAll<IUserDataRepository>();
+                services.AddSingleton<IUserDataRepository>(userData = new FailsOnce(inner));
+            },
+        };
+        using var browser = factory.CreateBrowser();
+        (await SignUpAsync(browser, Email, _password)).Dispose();
+
+        using var failed = await browser.PostAsJsonAsync("/api/auth/delete-user", new { password = _password });
+        Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        Assert.Single(factory.Data.Accounts);
+
+        // Still signed in, and the same request now completes.
+        using var me = await browser.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        using var retried = await browser.PostAsJsonAsync("/api/auth/delete-user", new { password = _password });
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        Assert.Empty(factory.Data.Accounts);
+        Assert.Equal(2, userData!.Calls);
+    }
+
+    private sealed class FailsOnce(IUserDataRepository inner) : IUserDataRepository
+    {
+        public int Calls { get; private set; }
+
+        public Task<UserDataExport> ExportAsync(string userId, CancellationToken cancellationToken = default) => inner.ExportAsync(userId, cancellationToken);
+
+        public Task DeleteAllAsync(string userId, CancellationToken cancellationToken = default) =>
+            ++Calls == 1 ? throw new HttpRequestException("The database did not answer.") : inner.DeleteAllAsync(userId, cancellationToken);
     }
 
     [Fact]

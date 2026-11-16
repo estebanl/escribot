@@ -68,6 +68,25 @@ public class AuthIntegrationTests(AppHostFixture fixture)
     }
 
     [Fact]
+    public async Task Deleting_a_user_removes_the_account_its_lookups_and_sessions_and_can_be_run_again()
+    {
+        var email = $"{_userId}@example.test";
+        var token = TestSecrets.NewSecret();
+        await fixture.Get<IUserAccountRepository>().CreateAsync(TestData.Account(_userId, email));
+        await fixture.Get<IAuthSessionStore>().CreateAsync(token, _userId, DateTimeOffset.UtcNow.AddDays(1));
+        await fixture.Get<IVaultRepository>().SaveAsync(_userId, TestData.VaultItem("kept"));
+
+        await fixture.Get<IUserDataRepository>().DeleteAllAsync(_userId);
+
+        Assert.Null(await fixture.Get<IUserAccountRepository>().GetAsync(_userId));
+        Assert.Null(await fixture.Get<IUserAccountRepository>().FindByEmailAsync(email));
+        Assert.Null(await fixture.Get<IAuthSessionStore>().FindAsync(token));
+        Assert.Empty(await fixture.Get<UserDocuments>().QueryAsync<string>(_userId, "SELECT VALUE c.id FROM c", default));
+        // Running it again on what is now nothing is harmless.
+        await fixture.Get<IUserDataRepository>().DeleteAllAsync(_userId);
+    }
+
+    [Fact]
     public async Task An_emailed_token_is_found_by_its_purpose_and_redeemed_once()
     {
         var tokens = fixture.Get<IOneTimeTokenStore>();

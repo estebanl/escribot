@@ -47,9 +47,9 @@ public sealed class NewUserProvisioner(ISettingsRepository settings, IVaultRepos
 }
 
 /// <summary>
-/// Erases everything the app holds about a user: their files first, then every document
-/// with the account document last, so a failure part way never leaves files or documents
-/// behind without an account.
+/// Erases everything the app holds about a user: their files first, then every document,
+/// with the lookups and the account document last. A failure part way therefore leaves
+/// an account that can still sign in and delete again, never files or documents without one.
 /// </summary>
 public sealed class AccountDeletion(IImageRepository images, IFileStore files, IUserDataRepository userData)
 {

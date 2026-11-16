@@ -180,7 +180,12 @@ internal static partial class AuthEndpoints
         return Results.Ok(new { success = true });
     }
 
-    /// <summary>The link in the verification email. Verifies the address, signs the person in and sends them on.</summary>
+    /// <summary>
+    /// The link in the verification email. Verifies the address, signs the person in and
+    /// sends them on. Mail scanners and link previews often open a link before the person
+    /// does, so opening it again within its hour is not an error: the address stays
+    /// verified and the person goes on to the app. Only the first opening signs in.
+    /// </summary>
     private static async Task<IResult> VerifyEmailAsync(
         string? token,
         string? callbackURL,
@@ -191,20 +196,22 @@ internal static partial class AuthEndpoints
         CancellationToken cancellationToken)
     {
         var destination = LocalPath.OrRoot(callbackURL);
-        var userId = string.IsNullOrEmpty(token) ? null : await tokens.RedeemAsync(OneTimeTokenPurpose.EmailVerification, token, cancellationToken);
+        var userId = string.IsNullOrEmpty(token) ? null : await tokens.FindUserIdAsync(OneTimeTokenPurpose.EmailVerification, token, cancellationToken);
         var user = userId is null ? null : await users.FindByIdAsync(userId);
         if (user is null)
         {
             return Results.Redirect(QueryHelpers.AddQueryString(destination, "error", "invalid_token"));
         }
 
-        if (!user.EmailVerified)
+        if (user.EmailVerified)
         {
-            user.EmailVerified = true;
-            if (!(await users.UpdateAsync(user)).Succeeded)
-            {
-                return Results.Redirect(QueryHelpers.AddQueryString(destination, "error", "invalid_token"));
-            }
+            return Results.Redirect(destination);
+        }
+
+        user.EmailVerified = true;
+        if (!(await users.UpdateAsync(user)).Succeeded)
+        {
+            return Results.Redirect(QueryHelpers.AddQueryString(destination, "error", "invalid_token"));
         }
 
         await sessions.StartAsync(context, user.Id, cancellationToken);
@@ -363,7 +370,7 @@ internal static partial class AuthEndpoints
         new(account.Id, account.Name, account.Email, account.EmailVerified, account.Image, account.PasswordHash is not null, isOwner, isAdmin);
 }
 
-/// <summary>The two emails the app sends. Each carries a single-use link that works for one hour.</summary>
+/// <summary>The two emails the app sends. Each carries a link that works for one hour.</summary>
 internal sealed partial class AuthEmails(
     IEmailSender sender,
     IOneTimeTokenStore tokens,

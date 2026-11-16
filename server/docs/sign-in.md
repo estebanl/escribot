@@ -79,8 +79,10 @@ the reset email links straight to the `/reset-password?token=...` page.
 
 - **Enumeration:** when verification is required, signing up with a taken address answers
   exactly as for a new one. Reset and resend always answer the same.
-- **Links are single use** and last an hour. A password reset also signs the account out
-  everywhere and cancels its other reset links.
+- **Links last an hour.** A reset link works once, and a reset also signs the account out
+  everywhere and cancels its other reset links. A verification link signs in only the
+  first time it is opened; opening it again just goes on to the app, because mail
+  scanners often open links before the person does.
 - **Google and an unverified account.** Accounts are matched by email address, and only
   if Google says the address is verified. If the matching account was never verified,
   its password was set by someone who never proved they own the address: that password

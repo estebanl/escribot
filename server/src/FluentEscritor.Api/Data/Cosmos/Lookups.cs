@@ -115,14 +115,19 @@ internal sealed class LookupStore(CosmosStore store, TimeProvider time)
     public Task<bool> DeleteAsync(string kind, string key, CancellationToken cancellationToken) =>
         CosmosStore.DeleteAsync(Container, Id(kind, key), Id(kind, key), cancellationToken);
 
-    /// <summary>Deletes the user's lookups, of one kind or of every kind. Reads across partitions.</summary>
+    /// <summary>
+    /// Deletes the user's lookups, of one kind or of every kind. Reads across partitions.
+    /// The email lookup is deleted last: until then the user can still be found to sign
+    /// in, and nobody else can register the address.
+    /// </summary>
     public async Task DeleteAllForUserAsync(string userId, string? kind, CancellationToken cancellationToken)
     {
         var query = kind is null
             ? UserDocuments.Query("SELECT VALUE c.id FROM c WHERE c.userId = @userId", ("@userId", userId))
             : UserDocuments.Query("SELECT VALUE c.id FROM c WHERE c.userId = @userId AND c.kind = @kind", ("@userId", userId), ("@kind", kind));
 
-        foreach (var id in await CosmosStore.QueryAsync<string>(Container, null, query, cancellationToken))
+        var ids = await CosmosStore.QueryAsync<string>(Container, null, query, cancellationToken);
+        foreach (var id in ids.OrderBy(id => id.StartsWith($"{Email}:", StringComparison.Ordinal)))
         {
             await CosmosStore.DeleteAsync(Container, id, id, cancellationToken);
         }

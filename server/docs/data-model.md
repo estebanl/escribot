@@ -119,7 +119,7 @@ is one point read.
 | `email` | Lower-cased email | Sign-in, and making emails unique |
 | `session` | Session token | Validating a session cookie; expires by `ttl` |
 | `stripe` | Stripe customer id | Finding the user for a Stripe webhook |
-| `verify-email` | Token from a verification email | Verifying an address; single use, expires by `ttl` after an hour |
+| `verify-email` | Token from a verification email | Verifying an address; expires by `ttl` after an hour |
 | `reset-password` | Token from a reset email | Choosing a new password; single use, expires by `ttl` after an hour |
 
 - **Uniqueness.** Creating a document fails if the id exists. Creating an account writes the
@@ -192,13 +192,13 @@ cross-partition queries over at most 31 small partitions.
 security stamp and encrypted API keys are left out; the names of the providers with a saved
 key are listed instead.
 
-**Delete** runs in this order, and can be run again if interrupted:
+**Delete** runs in this order. While step 1 is unfinished the account, its email lookup and
+the session still exist, so if it fails the user can sign in and delete again:
 
-1. Delete the user's lookups (email, sessions, Stripe customer, emailed tokens), so nobody
-   can sign in as or be billed as the user from this point on.
-2. Delete every document in the user's partition in transactional batches of 100, with the
-   account document in the last batch. This covers document types added later without
-   changing the code.
+1. Delete every document in the user's partition except the account, in transactional
+   batches of 100. This covers document types added later without changing the code.
+2. Delete the user's lookups (sessions, Stripe customer, emailed tokens), the email lookup
+   last, and then the account document.
 3. Remove the user id from their error events, which are kept for debugging until they expire.
 
 Blobs and the Stripe customer are outside this layer. `AccountDeletion` (in `Auth/`) deletes

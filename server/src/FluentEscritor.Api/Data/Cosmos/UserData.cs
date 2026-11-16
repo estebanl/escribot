@@ -37,18 +37,23 @@ internal sealed class CosmosUserDataRepository(CosmosStore store, UserDocuments 
     {
         DocumentId.Require(userId, nameof(userId));
 
-        // Lookups first: once they are gone nobody can sign in as, or be billed as, this
-        // user, even if a later step fails and the deletion has to be run again. This also
-        // removes the user's sessions and any emailed tokens that are still valid.
-        await lookups.DeleteAllForUserAsync(userId, null, cancellationToken);
-
-        // Whatever is in the partition goes, including document types added later.
-        // The account goes in the last batch, so an interrupted deletion never leaves
-        // documents behind without the account they belonged to.
+        // The order keeps an interrupted deletion repeatable by the user themselves. Their
+        // documents go first; while that is unfinished the account, its email lookup and
+        // the session all still exist, so they can sign in and delete again. Then the
+        // lookups, the email one last, and only then the account document.
         var accountId = DocumentTypes.Account.DocumentId(null);
         var ids = await documents.QueryAsync<string>(userId, "SELECT VALUE c.id FROM c", cancellationToken);
-        var ordered = ids.OrderBy(id => id == accountId).ToList();
-        await CosmosStore.BatchAsync(store.Users, userId, ordered, (batch, id) => batch.DeleteItem(id), cancellationToken);
+
+        // Whatever is in the partition goes, including document types added later.
+        var others = ids.Where(id => id != accountId).ToList();
+        await CosmosStore.BatchAsync(store.Users, userId, others, (batch, id) => batch.DeleteItem(id), cancellationToken);
+
+        await lookups.DeleteAllForUserAsync(userId, null, cancellationToken);
+
+        if (ids.Contains(accountId))
+        {
+            await CosmosStore.DeleteAsync(store.Users, userId, accountId, cancellationToken);
+        }
 
         await errors.DetachUserAsync(userId, cancellationToken);
     }

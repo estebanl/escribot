@@ -247,8 +247,10 @@ public interface IUserDataRepository
 
     /// <summary>
     /// Deletes every document the user owns, their lookups (email, sessions, Stripe
-    /// customer, emailed tokens), and detaches their id from error events. The account
-    /// document is deleted last. Safe to run again if interrupted.
+    /// customer, emailed tokens), and detaches their id from error events. The user's
+    /// documents go first, then the lookups with the email one last, then the account
+    /// document. Until the documents are gone the user can therefore still sign in, so a
+    /// deletion that failed part way can be run again by the user. Safe to run again.
     /// Blobs are not touched: list the user's images and delete those blobs first.
     /// </summary>
     Task DeleteAllAsync(string userId, CancellationToken cancellationToken = default);
