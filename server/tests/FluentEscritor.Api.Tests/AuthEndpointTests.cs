@@ -505,6 +505,8 @@ public partial class AuthEndpointTests
 
         public Task<UserDataExport> ExportAsync(string userId, CancellationToken cancellationToken = default) => inner.ExportAsync(userId, cancellationToken);
 
+        public Task ImportAsync(string userId, UserDataImport import, CancellationToken cancellationToken = default) => inner.ImportAsync(userId, import, cancellationToken);
+
         public Task DeleteAllAsync(string userId, CancellationToken cancellationToken = default) =>
             ++Calls == 1 ? throw new HttpRequestException("The database did not answer.") : inner.DeleteAllAsync(userId, cancellationToken);
     }
@@ -735,4 +737,60 @@ public partial class AuthEndpointTests
 
     [GeneratedRegex(@"https?://\S+")]
     private static partial Regex LinkPattern();
+}
+
+public class ApiErrorHandlingTests
+{
+    [Fact]
+    public async Task An_unexpected_failure_is_recorded_and_answered_without_details()
+    {
+        const string internalDetail = "account-name.documents.example.test refused the connection";
+        await using var factory = new ApiFactory
+        {
+            ConfigureServices = services =>
+            {
+                services.RemoveAll<IVaultRepository>();
+                services.AddSingleton<IVaultRepository>(new FailingVault(internalDetail));
+            },
+        };
+        using var browser = factory.CreateBrowser();
+        (await AuthEndpointTests.SignUpAsync(browser, "ana@example.test", $"pw-{TestSecrets.NewSecret()}")).Dispose();
+
+        using var response = await browser.GetAsync("/api/vault?secret=query-value");
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal("""{"error":"Failed to load Vault."}""", await response.Content.ReadAsStringAsync());
+        var recorded = Assert.Single(factory.Data.Errors, e => e.Path == "GET /api/vault");
+        Assert.Equal("server", recorded.Source);
+        Assert.Equal(internalDetail, recorded.Message);
+        Assert.Equal(factory.Data.Accounts.Values.Single().Id, recorded.UserId);
+    }
+
+    [Fact]
+    public async Task A_body_that_is_not_json_is_a_400_and_not_an_error_report()
+    {
+        await using var factory = new ApiFactory();
+        using var browser = factory.CreateBrowser();
+        (await AuthEndpointTests.SignUpAsync(browser, "ana@example.test", $"pw-{TestSecrets.NewSecret()}")).Dispose();
+
+        using var response = await browser.PostAsync("/api/auth/sign-in/email", new StringContent("{ not json", System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("""{"error":"The request could not be read."}""", await response.Content.ReadAsStringAsync());
+        Assert.Empty(factory.Data.Errors);
+    }
+
+    private sealed class FailingVault(string message) : IVaultRepository
+    {
+        // Provisioning a new account saves the starter items; only reading fails.
+        public Task SaveManyAsync(string userId, IReadOnlyList<VaultItem> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<VaultItem>> ListAsync(string userId, CancellationToken cancellationToken = default) => throw new HttpRequestException(message);
+
+        public Task<VaultItem?> GetAsync(string userId, string itemId, CancellationToken cancellationToken = default) => throw new HttpRequestException(message);
+
+        public Task SaveAsync(string userId, VaultItem item, CancellationToken cancellationToken = default) => throw new HttpRequestException(message);
+
+        public Task<bool> DeleteAsync(string userId, string itemId, CancellationToken cancellationToken = default) => throw new HttpRequestException(message);
+    }
 }

@@ -1,3 +1,4 @@
+using FluentEscritor.Api.Api;
 using FluentEscritor.Api.Configuration;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -69,6 +70,8 @@ internal static class AuthExtensions
             app.UseForwardedHeaders(forwarded);
         }
 
+        // Outermost, so a failure anywhere below is recorded and answered as JSON.
+        app.UseMiddleware<ApiErrorHandler>();
         app.UseAuthentication();
         app.UseMiddleware<ApiGuard>();
         app.UseAuthorization();

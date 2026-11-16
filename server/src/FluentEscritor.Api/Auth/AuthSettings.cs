@@ -39,6 +39,9 @@ public sealed class AuthSettings
             || (OwnerEmail.Length > 0 && candidate == OwnerEmail);
     }
 
+    /// <summary>Listed in <c>ALLOWED_SIGNUP_EMAILS</c>: trusted like a verified address for Free use of the platform's AI keys.</summary>
+    public bool IsInvited(string email) => _allowedSignupEmails.Contains(Normalize(email));
+
     /// <summary>
     /// The owner address counts only once it is verified. Otherwise anyone could sign up
     /// with the owner's address first and take the owner's place.

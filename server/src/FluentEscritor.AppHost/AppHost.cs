@@ -38,11 +38,15 @@ cosmos.ConfigureInfrastructure(infrastructure =>
     }
 });
 
-var blobs = builder.AddAzureStorage("storage").RunAsEmulator().AddBlobs("blobs");
+var storage = builder.AddAzureStorage("storage").RunAsEmulator();
+var blobs = storage.AddBlobs("blobs");
+// The one container the API keeps uploaded files in. Aspire creates it in Azurite on
+// start and emits it for Azure on publish; the API never creates containers itself.
+var files = storage.AddBlobContainer(DataModelSchema.FilesBlobContainer);
 
 builder.AddProject<Projects.FluentEscritor_Api>("api")
     .WithReference(cosmos).WaitFor(database)
-    .WithReference(blobs).WaitFor(blobs)
+    .WithReference(blobs).WaitFor(files)
     .WithEnvironment("App__EncryptionSecret", encryptionSecret)
     .WithHttpHealthCheck("/health");
 

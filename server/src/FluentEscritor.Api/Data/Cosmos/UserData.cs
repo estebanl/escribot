@@ -33,6 +33,22 @@ internal sealed class CosmosUserDataRepository(CosmosStore store, UserDocuments 
         };
     }
 
+    public Task ImportAsync(string userId, UserDataImport import, CancellationToken cancellationToken = default)
+    {
+        List<JsonObject> all =
+        [
+            // An imported prompt is always the user's own, whatever the file says.
+            .. import.Prompts.Select(p => UserDocuments.ToDocument(DocumentTypes.Prompt, userId, p.Source == "curated" ? p with { Source = "custom", UserId = userId } : p with { UserId = userId })),
+            .. import.Sessions.Select(s => UserDocuments.ToDocument(DocumentTypes.Session, userId, s)),
+            .. import.Drafts.Select(d => UserDocuments.ToDocument(DocumentTypes.Draft, userId, d)),
+            .. import.Evaluations.Select(e => UserDocuments.ToDocument(DocumentTypes.Evaluation, userId, e)),
+            .. import.VaultItems.Select(v => UserDocuments.ToDocument(DocumentTypes.VaultItem, userId, v)),
+            .. import.MicroDrills.Select(d => UserDocuments.ToDocument(DocumentTypes.Drill, userId, d)),
+        ];
+
+        return documents.SaveBatchesAsync(userId, all, cancellationToken);
+    }
+
     public async Task DeleteAllAsync(string userId, CancellationToken cancellationToken = default)
     {
         DocumentId.Require(userId, nameof(userId));

@@ -132,6 +132,4 @@ when clients can reach the app directly.
 
 - **Stripe:** deleting an account must delete the Stripe customer first. Billing is not on
   this server yet; the place is marked in `AccountDeletion`.
-- **The blob container** (`files`) is created with the image endpoints. Until
-  then deleting a user's files finds nothing to delete.
 - **Changing an email address** is still not supported.

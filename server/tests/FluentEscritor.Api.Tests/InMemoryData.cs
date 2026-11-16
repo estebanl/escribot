@@ -12,7 +12,7 @@ namespace FluentEscritor.Api.Tests;
 /// </summary>
 public sealed class InMemoryData(TimeProvider time) :
     IUserAccountRepository, IAuthSessionStore, IOneTimeTokenStore, ISettingsRepository,
-    IVaultRepository, IImageRepository, IRateLimiter, IUserDataRepository
+    IVaultRepository, IImageRepository, IRateLimiter, IUserDataRepository, IErrorEventRepository
 {
     private readonly object _gate = new();
 
@@ -284,6 +284,28 @@ public sealed class InMemoryData(TimeProvider time) :
     Task<UserDataExport> IUserDataRepository.ExportAsync(string userId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
+    Task IUserDataRepository.ImportAsync(string userId, UserDataImport import, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    // ---- Error events ----
+
+    public List<ErrorEvent> Errors { get; } = [];
+
+    public Task RecordAsync(ErrorEvent errorEvent, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            Errors.Add(errorEvent);
+            return Task.CompletedTask;
+        }
+    }
+
+    Task<IReadOnlyList<ErrorEvent>> IErrorEventRepository.ListRecentAsync(int limit, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<int> IErrorEventRepository.CountSinceAsync(DateTimeOffset since, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
     public async Task DeleteAllAsync(string userId, CancellationToken cancellationToken = default)
     {
         await RemoveAllForUserAsync(userId, cancellationToken);
@@ -319,7 +341,7 @@ public sealed class RecordingEmailSender : IEmailSender
     }
 }
 
-/// <summary>A file store that only remembers what it was asked to delete.</summary>
+/// <summary>A file store in memory that also remembers what it was asked to delete.</summary>
 public sealed class FakeFileStore(Exception? failure = null) : IFileStore
 {
     public List<string> Deleted { get; } = [];
@@ -327,8 +349,20 @@ public sealed class FakeFileStore(Exception? failure = null) : IFileStore
     public Task PingAsync(CancellationToken cancellationToken) =>
         failure is null ? Task.CompletedTask : Task.FromException(failure);
 
+    public Dictionary<string, byte[]> Saved { get; } = [];
+
+    public Task SaveAsync(string name, ReadOnlyMemory<byte> content, string contentType, CancellationToken cancellationToken)
+    {
+        Saved[name] = content.ToArray();
+        return Task.CompletedTask;
+    }
+
+    public Task<byte[]?> ReadAsync(string name, CancellationToken cancellationToken) =>
+        Task.FromResult(Saved.GetValueOrDefault(name));
+
     public Task DeleteAsync(string name, CancellationToken cancellationToken)
     {
+        Saved.Remove(name);
         Deleted.Add(name);
         return Task.CompletedTask;
     }

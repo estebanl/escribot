@@ -100,6 +100,7 @@ public sealed class ApiFactory : WebApplicationFactory<AppOptions>
                 Replace<IImageRepository>(services);
                 Replace<IRateLimiter>(services);
                 Replace<IUserDataRepository>(services);
+                Replace<IErrorEventRepository>(services);
 
                 // Nothing to seed into: there is no database behind the fakes.
                 var seeder = services.Single(d => d.ImplementationType == typeof(CuratedPromptSeeder));

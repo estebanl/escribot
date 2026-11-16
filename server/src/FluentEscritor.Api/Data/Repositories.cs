@@ -246,6 +246,14 @@ public interface IUserDataRepository
     Task<UserDataExport> ExportAsync(string userId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Saves everything in <paramref name="import"/> as the user's own, in the order
+    /// prompts, sessions, drafts, evaluations, vault items, drills. Up to 100 documents
+    /// of moderate size are saved as one transaction; a larger import is saved in several,
+    /// so a failure part way leaves the earlier ones saved.
+    /// </summary>
+    Task ImportAsync(string userId, UserDataImport import, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes every document the user owns, their lookups (email, sessions, Stripe
     /// customer, emailed tokens), and detaches their id from error events. The user's
     /// documents go first, then the lookups with the email one last, then the account

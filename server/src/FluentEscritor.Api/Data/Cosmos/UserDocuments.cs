@@ -159,7 +159,57 @@ internal sealed class UserDocuments(CosmosStore store)
         return query;
     }
 
-    private static JsonObject ToDocument<T>(DocumentType<T> type, string userId, T value)
+    /// <summary>
+    /// Saves documents of any types for one user. Each batch is one transaction and stays
+    /// within what Cosmos DB accepts: 100 operations and, with a margin, 2 MB.
+    /// </summary>
+    public async Task SaveBatchesAsync(string userId, IReadOnlyList<JsonObject> documents, CancellationToken cancellationToken)
+    {
+        const int MaxBatchBytes = 1_500_000;
+        DocumentId.Require(userId, nameof(userId));
+
+        var batch = new List<byte[]>();
+        var batchBytes = 0;
+        foreach (var document in documents)
+        {
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(document);
+            if (batch.Count > 0 && (batch.Count == CosmosStore.MaxBatchSize || batchBytes + bytes.Length > MaxBatchBytes))
+            {
+                await FlushAsync();
+            }
+
+            batch.Add(bytes);
+            batchBytes += bytes.Length;
+        }
+
+        if (batch.Count > 0)
+        {
+            await FlushAsync();
+        }
+
+        async Task FlushAsync()
+        {
+            var streams = new List<Stream>();
+            try
+            {
+                await CosmosStore.BatchAsync(Container, userId, batch, (transaction, bytes) =>
+                {
+                    var stream = new MemoryStream(bytes);
+                    streams.Add(stream);
+                    transaction.UpsertItemStream(stream);
+                }, cancellationToken);
+            }
+            finally
+            {
+                streams.ForEach(s => s.Dispose());
+            }
+
+            batch.Clear();
+            batchBytes = 0;
+        }
+    }
+
+    public static JsonObject ToDocument<T>(DocumentType<T> type, string userId, T value)
     {
         var document = DocumentJson.ToNode(value);
         var id = type.GetId?.Invoke(value);

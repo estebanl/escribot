@@ -236,7 +236,7 @@ Defined in `FluentEscritor.Api/Data/Repositories.cs`.
 | `IRateLimiter` | Fixed-window rate limit | `checkRateLimit` |
 | `IFreeAiDailyCounter` | Daily Free AI cap | Count in `src/lib/ai/access.ts` |
 | `IErrorEventRepository` | Error events | `src/lib/errors.ts` |
-| `IUserDataRepository` | Export and delete everything for a user | `src/lib/account.ts`, the export route |
+| `IUserDataRepository` | Export, restore and delete everything for a user | `src/lib/account.ts`, the export route |
 | `IAdminRepository` | Platform-wide figures | Queries in `src/app/admin/page.tsx` |
 | `ICuratedPromptStore` | Used only by the startup seeding | `migrateAndSeed` in `src/lib/db/index.ts` |
 

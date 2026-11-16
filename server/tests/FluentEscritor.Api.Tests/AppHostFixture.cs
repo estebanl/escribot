@@ -3,6 +3,7 @@ using Aspire.Hosting.Testing;
 using FluentEscritor.Api.Data;
 using FluentEscritor.Api.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace FluentEscritor.Api.Tests;
@@ -53,6 +54,25 @@ public sealed class AppHostFixture : IAsyncLifetime
         builder.Services.AddRepositories();
         _repositoryHost = builder.Build();
 
+        // The API again, in this process and on the same emulators, so tests can call its
+        // endpoints with their own settings. Rate limits are counted in memory here:
+        // counted in the database, the tests' many sign-ups would exhaust the hourly limit.
+        var rateLimits = new TestRateLimiter();
+        Api = new ApiFactory
+        {
+            UseFakeStorage = false,
+            Settings = new()
+            {
+                [$"ConnectionStrings:{StorageExtensions.CosmosConnectionName}"] = await App.GetConnectionStringAsync(StorageExtensions.CosmosConnectionName, cancellationToken),
+                [$"ConnectionStrings:{StorageExtensions.BlobsConnectionName}"] = await App.GetConnectionStringAsync(StorageExtensions.BlobsConnectionName, cancellationToken),
+            },
+            ConfigureServices = services =>
+            {
+                services.RemoveAll<IRateLimiter>();
+                services.AddSingleton<IRateLimiter>(rateLimits);
+            },
+        };
+
         // Before any test writes: what the API itself seeded when it started.
         var shipped = CuratedPromptSeed.LoadEmbedded().ToDictionary(s => s.Prompt.Id, s => s.Hash);
         while (!cancellationToken.IsCancellationRequested)
@@ -70,8 +90,12 @@ public sealed class AppHostFixture : IAsyncLifetime
     /// <summary>The curated prompts found in the database once the API had started.</summary>
     public IReadOnlyDictionary<string, string> CuratedPromptsSeededByApi { get; private set; } = new Dictionary<string, string>();
 
+    /// <summary>The API hosted in the test process, on the real Cosmos DB and Blob Storage emulators.</summary>
+    public ApiFactory Api { get; private set; } = null!;
+
     public async Task DisposeAsync()
     {
+        await Api.DisposeAsync();
         _repositoryHost?.Dispose();
         await App.DisposeAsync();
     }
@@ -89,6 +113,17 @@ public sealed class AppHostFixture : IAsyncLifetime
 public sealed class AppHostCollection : ICollectionFixture<AppHostFixture>
 {
     public const string Name = "AppHost";
+}
+
+/// <summary>Counts in memory, and lets the sign-in endpoints through however often the tests call them.</summary>
+internal sealed class TestRateLimiter : IRateLimiter
+{
+    private readonly InMemoryData _counts = new(TimeProvider.System);
+
+    public Task<Data.Models.RateLimitResult> CheckAsync(string key, int limit, TimeSpan window, CancellationToken cancellationToken = default) =>
+        key.StartsWith("auth:", StringComparison.Ordinal)
+            ? Task.FromResult(new Data.Models.RateLimitResult(true, 1))
+            : _counts.CheckAsync(key, limit, window, cancellationToken);
 }
 
 /// <summary>A clock the test sets, for code that depends on the time.</summary>
