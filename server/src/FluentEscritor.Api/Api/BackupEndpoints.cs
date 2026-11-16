@@ -120,7 +120,20 @@ internal static class BackupEndpoints
             VaultItems = [.. file.VaultItems.Select(v => v with { Id = NewId("vault"), SourceDraftId = v.SourceDraftId is not null ? draftIds.GetValueOrDefault(v.SourceDraftId) : null })],
             MicroDrills = [.. file.MicroDrills.Select(d => d with { Id = NewId("drill") })],
         };
-        await userData.ImportAsync(account.Id, import, cancellationToken);
+        try
+        {
+            await userData.ImportAsync(account.Id, import, cancellationToken);
+        }
+        catch
+        {
+            // The prompts these images belong to may not have been saved.
+            foreach (var prompt in prompts)
+            {
+                await images.DiscardAsync(account.Id, prompt.ImageUrl);
+            }
+
+            throw;
+        }
 
         var importedCount = import.Prompts.Count + import.Sessions.Count + import.Drafts.Count + import.Evaluations.Count + import.VaultItems.Count + import.MicroDrills.Count;
         return Results.Json(new JsonObject { ["ok"] = true, ["importedCount"] = importedCount });

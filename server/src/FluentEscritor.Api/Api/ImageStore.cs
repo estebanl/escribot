@@ -17,7 +17,7 @@ public sealed class ImageUploadException(string message, int statusCode = Status
 /// description in the user's partition, and an image is only ever read for its owner.
 /// Ported from <c>src/lib/storage.ts</c>.
 /// </summary>
-public sealed partial class ImageStore(IImageRepository images, IFileStore files, TimeProvider time)
+public sealed partial class ImageStore(IImageRepository images, IFileStore files, TimeProvider time, ILogger<ImageStore> logger)
 {
     /// <summary>Largest single upload accepted (the browser already compresses to WebP).</summary>
     public const int MaxImageBytes = 2 * 1024 * 1024;
@@ -78,6 +78,36 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
 
         return $"{RoutePrefix}{id}";
     }
+
+    /// <summary>
+    /// Removes an image that was just stored for something that then could not be saved,
+    /// so it does not stay behind unused and counted against the user's allowance.
+    /// It never throws: it runs while another failure is already being reported.
+    /// </summary>
+    public async Task DiscardAsync(string userId, string? imageUrl)
+    {
+        if (imageUrl?.StartsWith(RoutePrefix, StringComparison.Ordinal) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var imageId = imageUrl[RoutePrefix.Length..];
+            if (await images.GetAsync(userId, imageId, CancellationToken.None) is { } metadata)
+            {
+                await files.DeleteAsync(metadata.BlobName, CancellationToken.None);
+                await images.DeleteAsync(userId, imageId, CancellationToken.None);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogDiscardFailed(logger, ex);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "An image stored for a save that failed could not be removed again.")]
+    private static partial void LogDiscardFailed(ILogger logger, Exception exception);
 
     /// <summary>One of the user's images, or null when it does not exist or is not theirs.</summary>
     public async Task<(string ContentType, byte[] Data)?> GetOwnedAsync(string userId, string imageId, CancellationToken cancellationToken = default)

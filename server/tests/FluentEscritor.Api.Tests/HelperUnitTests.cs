@@ -241,7 +241,7 @@ public class DataApiUnitTests
     public async Task A_file_whose_description_cannot_be_saved_is_removed_again()
     {
         var files = new FakeFileStore();
-        var store = new ImageStore(new FailingImages(), files, TimeProvider.System);
+        var store = new ImageStore(new FailingImages(), files, TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<ImageStore>.Instance);
 
         await Assert.ThrowsAsync<HttpRequestException>(() => store.StoreAsync("user-1", "free", $"data:image/png;base64,{Png}"));
 

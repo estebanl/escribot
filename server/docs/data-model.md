@@ -192,14 +192,14 @@ cross-partition queries over at most 31 small partitions.
 security stamp and encrypted API keys are left out; the names of the providers with a saved
 key are listed instead.
 
-**Delete** runs in this order. While step 1 is unfinished the account, its email lookup and
+**Delete** runs in this order. Until step 3 the account, its email lookup and
 the session still exist, so if it fails the user can sign in and delete again:
 
 1. Delete every document in the user's partition except the account, in transactional
    batches of 100. This covers document types added later without changing the code.
-2. Delete the user's lookups (sessions, Stripe customer, emailed tokens), the email lookup
+2. Remove the user id from their error events, which are kept for debugging until they expire.
+3. Delete the user's lookups (sessions, Stripe customer, emailed tokens), the email lookup
    last, and then the account document.
-3. Remove the user id from their error events, which are kept for debugging until they expire.
 
 Blobs and the Stripe customer are outside this layer. `AccountDeletion` (in `Auth/`) deletes
 the user's image blobs first and then calls this; deleting the Stripe customer is added

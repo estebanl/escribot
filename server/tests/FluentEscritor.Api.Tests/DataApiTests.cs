@@ -166,6 +166,24 @@ public class DataApiTests(AppHostFixture fixture)
         Assert.Equal(2, (await Service<IImageRepository>().ListAsync(userId)).Count);
     }
 
+    [Fact]
+    public async Task An_image_stored_for_a_save_that_failed_is_removed_again()
+    {
+        var (_, userId, _) = await SignUpAsync();
+        var store = Service<Api.ImageStore>();
+        var url = await store.StoreAsync(userId, "free", Png);
+        var metadata = Assert.Single(await Service<IImageRepository>().ListAsync(userId));
+
+        await store.DiscardAsync(userId, url);
+
+        Assert.Empty(await Service<IImageRepository>().ListAsync(userId));
+        Assert.Null(await Service<IFileStore>().ReadAsync(metadata.BlobName, default));
+        Assert.Equal(0, await Service<IImageRepository>().GetTotalBytesAsync(userId));
+        // Anything that is not one of the user's stored images is left alone.
+        await store.DiscardAsync(userId, "https://example.test/elsewhere.png");
+        await store.DiscardAsync(userId, null);
+    }
+
     // ---- Sessions ----
 
     [Fact]

@@ -64,6 +64,10 @@ internal sealed class CosmosUserDataRepository(CosmosStore store, UserDocuments 
         var others = ids.Where(id => id != accountId).ToList();
         await CosmosStore.BatchAsync(store.Users, userId, others, (batch, id) => batch.DeleteItem(id), cancellationToken);
 
+        // Also before the account goes, for the same reason: if this fails the user can
+        // still sign in and run the deletion again.
+        await errors.DetachUserAsync(userId, cancellationToken);
+
         await lookups.DeleteAllForUserAsync(userId, null, cancellationToken);
 
         if (ids.Contains(accountId))
@@ -71,6 +75,5 @@ internal sealed class CosmosUserDataRepository(CosmosStore store, UserDocuments 
             await CosmosStore.DeleteAsync(store.Users, userId, accountId, cancellationToken);
         }
 
-        await errors.DetachUserAsync(userId, cancellationToken);
     }
 }

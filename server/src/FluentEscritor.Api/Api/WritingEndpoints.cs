@@ -263,7 +263,16 @@ internal static class WritingEndpoints
             Source = "custom",
             CreatedAt = time.GetUtcNow(),
         };
-        await prompts.SaveAsync(account.Id, prompt, cancellationToken);
+        try
+        {
+            await prompts.SaveAsync(account.Id, prompt, cancellationToken);
+        }
+        catch
+        {
+            // Without its prompt the image would be unreachable but still count as used space.
+            await images.DiscardAsync(account.Id, imageUrl);
+            throw;
+        }
 
         return Results.Json(new JsonObject { ["prompt"] = Wire.Prompt(prompt) });
     }
