@@ -58,13 +58,23 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         var extension = contentType.Split('/')[1].Replace("jpeg", "jpg", StringComparison.Ordinal);
         var blobName = $"users/{userId}/images/{id}.{extension}";
 
-        // The file first: a description without a file would be a broken image, while a
-        // file without a description is only unused space.
+        // The file first: a description without a file would be a broken image. If the
+        // description then cannot be saved, the file is removed again, because nothing
+        // would point at it: not the app, and not account deletion, which finds a user's
+        // files through their descriptions.
         await files.SaveAsync(blobName, data, contentType, cancellationToken);
-        await images.SaveAsync(
-            userId,
-            new ImageMetadata { Id = id, ContentType = contentType, Bytes = data.Length, BlobName = blobName, CreatedAt = time.GetUtcNow() },
-            cancellationToken);
+        try
+        {
+            await images.SaveAsync(
+                userId,
+                new ImageMetadata { Id = id, ContentType = contentType, Bytes = data.Length, BlobName = blobName, CreatedAt = time.GetUtcNow() },
+                cancellationToken);
+        }
+        catch
+        {
+            await files.DeleteAsync(blobName, CancellationToken.None);
+            throw;
+        }
 
         return $"{RoutePrefix}{id}";
     }

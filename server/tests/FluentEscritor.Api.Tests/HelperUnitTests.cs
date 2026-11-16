@@ -237,6 +237,32 @@ public class DataApiUnitTests
         Assert.Equal(Convert.FromBase64String(Png), data);
     }
 
+    [Fact]
+    public async Task A_file_whose_description_cannot_be_saved_is_removed_again()
+    {
+        var files = new FakeFileStore();
+        var store = new ImageStore(new FailingImages(), files, TimeProvider.System);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => store.StoreAsync("user-1", "free", $"data:image/png;base64,{Png}"));
+
+        Assert.Empty(files.Saved);
+        Assert.StartsWith("users/user-1/images/", Assert.Single(files.Deleted));
+    }
+
+    private sealed class FailingImages : FluentEscritor.Api.Data.IImageRepository
+    {
+        public Task<long> GetTotalBytesAsync(string userId, CancellationToken cancellationToken = default) => Task.FromResult(0L);
+
+        public Task SaveAsync(string userId, FluentEscritor.Api.Data.Models.ImageMetadata image, CancellationToken cancellationToken = default) =>
+            throw new HttpRequestException("The database did not answer.");
+
+        public Task<FluentEscritor.Api.Data.Models.ImageMetadata?> GetAsync(string userId, string imageId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<FluentEscritor.Api.Data.Models.ImageMetadata>> ListAsync(string userId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<bool> DeleteAsync(string userId, string imageId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
     [Theory]
     [InlineData("https://example.test/image.png")]
     [InlineData("data:image/png;base64,")]
