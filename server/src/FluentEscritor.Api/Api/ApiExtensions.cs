@@ -1,4 +1,5 @@
 using FluentEscritor.Api.Ai;
+using FluentEscritor.Api.Billing;
 using FluentEscritor.Api.Common;
 
 namespace FluentEscritor.Api.Api;
@@ -32,6 +33,18 @@ internal static class ApiExtensions
         builder.Services.AddScoped<AiAccessGuard>();
         builder.Services.AddScoped<ExaminerService>();
 
+        // Billing. Stripe.net retries by itself (and with idempotency keys), so the default
+        // resilience handlers, which would also retry POSTs, are removed.
+        builder.Services.AddSingleton<StripeSettings>();
+        builder.Services.AddSingleton<IStripeGateway, StripeGateway>();
+#pragma warning disable EXTEXP0001
+        builder.Services.AddHttpClient(StripeGateway.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(80))
+            .RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+        builder.Services.AddSingleton<SubscriptionSync>();
+        builder.Services.AddSingleton<StripeWebhookReader>();
+        builder.Services.AddSingleton<PriceCatalog>();
+
         return builder;
     }
 
@@ -56,6 +69,8 @@ internal static class ApiExtensions
         api.MapAccountEndpoints();
         api.MapBackupEndpoints();
         api.MapAiEndpoints();
+        api.MapBillingEndpoints();
+        api.MapAdminEndpoints();
         return app;
     }
 }

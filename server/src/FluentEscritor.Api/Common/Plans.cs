@@ -31,10 +31,13 @@ public static class Plans
     };
 
     /// <summary>
-    /// Statuses that grant Pro. <c>past_due</c> keeps access while Stripe retries the card.
+    /// Statuses that grant Pro. <c>past_due</c> keeps access while Stripe retries the card
+    /// (Smart Retries); Stripe moves the subscription to <c>canceled</c> or <c>unpaid</c> if
+    /// every retry fails, which removes access.
     /// </summary>
-    public static bool HasProAccess(Subscription? subscription) =>
-        subscription?.Status is "active" or "trialing" or "past_due";
+    public static bool IsProStatus(string? status) => status is "active" or "trialing" or "past_due";
+
+    public static bool HasProAccess(Subscription? subscription) => IsProStatus(subscription?.Status);
 
     /// <summary>
     /// Paid plans need the Stripe key, the monthly Pro price and the webhook secret.

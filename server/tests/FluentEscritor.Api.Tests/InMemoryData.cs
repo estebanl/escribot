@@ -13,7 +13,8 @@ namespace FluentEscritor.Api.Tests;
 public sealed class InMemoryData(TimeProvider time) :
     IUserAccountRepository, IAuthSessionStore, IOneTimeTokenStore, ISettingsRepository,
     IVaultRepository, IImageRepository, IRateLimiter, IUserDataRepository, IErrorEventRepository,
-    IPromptRepository, IWritingRepository, IDrillRepository, IAiUsageRepository, IFreeAiDailyCounter, ISubscriptionRepository
+    IPromptRepository, IWritingRepository, IDrillRepository, IAiUsageRepository, IFreeAiDailyCounter, ISubscriptionRepository,
+    IAdminRepository
 {
     private readonly object _gate = new();
 
@@ -314,16 +315,31 @@ public sealed class InMemoryData(TimeProvider time) :
     {
         lock (_gate)
         {
-            Errors.Add(errorEvent);
+            // As the real repository does, the id and time are assigned here.
+            Errors.Add(errorEvent with
+            {
+                Id = errorEvent.Id.Length > 0 ? errorEvent.Id : $"err-{Guid.NewGuid():N}",
+                CreatedAt = errorEvent.CreatedAt == default ? time.GetUtcNow() : errorEvent.CreatedAt,
+            });
             return Task.CompletedTask;
         }
     }
 
-    Task<IReadOnlyList<ErrorEvent>> IErrorEventRepository.ListRecentAsync(int limit, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+    Task<IReadOnlyList<ErrorEvent>> IErrorEventRepository.ListRecentAsync(int limit, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult<IReadOnlyList<ErrorEvent>>([.. Errors.OrderByDescending(e => e.CreatedAt).Take(limit)]);
+        }
+    }
 
-    Task<int> IErrorEventRepository.CountSinceAsync(DateTimeOffset since, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+    Task<int> IErrorEventRepository.CountSinceAsync(DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(Errors.Count(e => e.CreatedAt >= since));
+        }
+    }
 
     public async Task DeleteAllAsync(string userId, CancellationToken cancellationToken = default)
     {
@@ -580,6 +596,88 @@ public sealed class InMemoryData(TimeProvider time) :
             var next = FreeAiDailyCounts.GetValueOrDefault(key) + 1;
             FreeAiDailyCounts[key] = next;
             return Task.FromResult(next);
+        }
+    }
+
+    // ---- Admin ----
+
+    Task<AccountStats> IAdminRepository.GetAccountStatsAsync(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var now = time.GetUtcNow();
+            var accounts = Accounts.Values.ToList();
+            return Task.FromResult(new AccountStats(
+                accounts.Count,
+                accounts.Count(a => a.EmailVerified),
+                accounts.Count(a => a.CreatedAt >= now.AddDays(-7)),
+                accounts.Count(a => a.CreatedAt >= now.AddDays(-30))));
+        }
+    }
+
+    Task<IReadOnlyList<AdminAccountRow>> IAdminRepository.ListAccountsAsync(string? emailContains, int limit, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var search = emailContains?.Trim().ToLowerInvariant();
+            return Task.FromResult<IReadOnlyList<AdminAccountRow>>([.. Accounts.Values
+                .Where(a => string.IsNullOrEmpty(search) || a.NormalizedEmail.Contains(search, StringComparison.Ordinal))
+                .OrderByDescending(a => a.CreatedAt)
+                .Take(limit)
+                .Select(a => new AdminAccountRow(
+                    a.Id,
+                    a.Name,
+                    a.Email,
+                    a.EmailVerified,
+                    a.CreatedAt,
+                    Settings.GetValueOrDefault(a.Id)?.Plan,
+                    Subscriptions.GetValueOrDefault(a.Id)?.Status))]);
+        }
+    }
+
+    Task<IReadOnlyDictionary<string, int>> IAdminRepository.GetSubscriptionStatusCountsAsync(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult<IReadOnlyDictionary<string, int>>(Subscriptions.Values
+                .Where(s => s.Status is not null)
+                .GroupBy(s => s.Status!)
+                .ToDictionary(g => g.Key, g => g.Count()));
+        }
+    }
+
+    Task<IReadOnlyList<AiUsageTotal>> IAdminRepository.GetAiUsageTotalsAsync(DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult<IReadOnlyList<AiUsageTotal>>([.. AiUsage.Values
+                .SelectMany(u => u)
+                .Where(u => u.CreatedAt >= since)
+                .GroupBy(u => (u.Plan, u.KeySource))
+                .Select(g => new AiUsageTotal(g.Key.Plan, g.Key.KeySource, g.Sum(u => u.CostUsd ?? 0), g.Count()))]);
+        }
+    }
+
+    Task<int> IAdminRepository.CountAiCallsAsync(DateTimeOffset since, IReadOnlyCollection<string> features, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(AiUsage.Values.SelectMany(u => u).Count(u => u.CreatedAt >= since && features.Contains(u.Feature)));
+        }
+    }
+
+    Task<IReadOnlyList<UserAiUsage>> IAdminRepository.GetAiUsageByUserAsync(IReadOnlyCollection<string> userIds, DateTimeOffset since, IReadOnlyCollection<string> countedFeatures, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult<IReadOnlyList<UserAiUsage>>([.. AiUsage
+                .Where(e => userIds.Contains(e.Key))
+                .Select(e => (e.Key, Rows: e.Value.Where(u => u.CreatedAt >= since).ToList()))
+                .Where(e => e.Rows.Count > 0)
+                .Select(e => new UserAiUsage(
+                    e.Key,
+                    e.Rows.Count(u => countedFeatures.Contains(u.Feature)),
+                    e.Rows.Where(u => u.KeySource == "platform").Sum(u => u.CostUsd ?? 0)))]);
         }
     }
 

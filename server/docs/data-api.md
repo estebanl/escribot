@@ -21,9 +21,12 @@ stored documents in [data-model.md](data-model.md).
 | `GET` `POST /api/backup` | Download and restore of the writing data |
 | `GET /api/account/export` | Everything stored about the user; 5 an hour |
 | `POST /api/errors` | Browser error reports; public; 10 a minute per user or address |
+| `POST /api/billing/checkout`, `/portal`, `GET /api/billing/prices`, `POST /api/stripe/webhook` | See [billing.md](billing.md) |
+| `GET /api/admin/overview`, `PATCH /api/admin/users/{id}` | Admins only; 404 for everyone else. See [billing.md](billing.md) |
 
-Every route needs a session except `/api/errors` (see `ApiGuard`). The admin image
-migration is not ported: there are no inline images to move.
+Every route needs a session except `/api/errors`, `/api/billing/prices` and
+`/api/stripe/webhook` (see `ApiGuard`). The admin image migration is not ported: there are
+no inline images to move.
 
 ## Same JSON over a different store
 
