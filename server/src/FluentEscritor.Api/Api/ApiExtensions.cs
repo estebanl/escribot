@@ -28,9 +28,9 @@ internal static class ApiExtensions
 #pragma warning restore EXTEXP0001
 
         builder.Services.AddSingleton<AiConfigResolver>();
-        builder.Services.AddSingleton<AiCompletionService>();
-        builder.Services.AddSingleton<AiAccessGuard>();
-        builder.Services.AddSingleton<ExaminerService>();
+        builder.Services.AddScoped<AiCompletionService>();
+        builder.Services.AddScoped<AiAccessGuard>();
+        builder.Services.AddScoped<ExaminerService>();
 
         return builder;
     }

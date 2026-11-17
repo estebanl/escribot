@@ -1,3 +1,4 @@
+using FluentEscritor.Api.Api;
 using FluentEscritor.Api.Common;
 using FluentEscritor.Api.Data;
 using FluentEscritor.Api.Data.Models;
@@ -15,16 +16,53 @@ public sealed partial class AiCompletionService(
     TimeProvider time,
     ILogger<AiCompletionService> logger)
 {
-    public static readonly string[] EvaluationFeatures = ["rubric_score", "rubric_score_fallback"];
-    public static readonly string[] AssistFeatures = ["outline_check", "toolkit", "prompt_generation", "drill_generate", "drill_score"];
-
     private static readonly HashSet<string> BillableFeatures =
-        new([.. EvaluationFeatures, .. AssistFeatures], StringComparer.Ordinal);
+        new([.. UsageService.EvaluationFeatures, .. UsageService.AssistFeatures], StringComparer.Ordinal);
 
     private readonly Dictionary<string, IAiProviderClient> _clients =
         clients.ToDictionary(c => c.ProviderId, StringComparer.Ordinal);
 
     public async Task<LlmResultWithMeta> CallLlmWithMetaAsync(LlmCompletionRequest opts, CancellationToken cancellationToken = default)
+    {
+        var result = await DispatchAsync(opts, cancellationToken);
+        await RecordUsageAsync(opts, result, opts.Feature);
+        return result;
+    }
+
+    /// <summary>
+    /// Dispatches the request and parses the output before recording billable usage.
+    /// If parsing fails, cost/tokens are still logged under <c>{feature}_invalid_output</c>
+    /// so a failed parse that triggers a fallback does not consume two quota units.
+    /// </summary>
+    public async Task<(T Parsed, LlmResultWithMeta Meta)> CallLlmAndParseAsync<T>(
+        LlmCompletionRequest opts,
+        Func<string, T> parse,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await DispatchAsync(opts, cancellationToken);
+        T parsed;
+        try
+        {
+            parsed = parse(result.Content);
+        }
+        catch
+        {
+            var baseFeature = string.IsNullOrEmpty(opts.Feature) ? "general" : opts.Feature;
+            await RecordUsageAsync(opts, result, $"{baseFeature}_invalid_output");
+            throw;
+        }
+
+        await RecordUsageAsync(opts, result, opts.Feature);
+        return (parsed, result);
+    }
+
+    public async Task<string> CallLlmAsync(LlmCompletionRequest opts, CancellationToken cancellationToken = default)
+    {
+        var result = await CallLlmWithMetaAsync(opts, cancellationToken);
+        return result.Content;
+    }
+
+    private async Task<LlmResultWithMeta> DispatchAsync(LlmCompletionRequest opts, CancellationToken cancellationToken)
     {
         if (!_clients.TryGetValue(opts.Provider, out var client))
         {
@@ -34,10 +72,9 @@ public sealed partial class AiCompletionService(
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromMilliseconds(opts.TimeoutMs));
 
-        LlmResultWithMeta result;
         try
         {
-            result = await client.CompleteAsync(
+            return await client.CompleteAsync(
                 new LlmProviderRequest(
                     opts.ApiKey,
                     opts.Model,
@@ -55,9 +92,12 @@ public sealed partial class AiCompletionService(
         {
             throw new TimeoutException($"AI model ({opts.Model}) timed out after {Math.Round(opts.TimeoutMs / 1000.0)}s.");
         }
+    }
 
+    private async Task RecordUsageAsync(LlmCompletionRequest opts, LlmResultWithMeta result, string? rawFeature)
+    {
         var keySource = opts.KeySource == "platform" ? "platform" : "user";
-        var feature = string.IsNullOrEmpty(opts.Feature) ? "general" : opts.Feature;
+        var feature = string.IsNullOrEmpty(rawFeature) ? "general" : rawFeature;
 
         try
         {
@@ -96,14 +136,6 @@ public sealed partial class AiCompletionService(
                 LogDailyCounterFailed(logger, ex);
             }
         }
-
-        return result;
-    }
-
-    public async Task<string> CallLlmAsync(LlmCompletionRequest opts, CancellationToken cancellationToken = default)
-    {
-        var result = await CallLlmWithMetaAsync(opts, cancellationToken);
-        return result.Content;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to record AI usage in database.")]

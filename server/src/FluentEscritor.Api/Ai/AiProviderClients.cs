@@ -433,9 +433,10 @@ public sealed class AnthropicClient(HttpClient http) : IAiProviderClient
 
 public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration configuration, TimeProvider time)
 {
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
+    private static readonly TimeSpan SuccessCacheTtl = TimeSpan.FromHours(24);
+    private static readonly TimeSpan FailureCacheTtl = TimeSpan.FromMinutes(2);
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private (DateTimeOffset Timestamp, IReadOnlyList<OpenRouterModelInfo> Models)? _cache;
+    private (DateTimeOffset ExpiresAt, IReadOnlyList<OpenRouterModelInfo> Models)? _cache;
 
     private static readonly IReadOnlyList<OpenRouterModelInfo> FallbackModels =
     [
@@ -451,7 +452,7 @@ public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration confi
     public async Task<IReadOnlyList<OpenRouterModelInfo>> GetModelsAsync(CancellationToken cancellationToken = default)
     {
         var now = time.GetUtcNow();
-        if (_cache is { } cached && now - cached.Timestamp < CacheTtl)
+        if (_cache is { } cached && now < cached.ExpiresAt)
         {
             return cached.Models;
         }
@@ -460,7 +461,7 @@ public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration confi
         try
         {
             now = time.GetUtcNow();
-            if (_cache is { } rechecked && now - rechecked.Timestamp < CacheTtl)
+            if (_cache is { } rechecked && now < rechecked.ExpiresAt)
             {
                 return rechecked.Models;
             }
@@ -478,14 +479,18 @@ public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration confi
                 using var res = await http.SendAsync(req, cts.Token);
                 if (!res.IsSuccessStatusCode)
                 {
-                    return _cache?.Models ?? FallbackModels;
+                    var fallback = _cache?.Models ?? FallbackModels;
+                    _cache = (now.Add(FailureCacheTtl), fallback);
+                    return fallback;
                 }
 
                 var json = await res.Content.ReadAsStringAsync(cts.Token);
                 var root = JsonNode.Parse(json);
                 if (root?["data"] is not JsonArray dataArray)
                 {
-                    return _cache?.Models ?? FallbackModels;
+                    var fallback = _cache?.Models ?? FallbackModels;
+                    _cache = (now.Add(FailureCacheTtl), fallback);
+                    return fallback;
                 }
 
                 var mapped = new List<OpenRouterModelInfo>();
@@ -536,12 +541,14 @@ public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration confi
 
                 mapped.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
                 var models = mapped.Count > 0 ? (IReadOnlyList<OpenRouterModelInfo>)mapped : FallbackModels;
-                _cache = (now, models);
+                _cache = (now.Add(mapped.Count > 0 ? SuccessCacheTtl : FailureCacheTtl), models);
                 return models;
             }
             catch when (!cancellationToken.IsCancellationRequested)
             {
-                return _cache?.Models ?? FallbackModels;
+                var fallback = _cache?.Models ?? FallbackModels;
+                _cache = (now.Add(FailureCacheTtl), fallback);
+                return fallback;
             }
         }
         finally

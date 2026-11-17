@@ -346,4 +346,85 @@ public class AiUnitTests
         Assert.Equal(2, usage.Count);
         Assert.Equal(1, await ((IFreeAiDailyCounter)data).GetTodayAsync());
     }
+
+    [Fact]
+    public async Task Invalid_rubric_json_falls_back_without_double_charging_quota_and_null_client_fields_do_not_throw()
+    {
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var data = new InMemoryData(clock);
+        var protector = CreateProtector();
+        var config = CreateConfig(new Dictionary<string, string?>
+        {
+            ["OPENROUTER_API_KEY"] = "or-platform",
+        });
+
+        var user = new UserAccount { Id = "u-fb", Email = "fb@example.test", EmailVerified = true };
+        await data.CreateAsync(user);
+
+        var fakeProvider = new FakeProviderClient("openrouter", req =>
+        {
+            if (req.UserPrompt.Contains("taTrBand", StringComparison.Ordinal))
+            {
+                // Primary grader returns invalid JSON; fastModel fallback returns valid JSON
+                if (req.Model == AiProviders.Defaults["openrouter"].GraderModel)
+                {
+                    return new LlmResultWithMeta("not valid json at all", req.Model, CostUsd: 0.001);
+                }
+
+                return new LlmResultWithMeta("""{"taTrBand":7.0,"ccBand":7.0,"lrBand":7.0,"graBand":7.0,"examinerSummary":"Fallback worked."}""", req.Model, CostUsd: 0.002);
+            }
+
+            return new LlmResultWithMeta("""{"inlineAnnotations":[],"targetBandRewrite":"Clean.","rewriteKeyChanges":[],"vaultItems":[]}""", req.Model);
+        });
+
+        var authSettings = new AuthSettings(config);
+        var planResolver = new PlanResolver(data, data, authSettings);
+        var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
+        var completion = new AiCompletionService([fakeProvider], data, data, clock, NullLogger<AiCompletionService>.Instance);
+        var examiner = new ExaminerService(resolver, completion);
+
+        var coachingWithNullSuggestions = new List<ToolkitResponse>
+        {
+            new() { Tool = "collocations", Headline = "Test", Analysis = "Test", Suggestions = null! },
+        };
+
+        var eval = await examiner.EvaluateEssayWithAiAsync(new EvaluateEssayInput(
+            UserId: user.Id,
+            TaskType: Ielts.Task2,
+            PromptTitle: "Tech",
+            PromptText: "Discuss tech.",
+            VisualContext: null,
+            EssayText: "Technology has transformed education in many ways across the globe.",
+            DraftVersion: 1,
+            PreviousBand: null,
+            Outline: null,
+            OutlineFeedback: null,
+            CoachingHistory: coachingWithNullSuggestions));
+
+        Assert.Equal(7.0, eval.Payload.OverallBand);
+        Assert.Equal(1, await ((IFreeAiDailyCounter)data).GetTodayAsync());
+        var monthStart = new DateTimeOffset(clock.GetUtcNow().Year, clock.GetUtcNow().Month, 1, 0, 0, 0, TimeSpan.Zero);
+        Assert.Equal(1, await ((IAiUsageRepository)data).CountAsync(user.Id, monthStart, UsageService.EvaluationFeatures, "platform"));
+
+        // Null hints in drill and null outline fields without API key do not throw
+        var noKeyConfig = CreateConfig([]);
+        var noKeyResolver = new AiConfigResolver(data, data, new PlanResolver(data, data, new AuthSettings(noKeyConfig)), protector, noKeyConfig);
+        var noKeyExaminer = new ExaminerService(noKeyResolver, completion);
+
+        Assert.Null(await noKeyExaminer.ExtractVisualSpecFromImageAsync("data:image/png;base64,AAAA", "Prompt", user.Id));
+
+        var outline = await noKeyExaminer.CheckOutlineWithAiAsync(
+            user.Id,
+            Ielts.Task2,
+            "Prompt",
+            null,
+            new OutlineInput { ThesisOrOverview = null!, Body1Plan = null!, Body2Plan = null! });
+        Assert.Equal("needs_refinement", outline.Readiness);
+
+        var drillScore = await noKeyExaminer.ScoreMicroDrillWithAiAsync(
+            user.Id,
+            new MicroDrillChallenge { DrillType = "cohesion", Level = "beginner", Hints = null!, ReferenceModelAnswer = "Model." },
+            "My short answer here for testing.");
+        Assert.InRange(drillScore.ScoreOutOf10, 3, 9);
+    }
 }

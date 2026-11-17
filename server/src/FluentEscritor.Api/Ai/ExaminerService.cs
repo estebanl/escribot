@@ -20,7 +20,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
      * 1. TASK 1 SCREENSHOT MULTIMODAL VISION EXTRACTION (Cached per Prompt)
      * ============================================================================ */
 
-    public async Task<string> ExtractVisualSpecFromImageAsync(
+    public async Task<string?> ExtractVisualSpecFromImageAsync(
         string imageDataUrl,
         string promptText,
         string userId,
@@ -30,7 +30,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
         if (string.IsNullOrEmpty(cfg.ApiKey))
         {
-            return "Uploaded visual chart/diagram screenshot (configure API key in Settings for live multimodal chart figure extraction).";
+            return null;
         }
 
         var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
@@ -61,7 +61,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is not OperationCanceledException)
         {
-            return "Uploaded visual chart/diagram screenshot (verify internal factual consistency against prompt instructions).";
+            return null;
         }
     }
 
@@ -73,7 +73,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         EvaluateEssayInput input,
         CancellationToken cancellationToken = default)
     {
-        var cfg = await configResolver.ResolveAsync(input.UserId, cancellationToken);
+        var cfg = input.Config ?? await configResolver.ResolveAsync(input.UserId, cancellationToken);
         var wordCount = Ielts.CountWords(input.EssayText);
         var minWords = Ielts.MinimumWords(input.TaskType);
 
@@ -107,8 +107,8 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
 
         if (input.CoachingHistory is { Count: > 0 })
         {
-            var recentTools = string.Join("\n", input.CoachingHistory.TakeLast(3).Select(t =>
-                $"- [{t.Tool}] {t.Headline}: {string.Join(" | ", t.Suggestions.Select(s => $"\"{s.RewrittenOrPhrase}\""))}"));
+            var recentTools = string.Join("\n", input.CoachingHistory.TakeLast(3).Where(t => t is not null).Select(t =>
+                $"- [{t.Tool}] {t.Headline}: {string.Join(" | ", (t.Suggestions ?? []).Where(s => s is not null).Select(s => $"\"{s.RewrittenOrPhrase}\""))}"));
             sessionCoachingContextParts.Add(
                 $"Prior On-Demand Toolkit suggestions shown to student during drafting (DO NOT contradict or penalise phrasing recommended here):\n{recentTools}");
         }
@@ -142,25 +142,27 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         {
             try
             {
-                var resRubric = await ai.CallLlmWithMetaAsync(new LlmCompletionRequest
-                {
-                    UserId = cfg.UserId,
-                    KeySource = cfg.KeySource,
-                    Plan = cfg.Plan,
-                    Provider = cfg.Provider,
-                    ApiKey = apiKey,
-                    Model = cfg.GraderModel,
-                    FallbackModels = defaults?.GraderFallbacks,
-                    Feature = "rubric_score",
-                    SystemPrompt = rubricSystemPrompt,
-                    UserPrompt = rubricUserPrompt,
-                    JsonMode = true,
-                    ThinkingMode = "disabled",
-                    MaxTokens = 1200,
-                    TimeoutMs = 35_000,
-                }, cancellationToken);
+                var (parsedRubric, resRubric) = await ai.CallLlmAndParseAsync(
+                    new LlmCompletionRequest
+                    {
+                        UserId = cfg.UserId,
+                        KeySource = cfg.KeySource,
+                        Plan = cfg.Plan,
+                        Provider = cfg.Provider,
+                        ApiKey = apiKey,
+                        Model = cfg.GraderModel,
+                        FallbackModels = defaults?.GraderFallbacks,
+                        Feature = "rubric_score",
+                        SystemPrompt = rubricSystemPrompt,
+                        UserPrompt = rubricUserPrompt,
+                        JsonMode = true,
+                        ThinkingMode = "disabled",
+                        MaxTokens = 1200,
+                        TimeoutMs = 35_000,
+                    },
+                    JsonExtractor.ExtractJsonObject<RubricScoreOutput>,
+                    cancellationToken);
 
-                var parsedRubric = JsonExtractor.ExtractJsonObject<RubricScoreOutput>(resRubric.Content);
                 input.OnProgress?.Invoke("4-criterion band scores ready — finalising inline upgrades...");
                 var actualModel = !string.IsNullOrEmpty(resRubric.ModelUsed) ? resRubric.ModelUsed : cfg.GraderModel;
                 return (parsedRubric, resRubric.CostUsd, actualModel);
@@ -168,27 +170,30 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             catch when (!string.IsNullOrEmpty(cfg.FastModel) && cfg.FastModel != cfg.GraderModel && !cancellationToken.IsCancellationRequested)
             {
                 input.OnProgress?.Invoke("Switching to fast examiner model to complete band scoring...");
-                var resFallback = await ai.CallLlmWithMetaAsync(new LlmCompletionRequest
-                {
-                    UserId = cfg.UserId,
-                    KeySource = cfg.KeySource,
-                    Plan = cfg.Plan,
-                    Provider = cfg.Provider,
-                    ApiKey = apiKey,
-                    Model = cfg.FastModel,
-                    FallbackModels = defaults?.FastFallbacks,
-                    Feature = "rubric_score_fallback",
-                    SystemPrompt = rubricSystemPrompt,
-                    UserPrompt = rubricUserPrompt,
-                    JsonMode = true,
-                    ThinkingMode = "disabled",
-                    MaxTokens = 1200,
-                    TimeoutMs = 25_000,
-                }, cancellationToken);
+                var (parsedFallback, resFallback) = await ai.CallLlmAndParseAsync(
+                    new LlmCompletionRequest
+                    {
+                        UserId = cfg.UserId,
+                        KeySource = cfg.KeySource,
+                        Plan = cfg.Plan,
+                        Provider = cfg.Provider,
+                        ApiKey = apiKey,
+                        Model = cfg.FastModel,
+                        FallbackModels = defaults?.FastFallbacks,
+                        Feature = "rubric_score_fallback",
+                        SystemPrompt = rubricSystemPrompt,
+                        UserPrompt = rubricUserPrompt,
+                        JsonMode = true,
+                        ThinkingMode = "disabled",
+                        MaxTokens = 1200,
+                        TimeoutMs = 25_000,
+                    },
+                    JsonExtractor.ExtractJsonObject<RubricScoreOutput>,
+                    cancellationToken);
 
                 var actualModel = !string.IsNullOrEmpty(resFallback.ModelUsed) ? resFallback.ModelUsed : cfg.FastModel;
                 input.OnProgress?.Invoke("4-criterion band scores ready — finalising inline upgrades...");
-                return (JsonExtractor.ExtractJsonObject<RubricScoreOutput>(resFallback.Content), resFallback.CostUsd, actualModel);
+                return (parsedFallback, resFallback.CostUsd, actualModel);
             }
         }
 
@@ -379,14 +384,18 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         string promptText,
         string? visualContext,
         OutlineInput outline,
+        ResolvedAiConfig? config = null,
         CancellationToken cancellationToken = default)
     {
-        var cfg = await configResolver.ResolveAsync(userId, cancellationToken);
+        var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
+        var thesis = outline.ThesisOrOverview ?? string.Empty;
+        var body1 = (outline.Body1Plan ?? string.Empty).Trim();
+        var body2 = (outline.Body2Plan ?? string.Empty).Trim();
 
         if (string.IsNullOrEmpty(cfg.ApiKey))
         {
-            var hasOverviewOrThesis = Ielts.CountWords(outline.ThesisOrOverview) >= 8;
-            var hasBodies = outline.Body1Plan.Trim().Length > 12 && outline.Body2Plan.Trim().Length > 12;
+            var hasOverviewOrThesis = Ielts.CountWords(thesis) >= 8;
+            var hasBodies = body1.Length > 12 && body2.Length > 12;
             return new OutlineFeedback
             {
                 Readiness = hasOverviewOrThesis && hasBodies ? "strong" : "needs_refinement",
@@ -450,9 +459,10 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
     public async Task<ToolkitResponse> RunToolkitWithAiAsync(
         string userId,
         ToolkitRequest req,
+        ResolvedAiConfig? config = null,
         CancellationToken cancellationToken = default)
     {
-        var cfg = await configResolver.ResolveAsync(userId, cancellationToken);
+        var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
         var l1Profile = cfg.L1CoachingEnabled ? L1Profiles.Get(cfg.NativeLanguage) : L1Profiles.Get("neutral");
 
         if (string.IsNullOrEmpty(cfg.ApiKey))
@@ -522,9 +532,10 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         string taskType,
         string category,
         string? topic,
+        ResolvedAiConfig? config = null,
         CancellationToken cancellationToken = default)
     {
-        var cfg = await configResolver.ResolveAsync(userId, cancellationToken);
+        var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
         var chosenTopic = string.IsNullOrWhiteSpace(topic) ? "Public Policy, Technology & Sustainability" : topic.Trim();
 
         if (string.IsNullOrEmpty(cfg.ApiKey))
@@ -621,9 +632,10 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         string requestedDrillType,
         string? requestedLevel,
         IReadOnlyList<string>? vaultHighlights = null,
+        ResolvedAiConfig? config = null,
         CancellationToken cancellationToken = default)
     {
-        var cfg = await configResolver.ResolveAsync(userId, cancellationToken);
+        var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
         var level = Ielts.IsDrillLevel(requestedLevel) ? requestedLevel! : "advanced";
         var drillType = DrillTemplates.Builtin.ContainsKey(requestedDrillType) ? requestedDrillType : "cohesion";
         var l1Code = cfg.L1CoachingEnabled ? cfg.NativeLanguage : "neutral";
@@ -681,7 +693,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             : null;
 
         var parsedHints = (parsed["hints"] as JsonArray)?
-            .Select(h => h?.GetValue<string>())
+            .Select(TryGetString)
             .Where(h => !string.IsNullOrEmpty(h))
             .Cast<string>()
             .ToList();
@@ -689,15 +701,15 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         return new MicroDrillChallenge
         {
             DrillType = drillType,
-            TargetCriterion = parsed["targetCriterion"]?.GetValue<string>() ?? fallback.TargetCriterion,
-            Title = parsed["title"]?.GetValue<string>() ?? fallback.Title,
-            Instructions = parsed["instructions"]?.GetValue<string>() ?? fallback.Instructions,
-            TimeLimitSeconds = parsed["timeLimitSeconds"]?.GetValue<int?>() is > 0 and var t ? t : fallback.TimeLimitSeconds,
-            SourceContext = parsed["sourceContext"]?.GetValue<string>() ?? fallback.SourceContext,
+            TargetCriterion = TryGetString(parsed["targetCriterion"]) ?? fallback.TargetCriterion,
+            Title = TryGetString(parsed["title"]) ?? fallback.Title,
+            Instructions = TryGetString(parsed["instructions"]) ?? fallback.Instructions,
+            TimeLimitSeconds = TryGetInt(parsed["timeLimitSeconds"]) is > 0 and var t ? t : fallback.TimeLimitSeconds,
+            SourceContext = TryGetString(parsed["sourceContext"]) ?? fallback.SourceContext,
             ChartSpec = chartSpec,
-            FlawedText = parsed["flawedText"]?.GetValue<string>() ?? fallback.FlawedText,
+            FlawedText = TryGetString(parsed["flawedText"]) ?? fallback.FlawedText,
             Hints = parsedHints is { Count: > 0 } ? parsedHints : fallback.Hints,
-            ReferenceModelAnswer = parsed["referenceModelAnswer"]?.GetValue<string>() ?? fallback.ReferenceModelAnswer,
+            ReferenceModelAnswer = TryGetString(parsed["referenceModelAnswer"]) ?? fallback.ReferenceModelAnswer,
             Level = level,
             Steps = SanitizeSteps(parsed["steps"]) ?? fallback.Steps,
             WordBank = SanitizeWordBank(parsed["wordBank"]) ?? fallback.WordBank,
@@ -709,9 +721,10 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         MicroDrillChallenge challenge,
         string userResponse,
         string? requestedLevel = null,
+        ResolvedAiConfig? config = null,
         CancellationToken cancellationToken = default)
     {
-        var cfg = await configResolver.ResolveAsync(userId, cancellationToken);
+        var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
         var level = Ielts.IsDrillLevel(requestedLevel) ? requestedLevel!
             : Ielts.IsDrillLevel(challenge.Level) ? challenge.Level!
             : "advanced";
@@ -806,21 +819,51 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
 
         var parsed = JsonExtractor.ExtractJsonNode(raw);
         var stepFeedback = (parsed["stepFeedback"] as JsonArray)?
-            .Select(x => x?.GetValue<string>())
+            .Select(TryGetString)
             .Where(x => x is not null)
             .Cast<string>()
             .ToList();
 
         return new MicroDrillScore
         {
-            ScoreOutOf10 = parsed["scoreOutOf10"]?.GetValue<int?>() ?? 6,
-            EstimatedBandImpact = parsed["estimatedBandImpact"]?.GetValue<string>() ?? "Good progress",
-            Feedback = parsed["feedback"]?.GetValue<string>() ?? "Good effort! Compare your answer with the example below.",
-            ImprovedVersion = parsed["improvedVersion"]?.GetValue<string>() ?? challenge.ReferenceModelAnswer,
-            KeyTakeaway = parsed["keyTakeaway"]?.GetValue<string>() ?? challenge.Hints.FirstOrDefault() ?? string.Empty,
-            OneThingToFix = parsed["oneThingToFix"]?.GetValue<string>(),
+            ScoreOutOf10 = TryGetInt(parsed["scoreOutOf10"]) ?? 6,
+            EstimatedBandImpact = TryGetString(parsed["estimatedBandImpact"]) ?? "Good progress",
+            Feedback = TryGetString(parsed["feedback"]) ?? "Good effort! Compare your answer with the example below.",
+            ImprovedVersion = TryGetString(parsed["improvedVersion"]) ?? challenge.ReferenceModelAnswer,
+            KeyTakeaway = TryGetString(parsed["keyTakeaway"]) ?? challenge.Hints?.FirstOrDefault() ?? string.Empty,
+            OneThingToFix = TryGetString(parsed["oneThingToFix"]),
             StepFeedback = stepFeedback,
         };
+    }
+
+    private static string? TryGetString(JsonNode? node) =>
+        node is JsonValue val && val.TryGetValue<string>(out var s) ? s : null;
+
+    private static int? TryGetInt(JsonNode? node)
+    {
+        if (node is not JsonValue val)
+        {
+            return null;
+        }
+
+        if (val.TryGetValue<int>(out var i))
+        {
+            return i;
+        }
+
+        if (val.TryGetValue<double>(out var d) && double.IsFinite(d))
+        {
+            return (int)Math.Round(d, MidpointRounding.AwayFromZero);
+        }
+
+        if (val.TryGetValue<string>(out var s)
+            && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            && double.IsFinite(parsed))
+        {
+            return (int)Math.Round(parsed, MidpointRounding.AwayFromZero);
+        }
+
+        return null;
     }
 
     private static MicroDrillScore ScoreScaffoldedDrillLocally(
@@ -870,7 +913,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                     : "Try using 2 or 3 words from the word bank next time. ")
                 + "Compare your answer with the example below. (Add an AI key in Settings for personal feedback.)",
             ImprovedVersion = challenge.ReferenceModelAnswer,
-            KeyTakeaway = challenge.Hints.FirstOrDefault() ?? "Short, clear sentences are better than long, confusing ones.",
+            KeyTakeaway = challenge.Hints?.FirstOrDefault() ?? "Short, clear sentences are better than long, confusing ones.",
             OneThingToFix = oneThingToFix,
         };
     }

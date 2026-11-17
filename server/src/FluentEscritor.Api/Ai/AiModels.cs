@@ -370,7 +370,8 @@ public sealed record EvaluateEssayInput(
     OutlineInput? Outline,
     OutlineFeedback? OutlineFeedback,
     IReadOnlyList<ToolkitResponse>? CoachingHistory,
-    Action<string>? OnProgress = null);
+    Action<string>? OnProgress = null,
+    ResolvedAiConfig? Config = null);
 
 public sealed record EvaluateEssayResult(
     EvaluationPayload Payload,

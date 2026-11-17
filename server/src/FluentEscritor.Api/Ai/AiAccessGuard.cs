@@ -1,11 +1,14 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using FluentEscritor.Api.Api;
 using FluentEscritor.Api.Auth;
 using FluentEscritor.Api.Common;
 using FluentEscritor.Api.Data;
 using FluentEscritor.Api.Data.Models;
 
 namespace FluentEscritor.Api.Ai;
+
+public sealed record AiGuardOutcome(IResult? Blocked, ResolvedAiConfig? Config);
 
 /// <summary>
 /// Enforces per-user AI rate limits, Free-plan verification &amp; daily cap, and monthly quotas.
@@ -23,7 +26,7 @@ public sealed class AiAccessGuard(
 {
     public const int AiRequestsPerMinute = 20;
 
-    public async Task<IResult?> GuardAsync(
+    public async Task<AiGuardOutcome> GuardWithConfigAsync(
         UserAccount account,
         AiRequestKind kind,
         int units = 1,
@@ -32,33 +35,36 @@ public sealed class AiAccessGuard(
         var rate = await rateLimiter.CheckAsync($"ai:{account.Id}", AiRequestsPerMinute, TimeSpan.FromMinutes(1), cancellationToken);
         if (!rate.Allowed)
         {
-            return TooManyRequests(
-                "You are sending AI requests too quickly. Please wait a moment and try again.",
-                "rate_limited",
-                rate.RetryAfterSeconds);
+            return new AiGuardOutcome(
+                TooManyRequests(
+                    "You are sending AI requests too quickly. Please wait a moment and try again.",
+                    "rate_limited",
+                    rate.RetryAfterSeconds),
+                null);
         }
 
         var cfg = await configResolver.ResolveAsync(account, cancellationToken);
         // Own key: the user pays. No key at all: features fall back to local heuristics.
         if (cfg.KeySource != "platform")
         {
-            return null;
+            return new AiGuardOutcome(null, cfg);
         }
 
-        var billingEnabled = IsBillingEnabled();
+        var billingEnabled = Plans.IsBillingEnabled(configuration);
 
         if (cfg.Plan == Plans.Free)
         {
-            var trusted = !environment.IsProduction() || account.EmailVerified || authSettings.IsInvited(account.Email);
-            if (!trusted)
+            if (!UsageService.IsTrustedForFreeUse(account, authSettings, environment))
             {
-                return Results.Json(
-                    new JsonObject
-                    {
-                        ["error"] = "Please verify your email address to use AI feedback on the Free plan, or add your own API key in Settings.",
-                        ["code"] = "verification_required",
-                    },
-                    statusCode: StatusCodes.Status403Forbidden);
+                return new AiGuardOutcome(
+                    Results.Json(
+                        new JsonObject
+                        {
+                            ["error"] = "Please verify your email address to use AI feedback on the Free plan, or add your own API key in Settings.",
+                            ["code"] = "verification_required",
+                        },
+                        statusCode: StatusCodes.Status403Forbidden),
+                    null);
             }
 
             if (GetFreeDailyCap() is { } dailyCap)
@@ -66,10 +72,12 @@ public sealed class AiAccessGuard(
                 var usedToday = await freeDailyCounter.GetTodayAsync(cancellationToken);
                 if (usedToday + units > dailyCap)
                 {
-                    return TooManyRequests(
-                        "Free AI feedback is at capacity for today. Please try again tomorrow, upgrade to Pro, or add your own API key in Settings.",
-                        "free_capacity_reached",
-                        upgradeUrl: billingEnabled ? "/pricing" : null);
+                    return new AiGuardOutcome(
+                        TooManyRequests(
+                            "Free AI feedback is at capacity for today. Please try again tomorrow, upgrade to Pro, or add your own API key in Settings.",
+                            "free_capacity_reached",
+                            upgradeUrl: billingEnabled ? "/pricing" : null),
+                        null);
                 }
             }
         }
@@ -78,20 +86,20 @@ public sealed class AiAccessGuard(
         var limit = kind == AiRequestKind.Evaluation ? limits.EvaluationsPerMonth : limits.AssistsPerMonth;
         if (limit is null)
         {
-            return null;
+            return new AiGuardOutcome(null, cfg);
         }
 
         var now = time.GetUtcNow();
         var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
         var nextMonth = monthStart.AddMonths(1);
         var features = kind == AiRequestKind.Evaluation
-            ? AiCompletionService.EvaluationFeatures
-            : AiCompletionService.AssistFeatures;
+            ? UsageService.EvaluationFeatures
+            : UsageService.AssistFeatures;
 
         var used = await usageRepo.CountAsync(account.Id, monthStart, features, "platform", cancellationToken);
         if (used + units <= limit.Value)
         {
-            return null;
+            return new AiGuardOutcome(null, cfg);
         }
 
         var resetDate = nextMonth.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -107,11 +115,20 @@ public sealed class AiAccessGuard(
             ? $"To keep going now, upgrade to Pro ({(kind == AiRequestKind.Evaluation ? pro.EvaluationsPerMonth : pro.AssistsPerMonth)} {what} a month) on the Pricing page, or add your own API key in Settings."
             : "To keep going now, add your own API key in Settings.";
 
-        return TooManyRequests(
-            $"{detail} Your allowance resets on {resetDate}. {nextStep}",
-            "quota_exceeded",
-            upgradeUrl: canUpgrade ? "/pricing" : null);
+        return new AiGuardOutcome(
+            TooManyRequests(
+                $"{detail} Your allowance resets on {resetDate}. {nextStep}",
+                "quota_exceeded",
+                upgradeUrl: canUpgrade ? "/pricing" : null),
+            null);
     }
+
+    public async Task<IResult?> GuardAsync(
+        UserAccount account,
+        AiRequestKind kind,
+        int units = 1,
+        CancellationToken cancellationToken = default) =>
+        (await GuardWithConfigAsync(account, kind, units, cancellationToken)).Blocked;
 
     private int? GetFreeDailyCap()
     {
@@ -120,10 +137,6 @@ public sealed class AiAccessGuard(
             ? parsed
             : null;
     }
-
-    private bool IsBillingEnabled() =>
-        new[] { "STRIPE_SECRET_KEY", "STRIPE_PRICE_PRO_MONTHLY", "STRIPE_WEBHOOK_SECRET" }
-            .All(name => !string.IsNullOrWhiteSpace(configuration[name]));
 
     private static IResult TooManyRequests(string error, string code, int? retryAfterSeconds = null, string? upgradeUrl = null)
     {

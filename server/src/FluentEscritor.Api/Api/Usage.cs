@@ -76,8 +76,15 @@ public sealed class UsageService(
     TimeProvider time)
 {
     // The usage features that mark one billable unit of each kind.
-    private static readonly string[] EvaluationFeatures = ["rubric_score", "rubric_score_fallback"];
-    private static readonly string[] AssistFeatures = ["outline_check", "toolkit", "prompt_generation", "drill_generate", "drill_score"];
+    public static readonly string[] EvaluationFeatures = ["rubric_score", "rubric_score_fallback"];
+    public static readonly string[] AssistFeatures = ["outline_check", "toolkit", "prompt_generation", "drill_generate", "drill_score"];
+
+    /// <summary>
+    /// Free AI on the platform's keys needs an account tied to a real address: verified
+    /// or invited. Outside production there is no email delivery and no abuse to prevent.
+    /// </summary>
+    public static bool IsTrustedForFreeUse(UserAccount account, AuthSettings auth, IHostEnvironment environment) =>
+        !environment.IsProduction() || account.EmailVerified || auth.IsInvited(account.Email);
 
     public bool HasPlatformKey(string provider) =>
         !string.IsNullOrWhiteSpace(configuration[AiProviders.PlatformKeySetting(provider)]);
@@ -97,9 +104,7 @@ public sealed class UsageService(
         var evaluations = await usage.CountAsync(account.Id, monthStart, EvaluationFeatures, "platform", cancellationToken);
         var assists = await usage.CountAsync(account.Id, monthStart, AssistFeatures, "platform", cancellationToken);
 
-        // Free AI on the platform's keys needs an account tied to a real address: verified
-        // or invited. Outside production there is no email delivery and no abuse to prevent.
-        var trusted = !environment.IsProduction() || account.EmailVerified || auth.IsInvited(account.Email);
+        var trusted = IsTrustedForFreeUse(account, auth, environment);
 
         return new UsageSummary(
             plan,

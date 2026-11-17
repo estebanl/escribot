@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Channels;
 using FluentEscritor.Api.Ai;
 using FluentEscritor.Api.Auth;
 using FluentEscritor.Api.Common;
@@ -102,17 +103,19 @@ internal static class AiEndpoints
                 ScratchNotes: subBody.String("scratchNotes")), prompt));
         }
 
-        if (await accessGuard.GuardAsync(account, AiRequestKind.Evaluation, validated.Count, cancellationToken) is { } blocked)
+        var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Evaluation, validated.Count, cancellationToken);
+        if (guard.Blocked is { } blocked)
         {
             return blocked;
         }
 
+        var resolvedConfig = guard.Config;
         var totalSecondsSpent = body.Number("totalSecondsSpent") is { } tss ? (int?)tss : null;
 
         return new NdjsonEvaluateResult(
             async (sendEvent, ct) =>
             {
-                await sendEvent(new JsonObject
+                sendEvent(new JsonObject
                 {
                     ["type"] = "progress",
                     ["stage"] = "Examiner reviewing prompt & essay...",
@@ -148,13 +151,21 @@ internal static class AiEndpoints
                             var imageForAi = await imageStore.ResolveAsDataUrlAsync(userId, prompt.ImageUrl, ct);
                             if (!string.IsNullOrEmpty(imageForAi))
                             {
-                                await sendEvent(new JsonObject
+                                sendEvent(new JsonObject
                                 {
                                     ["type"] = "progress",
                                     ["stage"] = $"{taskPrefix}Extracting chart data from uploaded image...",
                                 });
-                                visualContext = await examiner.ExtractVisualSpecFromImageAsync(imageForAi, prompt.PromptText, userId, cancellationToken: ct);
-                                await prompts.SaveAsync(userId, prompt with { ExtractedVisualSpec = visualContext }, ct);
+                                var extracted = await examiner.ExtractVisualSpecFromImageAsync(imageForAi, prompt.PromptText, userId, resolvedConfig, ct);
+                                if (!string.IsNullOrEmpty(extracted))
+                                {
+                                    visualContext = extracted;
+                                    await prompts.SaveAsync(userId, prompt with { ExtractedVisualSpec = extracted }, ct);
+                                }
+                                else
+                                {
+                                    visualContext = "Uploaded visual chart/diagram screenshot (verify internal factual consistency against prompt instructions).";
+                                }
                             }
                         }
 
@@ -182,14 +193,15 @@ internal static class AiEndpoints
                                 Outline: sub.Outline,
                                 OutlineFeedback: sub.OutlineFeedback,
                                 CoachingHistory: sub.CoachingHistory,
-                                OnProgress: stage => _ = sendEvent(new JsonObject
+                                OnProgress: stage => sendEvent(new JsonObject
                                 {
                                     ["type"] = "progress",
                                     ["stage"] = $"{taskPrefix}{stage}",
-                                })),
+                                }),
+                                Config: resolvedConfig),
                             ct);
 
-                        await sendEvent(new JsonObject
+                        sendEvent(new JsonObject
                         {
                             ["type"] = "progress",
                             ["stage"] = $"{taskPrefix}Saving band scores & marginalia...",
@@ -319,7 +331,7 @@ internal static class AiEndpoints
                         },
                         ct);
 
-                    await sendEvent(new JsonObject
+                    sendEvent(new JsonObject
                     {
                         ["type"] = "result",
                         ["sessionId"] = sessionId,
@@ -331,7 +343,7 @@ internal static class AiEndpoints
                 {
                     await errorReporter.ReportServerErrorAsync(ex, "/api/ai/evaluate", userId);
                     var isTimeout = ex is TimeoutException || ex.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase);
-                    await sendEvent(new JsonObject
+                    sendEvent(new JsonObject
                     {
                         ["type"] = "error",
                         ["isTimeout"] = isTimeout,
@@ -355,12 +367,12 @@ internal static class AiEndpoints
             });
     }
 
-    private static async Task RunKeepAlivePingsAsync(Func<JsonObject, Task> sendEvent, CancellationToken ct)
+    private static async Task RunKeepAlivePingsAsync(Action<JsonObject> sendEvent, CancellationToken ct)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(4));
         while (await timer.WaitForNextTickAsync(ct))
         {
-            await sendEvent(new JsonObject
+            sendEvent(new JsonObject
             {
                 ["type"] = "ping",
                 ["ts"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -388,7 +400,8 @@ internal static class AiEndpoints
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Outline fields and prompt text are required.");
         }
 
-        if (await accessGuard.GuardAsync(account, AiRequestKind.Assist, 1, cancellationToken) is { } blocked)
+        var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+        if (guard.Blocked is { } blocked)
         {
             return blocked;
         }
@@ -416,14 +429,18 @@ internal static class AiEndpoints
                     var imageForAi = await imageStore.ResolveAsDataUrlAsync(account.Id, prompt.ImageUrl, cancellationToken);
                     if (!string.IsNullOrEmpty(imageForAi))
                     {
-                        visualContext = await examiner.ExtractVisualSpecFromImageAsync(imageForAi, prompt.PromptText, account.Id, cancellationToken: cancellationToken);
-                        await prompts.SaveAsync(account.Id, prompt with { ExtractedVisualSpec = visualContext }, cancellationToken);
+                        var extracted = await examiner.ExtractVisualSpecFromImageAsync(imageForAi, prompt.PromptText, account.Id, guard.Config, cancellationToken);
+                        if (!string.IsNullOrEmpty(extracted))
+                        {
+                            visualContext = extracted;
+                            await prompts.SaveAsync(account.Id, prompt with { ExtractedVisualSpec = extracted }, cancellationToken);
+                        }
                     }
                 }
             }
         }
 
-        var feedback = await examiner.CheckOutlineWithAiAsync(account.Id, taskType, promptText, visualContext, outline, cancellationToken);
+        var feedback = await examiner.CheckOutlineWithAiAsync(account.Id, taskType, promptText, visualContext, outline, guard.Config, cancellationToken);
         return Results.Json(new { feedback }, JsonExtractor.WebOptions);
     }
 
@@ -445,7 +462,8 @@ internal static class AiEndpoints
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Select a phrase, sentence, or paragraph to inspect first.");
         }
 
-        if (await accessGuard.GuardAsync(account, AiRequestKind.Assist, 1, cancellationToken) is { } blocked)
+        var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+        if (guard.Blocked is { } blocked)
         {
             return blocked;
         }
@@ -454,6 +472,7 @@ internal static class AiEndpoints
         var result = await examiner.RunToolkitWithAiAsync(
             account.Id,
             new ToolkitRequest(tool, taskType, promptText, selectedText, body.String("fullEssayContext")),
+            guard.Config,
             cancellationToken);
 
         return Results.Json(new { result }, JsonExtractor.WebOptions);
@@ -475,12 +494,13 @@ internal static class AiEndpoints
         var category = body.Trimmed("category") ?? (taskType == Ielts.Task1 ? "line" : "opinion");
         var topic = body.String("topic");
 
-        if (await accessGuard.GuardAsync(account, AiRequestKind.Assist, 1, cancellationToken) is { } blocked)
+        var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+        if (guard.Blocked is { } blocked)
         {
             return blocked;
         }
 
-        var generated = await examiner.GeneratePromptWithAiAsync(account.Id, taskType, category, topic, cancellationToken);
+        var generated = await examiner.GeneratePromptWithAiAsync(account.Id, taskType, category, topic, guard.Config, cancellationToken);
         var id = $"ai-{Guid.NewGuid().ToString("N")[..8]}";
         var record = new Prompt
         {
@@ -533,7 +553,8 @@ internal static class AiEndpoints
 
         if (action == "generate")
         {
-            if (await accessGuard.GuardAsync(account, AiRequestKind.Assist, 1, cancellationToken) is { } blocked)
+            var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+            if (guard.Blocked is { } blocked)
             {
                 return blocked;
             }
@@ -544,7 +565,7 @@ internal static class AiEndpoints
                 : vaultRows.Select(v => $"{v.OriginalText} -> {v.UpgradedText}").ToList();
 
             var drillType = body.Trimmed("drillType") ?? "cohesion";
-            var challenge = await examiner.GenerateMicroDrillWithAiAsync(account.Id, drillType, level, vaultHighlights, cancellationToken);
+            var challenge = await examiner.GenerateMicroDrillWithAiAsync(account.Id, drillType, level, vaultHighlights, guard.Config, cancellationToken);
 
             var id = $"drill-{Guid.NewGuid().ToString("N")[..9]}";
             var record = new MicroDrill
@@ -572,7 +593,8 @@ internal static class AiEndpoints
                 return ApiResults.Error(StatusCodes.Status400BadRequest, "Write your drill response before checking.");
             }
 
-            if (await accessGuard.GuardAsync(account, AiRequestKind.Assist, 1, cancellationToken) is { } blocked)
+            var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+            if (guard.Blocked is { } blocked)
             {
                 return blocked;
             }
@@ -582,7 +604,7 @@ internal static class AiEndpoints
                 : new MicroDrillChallenge();
 
             var scoreLevel = Ielts.IsDrillLevel(requestedLevel) ? requestedLevel : challenge.Level;
-            var score = await examiner.ScoreMicroDrillWithAiAsync(account.Id, challenge, userResponse, scoreLevel, cancellationToken);
+            var score = await examiner.ScoreMicroDrillWithAiAsync(account.Id, challenge, userResponse, scoreLevel, guard.Config, cancellationToken);
 
             var drillId = body.Trimmed("drillId");
             if (drillId is not null && await drills.GetAsync(account.Id, drillId, cancellationToken) is { } existing)
@@ -617,7 +639,7 @@ internal static class AiEndpoints
         JsonElement? PromptHighlightsJson,
         string? ScratchNotes);
 
-    private sealed class NdjsonEvaluateResult(Func<Func<JsonObject, Task>, CancellationToken, Task> streamBody) : IResult
+    private sealed class NdjsonEvaluateResult(Func<Action<JsonObject>, CancellationToken, Task> streamBody) : IResult
     {
         public async Task ExecuteAsync(HttpContext httpContext)
         {
@@ -627,34 +649,40 @@ internal static class AiEndpoints
             response.Headers.CacheControl = "no-cache, no-transform";
             response.Headers["X-Accel-Buffering"] = "no";
 
-            using var writeLock = new SemaphoreSlim(1, 1);
             var ct = httpContext.RequestAborted;
-
-            async Task SendEventAsync(JsonObject evt)
+            var channel = Channel.CreateUnbounded<JsonObject>(new UnboundedChannelOptions
             {
-                if (ct.IsCancellationRequested)
-                {
-                    return;
-                }
+                SingleReader = true,
+                SingleWriter = false,
+            });
 
-                await writeLock.WaitAsync(ct);
-                try
+            var writerTask = WriteEventsAsync(channel.Reader, response.Body, ct);
+            try
+            {
+                await streamBody(evt => channel.Writer.TryWrite(evt), ct);
+            }
+            finally
+            {
+                channel.Writer.TryComplete();
+                await writerTask;
+            }
+        }
+
+        private static async Task WriteEventsAsync(ChannelReader<JsonObject> reader, Stream body, CancellationToken ct)
+        {
+            try
+            {
+                await foreach (var evt in reader.ReadAllAsync(ct))
                 {
                     var bytes = Encoding.UTF8.GetBytes($"{evt.ToJsonString()}\n");
-                    await response.Body.WriteAsync(bytes, ct);
-                    await response.Body.FlushAsync(ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Client disconnected.
-                }
-                finally
-                {
-                    writeLock.Release();
+                    await body.WriteAsync(bytes, ct);
+                    await body.FlushAsync(ct);
                 }
             }
-
-            await streamBody(SendEventAsync, ct);
+            catch (OperationCanceledException)
+            {
+                // Client disconnected.
+            }
         }
     }
 }
