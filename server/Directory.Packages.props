@@ -4,7 +4,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <!-- Keep in step with the Aspire.AppHost.Sdk version in FluentEscritor.AppHost.csproj. -->
     <AspireVersion>13.6.5</AspireVersion>
-    <OpenTelemetryVersion>1.17.0</OpenTelemetryVersion>
+    <OpenTelemetryVersion>1.21.0</OpenTelemetryVersion>
   </PropertyGroup>
 
   <ItemGroup>
