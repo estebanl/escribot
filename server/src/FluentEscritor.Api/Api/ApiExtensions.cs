@@ -1,3 +1,4 @@
+using FluentEscritor.Api.Ai;
 using FluentEscritor.Api.Common;
 
 namespace FluentEscritor.Api.Api;
@@ -12,7 +13,36 @@ internal static class ApiExtensions
         builder.Services.AddSingleton<UsageService>();
         builder.Services.AddSingleton<ImageStore>();
         builder.Services.AddSingleton<ErrorReporter>();
+
+        // AI provider clients: timeouts are enforced per call by AiCompletionService so
+        // the default 10s resilience attempt timeout does not cut off 35-45s LLM calls.
+        AddAiClient<OpenRouterClient>(builder.Services);
+        AddAiClient<DeepSeekClient>(builder.Services);
+        AddAiClient<OpenAiClient>(builder.Services);
+        AddAiClient<GeminiClient>(builder.Services);
+        AddAiClient<AnthropicClient>(builder.Services);
+
+#pragma warning disable EXTEXP0001
+        builder.Services.AddHttpClient<OpenRouterModelsClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+            .RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+
+        builder.Services.AddSingleton<AiConfigResolver>();
+        builder.Services.AddScoped<AiCompletionService>();
+        builder.Services.AddScoped<AiAccessGuard>();
+        builder.Services.AddScoped<ExaminerService>();
+
         return builder;
+    }
+
+    private static void AddAiClient<TClient>(IServiceCollection services)
+        where TClient : class, IAiProviderClient
+    {
+#pragma warning disable EXTEXP0001
+        services.AddHttpClient<TClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+            .RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+        services.AddTransient<IAiProviderClient>(sp => sp.GetRequiredService<TClient>());
     }
 
     /// <summary>
@@ -25,6 +55,7 @@ internal static class ApiExtensions
         api.MapWritingEndpoints();
         api.MapAccountEndpoints();
         api.MapBackupEndpoints();
+        api.MapAiEndpoints();
         return app;
     }
 }

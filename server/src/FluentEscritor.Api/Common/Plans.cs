@@ -35,6 +35,14 @@ public static class Plans
     /// </summary>
     public static bool HasProAccess(Subscription? subscription) =>
         subscription?.Status is "active" or "trialing" or "past_due";
+
+    /// <summary>
+    /// Paid plans need the Stripe key, the monthly Pro price and the webhook secret.
+    /// Without the webhook, checkout would take payment but never record the subscription.
+    /// </summary>
+    public static bool IsBillingEnabled(IConfiguration configuration) =>
+        new[] { "STRIPE_SECRET_KEY", "STRIPE_PRICE_PRO_MONTHLY", "STRIPE_WEBHOOK_SECRET" }
+            .All(name => !string.IsNullOrWhiteSpace(configuration[name]));
 }
 
 /// <summary>Works out which plan applies to a user right now: owner, paid or complimentary Pro, or Free.</summary>

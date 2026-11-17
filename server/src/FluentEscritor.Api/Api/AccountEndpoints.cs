@@ -88,7 +88,7 @@ internal static class AccountEndpoints
             ["usage"] = JsonSerializer.SerializeToNode(await usage.GetSummaryAsync(account, stored, cancellationToken), JsonSerializerOptions.Web),
             ["billing"] = new JsonObject
             {
-                ["enabled"] = IsBillingEnabled(configuration),
+                ["enabled"] = Plans.IsBillingEnabled(configuration),
                 ["hasSubscription"] = !string.IsNullOrEmpty(subscription?.StripeSubscriptionId),
                 ["status"] = subscription?.Status,
                 ["currentPeriodEnd"] = subscription?.CurrentPeriodEnd is { } end ? Wire.Time(end) : null,
@@ -96,13 +96,6 @@ internal static class AccountEndpoints
             },
         });
     }
-
-    /// <summary>
-    /// Paid plans need the Stripe key, the monthly Pro price and the webhook secret.
-    /// Without the webhook, checkout would take payment but never record the subscription.
-    /// </summary>
-    private static bool IsBillingEnabled(IConfiguration configuration) =>
-        new[] { "STRIPE_SECRET_KEY", "STRIPE_PRICE_PRO_MONTHLY", "STRIPE_WEBHOOK_SECRET" }.All(name => !string.IsNullOrWhiteSpace(configuration[name]));
 
     private static async Task<IResult> SaveSettingsAsync(
         JsonElement json,
