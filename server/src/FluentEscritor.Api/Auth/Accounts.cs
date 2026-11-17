@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using FluentEscritor.Api.Billing;
 using FluentEscritor.Api.Data;
 using FluentEscritor.Api.Data.Models;
 using FluentEscritor.Api.Storage;
@@ -46,17 +47,42 @@ public sealed class NewUserProvisioner(ISettingsRepository settings, IVaultRepos
     }
 }
 
+/// <summary>Stripe could not be reached to cancel the user's billing, so nothing was deleted.</summary>
+public sealed class BillingCancellationException(Exception inner)
+    : Exception("Could not cancel your subscription. Please try again in a minute.", inner);
+
 /// <summary>
-/// Erases everything the app holds about a user: their files first, then every document,
-/// with the lookups and the account document last. A failure part way therefore leaves
-/// an account that can still sign in and delete again, never files or documents without one.
+/// Erases everything the app holds about a user: the Stripe customer first, then their
+/// files, then every document, with the lookups and the account document last. A failure
+/// part way therefore leaves an account that can still sign in and delete again, never
+/// files or documents without one.
 /// </summary>
-public sealed class AccountDeletion(IImageRepository images, IFileStore files, IUserDataRepository userData)
+public sealed class AccountDeletion(
+    ISubscriptionRepository subscriptions,
+    IStripeGateway stripe,
+    IImageRepository images,
+    IFileStore files,
+    IUserDataRepository userData)
 {
+    /// <exception cref="BillingCancellationException">Stripe could not be reached; nothing was deleted.</exception>
     public async Task DeleteAsync(string userId, CancellationToken cancellationToken = default)
     {
-        // Billing is not on this server yet. When it is, the Stripe customer must be
-        // deleted here, before anything else, so a deleted user is never billed again.
+        // Deleting the customer cancels any subscription at once and removes saved cards,
+        // so a deleted user is never billed again. If Stripe cannot be reached the whole
+        // deletion stops rather than leave a live subscription behind. Invoices stay in
+        // Stripe, as accounting requires.
+        if (await subscriptions.GetAsync(userId, cancellationToken) is { } subscription)
+        {
+            try
+            {
+                await stripe.DeleteCustomerAsync(subscription.StripeCustomerId, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new BillingCancellationException(ex);
+            }
+        }
+
         foreach (var image in await images.ListAsync(userId, cancellationToken))
         {
             await files.DeleteAsync(image.BlobName, cancellationToken);

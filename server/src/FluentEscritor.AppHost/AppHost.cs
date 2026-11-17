@@ -44,10 +44,20 @@ var blobs = storage.AddBlobs("blobs");
 // start and emits it for Azure on publish; the API never creates containers itself.
 var files = storage.AddBlobContainer(DataModelSchema.FilesBlobContainer);
 
-builder.AddProject<Projects.FluentEscritor_Api>("api")
+var api = builder.AddProject<Projects.FluentEscritor_Api>("api")
     .WithReference(cosmos).WaitFor(database)
     .WithReference(blobs).WaitFor(files)
     .WithEnvironment("App__EncryptionSecret", encryptionSecret)
     .WithHttpHealthCheck("/health");
+
+// Billing stays off unless these are set, for example in this project's user secrets
+// (`dotnet user-secrets set STRIPE_SECRET_KEY sk_test_...`). They are passed on as they are.
+foreach (var name in new[] { "STRIPE_SECRET_KEY", "STRIPE_PRICE_PRO_MONTHLY", "STRIPE_PRICE_PRO_YEARLY", "STRIPE_WEBHOOK_SECRET" })
+{
+    if (builder.Configuration[name] is { Length: > 0 } value)
+    {
+        api.WithEnvironment(name, value);
+    }
+}
 
 builder.Build().Run();

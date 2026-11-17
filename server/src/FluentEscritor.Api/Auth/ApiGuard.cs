@@ -8,8 +8,8 @@ namespace FluentEscritor.Api.Auth;
 /// The rule for every <c>/api</c> request, applied before routing decides anything:
 /// <list type="bullet">
 /// <item>A session is required, except for sign-in itself, the Stripe webhook (which
-/// proves itself with Stripe's signature) and error reports (sent from signed-out pages
-/// too). A new route is therefore protected without having to remember to say so.</item>
+/// proves itself with Stripe's signature), error reports (sent from signed-out pages
+/// too) and the pricing page's prices. A new route is therefore protected without having to remember to say so.</item>
 /// <item>A request that changes something and comes from a web page must come from this
 /// site's own pages. Together with the SameSite cookie this stops other sites from
 /// acting with a visitor's session.</item>
@@ -19,7 +19,7 @@ internal sealed class ApiGuard(RequestDelegate next, IOptions<AppOptions> option
 {
     private static readonly PathString Api = "/api";
 
-    private static readonly PathString[] PublicPaths = ["/api/auth", "/api/stripe/webhook", "/api/errors"];
+    private static readonly PathString[] PublicPaths = ["/api/auth", "/api/stripe/webhook", "/api/errors", "/api/billing/prices"];
 
     private readonly string? _publicOrigin = options.Value.PublicUrl?.GetLeftPart(UriPartial.Authority);
 

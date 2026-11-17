@@ -202,8 +202,7 @@ the session still exist, so if it fails the user can sign in and delete again:
    last, and then the account document.
 
 Blobs and the Stripe customer are outside this layer. `AccountDeletion` (in `Auth/`) deletes
-the user's image blobs first and then calls this; deleting the Stripe customer is added
-there with billing.
+the Stripe customer first, then the user's image blobs, and then calls this.
 
 ## Concurrency
 

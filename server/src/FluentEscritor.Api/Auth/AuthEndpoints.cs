@@ -330,7 +330,15 @@ internal static partial class AuthEndpoints
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Sign out and sign in again, then delete your account.", "SESSION_NOT_FRESH");
         }
 
-        await users.DeleteAsync(user);
+        try
+        {
+            await users.DeleteAsync(user);
+        }
+        catch (BillingCancellationException ex)
+        {
+            return ApiResults.Error(StatusCodes.Status502BadGateway, ex.Message, "BILLING_UNAVAILABLE");
+        }
+
         sessions.ClearCookie(context);
         return Results.Ok(new { success = true });
     }

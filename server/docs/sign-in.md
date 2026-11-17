@@ -68,12 +68,14 @@ the reset email links straight to the `/reset-password?token=...` page.
   The session carries the roles `owner` and `admin`, and the `Admin` authorization policy
   requires the second.
 - **Deleting an account** needs the password. An account without one (Google only) needs
-  a session started within the last day instead.
+  a session started within the last day instead. The Stripe customer is deleted first;
+  if Stripe cannot be reached nothing is deleted and the answer is 502 with
+  `code: "BILLING_UNAVAILABLE"`.
 - **Rate limits per client address:** sign-in 5 a minute, sign-up 10 an hour, reset request
   3 an hour (the same for sending the verification email again), reset 5 in 10 minutes,
   and 100 a minute over all of `/api/auth`. They are always on, counted by `IRateLimiter`.
 - **Signed-out API calls** get 401 with `{"error":"Unauthorized — please sign in."}`. Public:
-  `/api/auth/...`, `/api/stripe/webhook`, `/api/errors`.
+  `/api/auth/...`, `/api/stripe/webhook`, `/api/errors`, `/api/billing/prices`.
 
 ## What is new or stricter
 
@@ -137,6 +139,4 @@ when clients can reach the app directly.
 
 ## Not done here
 
-- **Stripe:** deleting an account must delete the Stripe customer first. Billing is not on
-  this server yet; the place is marked in `AccountDeletion`.
 - **Changing an email address** is still not supported.
