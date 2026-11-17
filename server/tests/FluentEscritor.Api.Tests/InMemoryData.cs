@@ -12,7 +12,8 @@ namespace FluentEscritor.Api.Tests;
 /// </summary>
 public sealed class InMemoryData(TimeProvider time) :
     IUserAccountRepository, IAuthSessionStore, IOneTimeTokenStore, ISettingsRepository,
-    IVaultRepository, IImageRepository, IRateLimiter, IUserDataRepository, IErrorEventRepository
+    IVaultRepository, IImageRepository, IRateLimiter, IUserDataRepository, IErrorEventRepository,
+    IPromptRepository, IWritingRepository, IDrillRepository, IAiUsageRepository, IFreeAiDailyCounter, ISubscriptionRepository
 {
     private readonly object _gate = new();
 
@@ -27,6 +28,24 @@ public sealed class InMemoryData(TimeProvider time) :
     public Dictionary<string, List<VaultItem>> Vault { get; } = [];
 
     public Dictionary<string, List<ImageMetadata>> Images { get; } = [];
+
+    public List<Prompt> CuratedPrompts { get; } = [];
+
+    public Dictionary<string, List<Prompt>> Prompts { get; } = [];
+
+    public Dictionary<string, List<WritingSession>> SessionsByUser { get; } = [];
+
+    public Dictionary<string, List<Draft>> Drafts { get; } = [];
+
+    public Dictionary<string, List<Evaluation>> Evaluations { get; } = [];
+
+    public Dictionary<string, List<MicroDrill>> Drills { get; } = [];
+
+    public Dictionary<string, List<AiUsageRecord>> AiUsage { get; } = [];
+
+    public Dictionary<string, Subscription> Subscriptions { get; } = [];
+
+    public Dictionary<string, long> FreeAiDailyCounts { get; } = [];
 
     public ConcurrentDictionary<string, int> RateCounts { get; } = new();
 
@@ -316,7 +335,299 @@ public sealed class InMemoryData(TimeProvider time) :
             Settings.Remove(userId);
             Vault.Remove(userId);
             Images.Remove(userId);
+            Prompts.Remove(userId);
+            SessionsByUser.Remove(userId);
+            Drafts.Remove(userId);
+            Evaluations.Remove(userId);
+            Drills.Remove(userId);
+            AiUsage.Remove(userId);
+            Subscriptions.Remove(userId);
             Accounts.Remove(userId);
+        }
+    }
+
+    // ---- Prompts ----
+
+    Task<IReadOnlyList<Prompt>> IPromptRepository.ListVisibleAsync(string userId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var own = Prompts.GetValueOrDefault(userId) ?? [];
+            IReadOnlyList<Prompt> list = [.. own.OrderByDescending(p => p.CreatedAt), .. CuratedPrompts];
+            return Task.FromResult(list);
+        }
+    }
+
+    Task<Prompt?> IPromptRepository.GetVisibleAsync(string userId, string promptId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var own = (Prompts.GetValueOrDefault(userId) ?? []).FirstOrDefault(p => p.Id == promptId);
+            return Task.FromResult(own ?? CuratedPrompts.FirstOrDefault(p => p.Id == promptId));
+        }
+    }
+
+    Task IPromptRepository.SaveAsync(string userId, Prompt prompt, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var list = Prompts.TryGetValue(userId, out var existing) ? existing : Prompts[userId] = [];
+            list.RemoveAll(p => p.Id == prompt.Id);
+            list.Add(prompt with { UserId = userId });
+            return Task.CompletedTask;
+        }
+    }
+
+    Task<bool> IPromptRepository.DeleteAsync(string userId, string promptId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(Prompts.TryGetValue(userId, out var list) && list.RemoveAll(p => p.Id == promptId) > 0);
+        }
+    }
+
+    // ---- Writing ----
+
+    Task<WritingSession?> IWritingRepository.GetOwnedSessionAsync(string userId, string sessionId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult((SessionsByUser.GetValueOrDefault(userId) ?? []).FirstOrDefault(s => s.Id == sessionId));
+        }
+    }
+
+    Task<SessionBundle?> IWritingRepository.GetSessionBundleAsync(string userId, string sessionId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var session = (SessionsByUser.GetValueOrDefault(userId) ?? []).FirstOrDefault(s => s.Id == sessionId);
+            if (session is null)
+            {
+                return Task.FromResult<SessionBundle?>(null);
+            }
+
+            var drafts = (Drafts.GetValueOrDefault(userId) ?? []).Where(d => d.SessionId == sessionId).OrderBy(d => d.CreatedAt).ToList();
+            var evals = (Evaluations.GetValueOrDefault(userId) ?? []).Where(e => e.SessionId == sessionId).OrderBy(e => e.CreatedAt).ToList();
+            return Task.FromResult<SessionBundle?>(new SessionBundle(session, drafts, evals));
+        }
+    }
+
+    Task<IReadOnlyList<WritingSession>> IWritingRepository.ListSessionsAsync(string userId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            IReadOnlyList<WritingSession> list = [.. (SessionsByUser.GetValueOrDefault(userId) ?? []).OrderByDescending(s => s.StartedAt)];
+            return Task.FromResult(list);
+        }
+    }
+
+    Task IWritingRepository.SaveSessionAsync(string userId, WritingSession session, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var list = SessionsByUser.TryGetValue(userId, out var existing) ? existing : SessionsByUser[userId] = [];
+            list.RemoveAll(s => s.Id == session.Id);
+            list.Add(session with { UserId = userId });
+            return Task.CompletedTask;
+        }
+    }
+
+    Task<bool> IWritingRepository.DeleteSessionAsync(string userId, string sessionId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var removed = SessionsByUser.TryGetValue(userId, out var list) && list.RemoveAll(s => s.Id == sessionId) > 0;
+            Drafts.GetValueOrDefault(userId)?.RemoveAll(d => d.SessionId == sessionId);
+            Evaluations.GetValueOrDefault(userId)?.RemoveAll(e => e.SessionId == sessionId);
+            return Task.FromResult(removed);
+        }
+    }
+
+    Task<Draft?> IWritingRepository.GetDraftAsync(string userId, string draftId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult((Drafts.GetValueOrDefault(userId) ?? []).FirstOrDefault(d => d.Id == draftId));
+        }
+    }
+
+    Task<IReadOnlyList<Draft>> IWritingRepository.ListDraftsAsync(string userId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            IReadOnlyList<Draft> list = [.. (Drafts.GetValueOrDefault(userId) ?? []).OrderByDescending(d => d.CreatedAt)];
+            return Task.FromResult(list);
+        }
+    }
+
+    Task IWritingRepository.SaveDraftAsync(string userId, Draft draft, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var list = Drafts.TryGetValue(userId, out var existing) ? existing : Drafts[userId] = [];
+            list.RemoveAll(d => d.Id == draft.Id);
+            list.Add(draft with { UserId = userId });
+            return Task.CompletedTask;
+        }
+    }
+
+    Task<IReadOnlyList<Evaluation>> IWritingRepository.ListEvaluationsAsync(string userId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            IReadOnlyList<Evaluation> list = [.. (Evaluations.GetValueOrDefault(userId) ?? []).OrderByDescending(e => e.CreatedAt)];
+            return Task.FromResult(list);
+        }
+    }
+
+    Task IWritingRepository.SaveEvaluationAsync(string userId, Evaluation evaluation, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var list = Evaluations.TryGetValue(userId, out var existing) ? existing : Evaluations[userId] = [];
+            list.RemoveAll(e => e.Id == evaluation.Id);
+            list.Add(evaluation with { UserId = userId });
+            return Task.CompletedTask;
+        }
+    }
+
+    // ---- Drills ----
+
+    Task<IReadOnlyList<MicroDrill>> IDrillRepository.ListAsync(string userId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            IReadOnlyList<MicroDrill> list = [.. (Drills.GetValueOrDefault(userId) ?? []).OrderByDescending(d => d.CreatedAt)];
+            return Task.FromResult(list);
+        }
+    }
+
+    Task<MicroDrill?> IDrillRepository.GetAsync(string userId, string drillId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult((Drills.GetValueOrDefault(userId) ?? []).FirstOrDefault(d => d.Id == drillId));
+        }
+    }
+
+    Task IDrillRepository.SaveAsync(string userId, MicroDrill drill, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var list = Drills.TryGetValue(userId, out var existing) ? existing : Drills[userId] = [];
+            list.RemoveAll(d => d.Id == drill.Id);
+            list.Add(drill with { UserId = userId });
+            return Task.CompletedTask;
+        }
+    }
+
+    Task<bool> IDrillRepository.DeleteAsync(string userId, string drillId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(Drills.TryGetValue(userId, out var list) && list.RemoveAll(d => d.Id == drillId) > 0);
+        }
+    }
+
+    // ---- AI Usage ----
+
+    Task IAiUsageRepository.RecordAsync(string userId, AiUsageRecord record, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var list = AiUsage.TryGetValue(userId, out var existing) ? existing : AiUsage[userId] = [];
+            list.Add(record with { UserId = userId });
+            return Task.CompletedTask;
+        }
+    }
+
+    Task<int> IAiUsageRepository.CountAsync(string userId, DateTimeOffset since, IReadOnlyCollection<string> features, string? keySource, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var count = (AiUsage.GetValueOrDefault(userId) ?? [])
+                .Count(u => u.CreatedAt >= since && features.Contains(u.Feature) && (keySource is null || u.KeySource == keySource));
+            return Task.FromResult(count);
+        }
+    }
+
+    Task<IReadOnlyList<AiUsageRecord>> IAiUsageRepository.ListSinceAsync(string userId, DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            IReadOnlyList<AiUsageRecord> list = [.. (AiUsage.GetValueOrDefault(userId) ?? []).Where(u => u.CreatedAt >= since).OrderByDescending(u => u.CreatedAt)];
+            return Task.FromResult(list);
+        }
+    }
+
+    // ---- Free AI daily counter ----
+
+    private string TodayCounterKey() => time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+    Task<long> IFreeAiDailyCounter.GetTodayAsync(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(FreeAiDailyCounts.GetValueOrDefault(TodayCounterKey()));
+        }
+    }
+
+    Task<long> IFreeAiDailyCounter.IncrementTodayAsync(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var key = TodayCounterKey();
+            var next = FreeAiDailyCounts.GetValueOrDefault(key) + 1;
+            FreeAiDailyCounts[key] = next;
+            return Task.FromResult(next);
+        }
+    }
+
+    // ---- Subscriptions ----
+
+    Task<Subscription?> ISubscriptionRepository.GetAsync(string userId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(Subscriptions.GetValueOrDefault(userId));
+        }
+    }
+
+    Task<Subscription?> ISubscriptionRepository.FindByStripeCustomerIdAsync(string stripeCustomerId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(Subscriptions.Values.FirstOrDefault(s => s.StripeCustomerId == stripeCustomerId));
+        }
+    }
+
+    Task<Subscription> ISubscriptionRepository.CreateAsync(string userId, string stripeCustomerId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (Subscriptions.TryGetValue(userId, out var existing))
+            {
+                return Task.FromResult(existing);
+            }
+
+            var created = new Subscription { UserId = userId, StripeCustomerId = stripeCustomerId, UpdatedAt = time.GetUtcNow() };
+            Subscriptions[userId] = created;
+            return Task.FromResult(created);
+        }
+    }
+
+    Task<Subscription?> ISubscriptionRepository.UpdateAsync(string userId, Func<Subscription, Subscription> change, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (!Subscriptions.TryGetValue(userId, out var current))
+            {
+                return Task.FromResult<Subscription?>(null);
+            }
+
+            var updated = change(current) with { UserId = userId, UpdatedAt = time.GetUtcNow() };
+            Subscriptions[userId] = updated;
+            return Task.FromResult<Subscription?>(updated);
         }
     }
 }
