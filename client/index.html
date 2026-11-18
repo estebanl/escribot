@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" class="h-full antialiased">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FluentEscritor — Academic IELTS Writing Studio & Exam Simulator</title>
+    <meta
+      name="description"
+      content="Break past the Band 6.5 plateau with guided outlining, L1-aware academic coaching, computer-delivered IELTS exam simulation, and DeepSeek 4-criterion band diagnostics."
+    />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <!-- Inkwell & Vermilion typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,100..900,0..100;1,9..144,100..900,0..100&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@100..900&display=swap"
+    />
+    <script>
+      try {
+        const stored = localStorage.getItem("fe-theme");
+        if (stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+          document.documentElement.classList.add("dark");
+        }
+      } catch (_) {}
+    </script>
+  </head>
+  <body class="min-h-full flex flex-col bg-canvas text-ink selection:bg-accent-soft selection:text-ink">
+    <div id="root" class="contents"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -100,20 +100,32 @@ Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:gener
 
 ## Local development (.NET)
 
-The app is being moved to a .NET 11 server on Azure (see issue #7). The new server lives in `server/` next to the Next.js app, which keeps working until the move is finished. So far it has health endpoints, configuration, the data layer (the Cosmos DB containers and the repositories over them, described in [server/docs/data-model.md](server/docs/data-model.md)) sign-in, described in [server/docs/sign-in.md](server/docs/sign-in.md), and the data endpoints (sessions, prompts, Vault, settings, images, backup and export), described in [server/docs/data-api.md](server/docs/data-api.md). The AI and billing endpoints are not there yet.
+The app is being moved to a .NET 11 server on Azure (see issue #7). The new server lives in `server/` next to the Next.js app, which keeps working until the move is finished. So far it has health endpoints, configuration, the data layer (the Cosmos DB containers and the repositories over them, described in [server/docs/data-model.md](server/docs/data-model.md)) sign-in, described in [server/docs/sign-in.md](server/docs/sign-in.md), and the data endpoints (sessions, prompts, Vault, settings, images, backup and export), described in [server/docs/data-api.md](server/docs/data-api.md). The AI and billing endpoints and the browser app (`client/`) are there too.
 
-**You need:** the [.NET 11 SDK](https://dotnet.microsoft.com/download) and a running container runtime (Docker Desktop or Podman). The Cosmos DB emulator and Azurite run as containers.
+The browser app for the .NET server is in `client/`: the same React components as the Next.js app, built with Vite and React Router. In production the API serves the built files itself; in development the Vite dev server runs it and passes `/api` on to the API.
+
+**You need:** the [.NET 11 SDK](https://dotnet.microsoft.com/download), Node.js 22 or later, and a running container runtime (Docker Desktop or Podman). The Cosmos DB emulator and Azurite run as containers.
 
 ```bash
 cd server
 dotnet run --project src/FluentEscritor.AppHost
 ```
 
-This starts the API, the Linux-based Cosmos DB emulator and Azurite, creates the database, its containers and the blob container in the emulators, and prints a link to the Aspire dashboard, where you can see each resource with its logs, traces and metrics. The first run downloads the emulator images.
+This starts the API, the Linux-based Cosmos DB emulator, Azurite and the Vite dev server (`web`, after an `npm install` in `client/`), creates the database, its containers and the blob container in the emulators, and prints a link to the Aspire dashboard, where you can see each resource with its logs, traces and metrics. Open the app at the `web` resource's address. The first run downloads the emulator images.
+
+The browser app on its own:
+
+```bash
+cd client
+npm install
+npm run dev        # expects the API at http://localhost:5271, or set API_HTTP
+npm run lint && npm run typecheck && npm run build
+```
 
 | Project | Purpose |
 |---|---|
-| `src/FluentEscritor.Api` | ASP.NET Core minimal API |
+| `src/FluentEscritor.Api` | ASP.NET Core minimal API; also serves the browser app from `wwwroot` |
+| `../client` | The browser app: Vite, React, React Router and Tailwind 4 |
 | `src/FluentEscritor.AppHost` | Aspire AppHost: starts the API and the emulators for local development |
 | `src/Shared` | The database and container definitions, compiled into both the AppHost and the API |
 | `src/FluentEscritor.ServiceDefaults` | Shared OpenTelemetry, health checks, service discovery and HTTP resilience |
@@ -133,6 +145,7 @@ No secret has a default value in the code, and none belongs in a file inside the
 |  | `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS` | Optional. Same meaning as in the Next.js app. |
 |  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Both turn on "Continue with Google". |
 |  | `AZURE_COMMUNICATION_CONNECTION_STRING`, `EMAIL_FROM` | Optional. Both turn on email through Azure Communication Services. |
+|  | `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION` | Optional. Shown on the Terms and Privacy pages (public, from `GET /api/config`). |
 
 When you run the AppHost, it generates a random `App:EncryptionSecret` the first time and saves it in [.NET user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets), which are stored in your user profile, outside the repository. To set your own value instead:
 
@@ -169,12 +182,13 @@ dotnet test --filter "Category!=Integration"     # skips the tests that start th
 
 ### Docker image
 
+Build from the repository root, so the image can include the browser app:
+
 ```bash
-cd server
-docker build -t fluentescritor-api .
+docker build -f server/Dockerfile -t fluentescritor-api .
 ```
 
-The image contains the API only: no secrets and no development settings. It listens on port 8080 and answers `/alive` (the process is up) and `/health` (Cosmos DB and Blob Storage are reachable).
+The image contains the API and the built browser app, which the API serves with `index.html` for every page address: no secrets and no development settings. It listens on port 8080 and answers `/alive` (the process is up) and `/health` (Cosmos DB and Blob Storage are reachable).
 
 ## Deploying to Vercel
 

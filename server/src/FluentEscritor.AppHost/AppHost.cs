@@ -50,6 +50,23 @@ var api = builder.AddProject<Projects.FluentEscritor_Api>("api")
     .WithReference(blobs).WaitFor(files)
     .WithHttpHealthCheck("/health");
 
+// The browser app. Locally it runs on the Vite dev server, which reloads on every change
+// and passes /api on to the API (see client/vite.config.ts), so the whole app is at the
+// Vite address. When published it is not a resource of its own: the API image serves the
+// built files (see server/Dockerfile). Tests of the API alone turn it off with
+// BrowserApp:Enabled=false.
+if (!builder.ExecutionContext.IsPublishMode && builder.Configuration["BrowserApp:Enabled"] != "false")
+{
+    var web = builder.AddViteApp("web", "../../../client")
+        .WithNpm(install: true)
+        .WithReference(api)
+        .WaitFor(api)
+        .WithExternalHttpEndpoints();
+
+    // Links in emails and Stripe's return addresses point at the page people actually use.
+    api.WithEnvironment("App__PublicUrl", web.GetEndpoint("http"));
+}
+
 // Secrets reach the API as environment variables either way. Locally they come straight from
 // the parameters, as Key Vault has no emulator. When published to Azure each one is stored in
 // this Key Vault, and the environment variable refers to the vault secret instead of holding

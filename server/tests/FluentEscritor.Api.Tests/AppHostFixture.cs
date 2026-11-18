@@ -36,6 +36,8 @@ public sealed class AppHostFixture : IAsyncLifetime
         var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.FluentEscritor_AppHost>(cancellationToken);
         // Supplied here so the tests neither need nor write the developer's user secrets.
         appHost.Configuration["Parameters:encryption-secret"] = TestSecrets.NewSecret();
+        // These tests call the API directly; the Vite dev server would only need npm install.
+        appHost.Configuration["BrowserApp:Enabled"] = "false";
 
         App = await appHost.BuildAsync(cancellationToken);
         await App.StartAsync(cancellationToken);

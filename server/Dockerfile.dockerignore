@@ -1,0 +1,31 @@
+# Used by `docker build -f server/Dockerfile .` from the repository root. Only the API, the
+# service defaults, the shared definitions and the browser app are needed to build the image.
+*
+!server/global.json
+!server/Directory.Build.props
+!server/Directory.Packages.props
+!server/src/Shared/
+!server/src/FluentEscritor.Api/
+!server/src/FluentEscritor.ServiceDefaults/
+!client/
+
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/*.user
+client/node_modules/
+client/dist/
+server/src/FluentEscritor.Api/wwwroot/
+
+# Never send local settings or secrets to the build.
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+**/secrets.json
+**/.env*
+**/*.pfx
+**/*.pem
+**/*.key
+**/.azure/
+**/.aspire/

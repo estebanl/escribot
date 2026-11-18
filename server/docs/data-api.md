@@ -23,9 +23,12 @@ stored documents in [data-model.md](data-model.md).
 | `POST /api/errors` | Browser error reports; public; 10 a minute per user or address |
 | `POST /api/billing/checkout`, `/portal`, `GET /api/billing/prices`, `POST /api/stripe/webhook` | See [billing.md](billing.md) |
 | `GET /api/admin/overview`, `PATCH /api/admin/users/{id}` | Admins only; 404 for everyone else. See [billing.md](billing.md) |
+| `GET /api/viewer` | The signed-in person with plan, `canUpgrade`, `isAdmin` and `onboarded`, or `{ "user": null }`; public |
+| `GET /api/config` | `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION` for the legal pages; public |
+| `GET /api/pages/studio`, `/write/{id}`, `/analytics`, `/settings`, `/drills` | The data of the browser app's pages, in the shape of the props the Next.js page passed to its component. `/write/{id}` is 404 for a session that is not the user's |
 
-Every route needs a session except `/api/errors`, `/api/billing/prices` and
-`/api/stripe/webhook` (see `ApiGuard`). The admin image migration is not ported: there are
+Every route needs a session except `/api/errors`, `/api/billing/prices`, `/api/viewer`,
+`/api/config` and `/api/stripe/webhook` (see `ApiGuard`). The admin image migration is not ported: there are
 no inline images to move.
 
 ## Same JSON over a different store
@@ -95,3 +98,13 @@ Restoring the same file again adds a second copy, as it did before.
 `Common/Ielts.cs` (band rounding, the weighted exam band, word counts, task minimums) and
 `Common/ChartSpecNormalizer.cs` are ports of `src/lib/ielts-utils.ts` and
 `src/lib/chart-utils.ts`, for the AI endpoints to use. Both have unit tests.
+
+## The browser app
+
+`client/` is built into `wwwroot` (in the Docker image) and served by `Hosting/ClientApp.cs`:
+files as they are (`/assets/*` cached for a year, the rest revalidated), and `index.html` for
+every other address that is not under `/api`. Before sending the page it applies the checks
+the pages make in the browser, so the status is right: signed-out visitors are redirected to
+`/login?next=...` (except on the public pages), and `/admin` for non-admins, another user's
+`/write/{id}` or `/session/{id}`, and unknown addresses answer 404. An unmatched `/api` address
+is a JSON 404, never the page.

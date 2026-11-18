@@ -74,6 +74,27 @@ jobs:
         if: always()
         run: cat server.log || true
 
+  client:
+    # The Vite browser app (client/): lint, type check and production build.
+    runs-on: self-hosted
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
   dotnet:
     # The .NET server (server/). Uses no repository secrets: the one secret the app needs
     # is generated per run. The AppHost test starts the Cosmos DB and Azurite emulators as
@@ -107,7 +128,9 @@ jobs:
           dotnet dev-certs https --trust || [ $? -eq 4 ]
       - run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
       - name: Build Docker image
-        run: docker build --tag fluentescritor-api:ci .
+        # From the repository root: the image also builds and serves client/.
+        working-directory: .
+        run: docker build --file server/Dockerfile --tag fluentescritor-api:ci .
       - name: Image starts only with its secret
         run: |
           # Placeholder connections: creating the clients makes no network call.
@@ -132,7 +155,13 @@ jobs:
             --env App__EncryptionSecret="$(openssl rand -hex 32)" \
             fluentescritor-api:ci
           for i in $(seq 1 30); do
-            curl -sf -o /dev/null http://localhost:8080/alive && exit 0
+            if curl -sf -o /dev/null http://localhost:8080/alive; then
+              # The browser app is in the image: a page address answers with index.html.
+              curl -sf http://localhost:8080/login | grep -q '<div id="root"' && exit 0
+              echo "The image does not serve the browser app."
+              docker logs api
+              exit 1
+            fi
             sleep 1
           done
           docker logs api
