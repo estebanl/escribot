@@ -28,12 +28,12 @@ resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-08-15' = {
   }
 }
 
-resource fluentescritor 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-08-15' = {
-  name: 'fluentescritor'
+resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-08-15' = {
+  name: 'escribot'
   location: location
   properties: {
     resource: {
-      id: 'fluentescritor'
+      id: 'escribot'
     }
   }
   parent: cosmos
@@ -53,7 +53,7 @@ resource users 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@20
       }
     }
   }
-  parent: fluentescritor
+  parent: database
 }
 
 resource shared 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-08-15' = {
@@ -70,7 +70,7 @@ resource shared 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2
       }
     }
   }
-  parent: fluentescritor
+  parent: database
 }
 
 resource lookups 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-08-15' = {
@@ -88,7 +88,7 @@ resource lookups 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@
       defaultTtl: -1
     }
   }
-  parent: fluentescritor
+  parent: database
 }
 
 resource counters 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-08-15' = {
@@ -106,7 +106,7 @@ resource counters 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers
       defaultTtl: -1
     }
   }
-  parent: fluentescritor
+  parent: database
 }
 
 resource errors 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-08-15' = {
@@ -124,7 +124,7 @@ resource errors 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2
       defaultTtl: 2592000
     }
   }
-  parent: fluentescritor
+  parent: database
 }
 
 output connectionString string = cosmos.properties.documentEndpoint

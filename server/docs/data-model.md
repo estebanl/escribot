@@ -5,7 +5,7 @@ repository layer the rest of the server uses.
 
 ## Summary
 
-- One database, `fluentescritor`, with five containers.
+- One database, `escribot`, with five containers.
 - Everything a user owns is in **one logical partition** of the `users` container, keyed by
   user id. Every request for a user's data is a single-partition operation, and tenant
   isolation is the partition boundary rather than a `WHERE user_id = ?` each query must remember.

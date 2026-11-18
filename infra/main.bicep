@@ -192,7 +192,7 @@ module api 'api/api-containerapp.bicep' = {
 }
 
 resource monthlyBudget 'Microsoft.Consumption/budgets@2023-05-01' = if (!empty(budgetAlertEmail)) {
-  name: 'fluentescritor-monthly-budget'
+  name: 'escribot-monthly-budget'
   properties: {
     category: 'Cost'
     amount: budgetAmount

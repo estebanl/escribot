@@ -7,7 +7,7 @@ namespace FluentEscritor.DataModel;
 /// </summary>
 internal static class DataModelSchema
 {
-    public const string DatabaseName = "fluentescritor";
+    public const string DatabaseName = "escribot";
 
     public static readonly ContainerDefinition Users = new("users", "/userId", DefaultTimeToLiveSeconds: null);
 
