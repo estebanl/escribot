@@ -14,6 +14,11 @@ resource aca_law 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
   location: location
   properties: {
     retentionInDays: 30
+    // About 4.5 GB a month at most, inside the 5 GB free allowance even if a flood of
+    // requests floods the logs too. Ingestion stops for the rest of the UTC day at the cap.
+    workspaceCapping: {
+      dailyQuotaGb: json('0.15')
+    }
     sku: {
       name: 'PerGB2018'
     }
