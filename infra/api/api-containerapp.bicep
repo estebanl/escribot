@@ -255,7 +255,8 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
       ]
       scale: {
         minReplicas: 0
-        maxReplicas: 3
+        // One replica caps what a flood of requests can cost in compute and database calls.
+        maxReplicas: 1
         cooldownPeriod: 300
       }
     }
