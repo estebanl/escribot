@@ -94,7 +94,7 @@ jobs:
           EMAIL_DOMAIN: ${{ vars.EMAIL_DOMAIN }}
           PUBLIC_URL: ${{ vars.APP_PUBLIC_URL }}
           ACS_DATA_LOCATION: ${{ vars.ACS_DATA_LOCATION || 'United States' }}
-          BUDGET_ALERT_EMAIL: ${{ vars.BUDGET_ALERT_EMAIL }}
+          BUDGET_ALERT_EMAIL: ${{ secrets.BUDGET_ALERT_EMAIL }}
           BUDGET_AMOUNT: ${{ secrets.BUDGET_AMOUNT }}
           ENCRYPTION_SECRET: ${{ secrets.APP_ENCRYPTION_SECRET }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
