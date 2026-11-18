@@ -176,7 +176,7 @@ jobs:
             }' > "$params_file"
 
           az deployment sub create \
-            --name "fluentescritor-${GITHUB_RUN_NUMBER}" \
+            --name "escribot-${GITHUB_RUN_NUMBER}" \
             --location "$LOCATION" \
             --template-file infra/main.bicep \
             --parameters "@${params_file}" \
