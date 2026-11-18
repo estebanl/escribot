@@ -1,6 +1,6 @@
 namespace FluentEscritor.Api.Common;
 
-/// <summary>IELTS arithmetic shared by the API. Ported from <c>src/lib/ielts-utils.ts</c>.</summary>
+/// <summary>IELTS arithmetic shared by the API.</summary>
 public static class Ielts
 {
     public const string Task1 = "task1";

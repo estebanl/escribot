@@ -12,7 +12,6 @@ public sealed record AiGuardOutcome(IResult? Blocked, ResolvedAiConfig? Config);
 
 /// <summary>
 /// Enforces per-user AI rate limits, Free-plan verification &amp; daily cap, and monthly quotas.
-/// Ported from <c>guardAiRequest</c> in <c>src/lib/ai/access.ts</c>.
 /// </summary>
 public sealed class AiAccessGuard(
     IRateLimiter rateLimiter,

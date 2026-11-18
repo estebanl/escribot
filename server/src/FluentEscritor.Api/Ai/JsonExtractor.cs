@@ -6,7 +6,6 @@ namespace FluentEscritor.Api.Ai;
 
 /// <summary>
 /// Tolerant JSON extraction from LLM responses that may wrap JSON in markdown fences or prose.
-/// Ported from <c>extractJsonObject</c> in <c>src/lib/ielts-utils.ts</c>.
 /// </summary>
 public static partial class JsonExtractor
 {

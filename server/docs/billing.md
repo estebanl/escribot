@@ -1,8 +1,6 @@
 # Billing and admin
 
-Stripe Checkout, the customer portal, the Stripe webhook and the admin endpoints, ported
-from `src/lib/billing/`, `src/app/api/billing/`, `src/app/api/stripe/webhook/`,
-`src/app/api/admin/users/[id]/` and the queries of `src/app/admin/page.tsx`. The code is in
+Stripe Checkout, the customer portal, the Stripe webhook and the admin endpoints. The code is in
 `FluentEscritor.Api/Billing` and `FluentEscritor.Api/Api/{Billing,Admin}Endpoints.cs`.
 
 ## Configuration

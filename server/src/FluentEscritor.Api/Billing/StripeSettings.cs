@@ -3,7 +3,6 @@ namespace FluentEscritor.Api.Billing;
 /// <summary>
 /// Stripe configuration, read once at startup from <c>STRIPE_SECRET_KEY</c>,
 /// <c>STRIPE_PRICE_PRO_MONTHLY</c>, <c>STRIPE_PRICE_PRO_YEARLY</c> and <c>STRIPE_WEBHOOK_SECRET</c>.
-/// Ported from <c>src/lib/billing/stripe.ts</c>.
 /// </summary>
 public sealed class StripeSettings
 {

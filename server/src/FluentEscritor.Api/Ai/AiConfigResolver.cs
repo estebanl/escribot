@@ -8,7 +8,6 @@ namespace FluentEscritor.Api.Ai;
 
 /// <summary>
 /// Resolves which AI provider, models, key and plan apply to a user.
-/// Ported from <c>resolveUserAndAIConfig</c> in <c>src/lib/ai/providers.ts</c>.
 /// </summary>
 public sealed class AiConfigResolver(
     ISettingsRepository settingsRepo,

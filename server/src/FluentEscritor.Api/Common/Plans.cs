@@ -12,7 +12,6 @@ public sealed record PlanLimits(string Label, int? EvaluationsPerMonth, int? Ass
 
 /// <summary>
 /// Plans decide how much of the platform's AI budget and storage an account may use.
-/// Ported from <c>src/lib/plans.ts</c>.
 /// </summary>
 public static class Plans
 {

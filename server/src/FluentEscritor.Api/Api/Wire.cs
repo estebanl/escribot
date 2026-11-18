@@ -6,8 +6,8 @@ using FluentEscritor.Api.Data.Models;
 namespace FluentEscritor.Api.Api;
 
 /// <summary>
-/// The JSON the browser receives, which is the shape the Next.js routes returned: one
-/// object per database row, with nested values (chart specs, outlines, feedback) as JSON
+/// The JSON the browser receives: one
+/// object per stored record, with nested values (chart specs, outlines, feedback) as JSON
 /// text in fields ending in <c>Json</c>. The stored documents hold those values as real
 /// JSON; this is where the two meet.
 /// </summary>
@@ -149,7 +149,7 @@ internal static class Wire
 }
 
 /// <summary>
-/// Reads a request body the forgiving way the Next.js routes did: a field of the wrong
+/// Reads a request body the forgiving way: a field of the wrong
 /// type counts as missing, and each route then decides what it requires.
 /// </summary>
 internal readonly struct Body(JsonElement root)

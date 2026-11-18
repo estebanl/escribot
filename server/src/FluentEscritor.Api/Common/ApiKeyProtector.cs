@@ -8,7 +8,7 @@ namespace FluentEscritor.Api.Common;
 /// <summary>
 /// Encrypts the provider API keys users save in Settings with AES-256-GCM. The key is
 /// the SHA-256 of <c>App:EncryptionSecret</c> and the stored form is
-/// <c>iv:tag:ciphertext</c>, each part Base64, as in <c>src/lib/crypto.ts</c>.
+/// <c>iv:tag:ciphertext</c>, each part Base64.
 /// </summary>
 public sealed class ApiKeyProtector(IOptions<AppOptions> options)
 {

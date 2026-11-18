@@ -16,7 +16,7 @@ export function PrivacyPage() {
   );
 
   return (
-    <LegalPage title="Privacy Policy" updated="November 14, 2026">
+    <LegalPage title="Privacy Policy" updated="November 18, 2026">
       <p>
         FluentEscritor is operated by {site.operator} (“we”). This policy explains what we
         collect when you use FluentEscritor, why, who we share it with, and the choices you have.
@@ -84,7 +84,7 @@ export function PrivacyPage() {
           <strong>Payments</strong> (Stripe): handles checkout, subscriptions and invoices.
         </li>
         <li>
-          <strong>Email</strong> (Resend): sends verification and password-reset emails.
+          <strong>Email</strong> (Azure Communication Services): sends verification and password-reset emails.
         </li>
         <li>
           <strong>Google</strong>: only if you choose “Continue with Google”.

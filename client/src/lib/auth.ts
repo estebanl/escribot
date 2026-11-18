@@ -1,6 +1,6 @@
 /**
  * Calls to the .NET server's sign-in endpoints (/api/auth/...). Every call resolves to
- * `{ data }` or `{ error }`, as the Better Auth client did, and never throws for an
+ * `{ data }` or `{ error }` and never throws for an
  * error answer; a network failure still rejects.
  */
 

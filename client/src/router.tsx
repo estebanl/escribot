@@ -36,7 +36,7 @@ function RootLayout() {
 
   return (
     <>
-      {/* A new address is a new page, as it was with Next.js: components start from its data. */}
+      {/* A new address is a new page: components start from its data. */}
       <Outlet key={pathname} />
       <ScrollRestoration />
     </>

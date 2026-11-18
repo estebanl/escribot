@@ -3,8 +3,9 @@
  * Tenant-isolation test: proves one account cannot read or change another
  * account's data through any route, and that signed-out requests are refused.
  *
- * Runs against a live server (dev or production build):
- *   BASE_URL=http://localhost:3000 npm run test:isolation
+ * Runs against a live deployment or a local API (Node.js 22+, no dependencies):
+ *   BASE_URL=https://<your-domain> node scripts/test-isolation.mjs
+ * CI runs it against the Docker image through ImageIsolationTests in server/tests.
  *
  * It creates two throwaway accounts, writes data as user A, attacks it as
  * user B, then deletes user B and checks user A is untouched. No AI keys are

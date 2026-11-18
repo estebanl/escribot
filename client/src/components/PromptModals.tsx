@@ -37,7 +37,7 @@ const TASK2_CATEGORIES: Array<{ value: PromptCategory; label: string }> = [
 
 /**
  * Compresses an uploaded/pasted chart image client-side into a crisp WebP data URL
- * (~60–140 KB) suitable for serverless Turso DB storage on Vercel.
+ * (~60–140 KB), small enough to upload and store cheaply.
  */
 async function compressImageFileToWebP(
   file: File,

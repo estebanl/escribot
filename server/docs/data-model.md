@@ -1,8 +1,7 @@
 # Data model
 
 How FluentEscritor stores its data in Azure Cosmos DB (NoSQL API, serverless), and the
-repository layer the rest of the server uses. It replaces the 16 relational tables in
-`src/lib/db/schema.ts`. This is a redesign for a document database, not a table-by-table port.
+repository layer the rest of the server uses.
 
 ## Summary
 
@@ -96,8 +95,7 @@ Curated prompts (rows with a null `user_id` today) live in one partition, `pk = 
 with the prompt id as the document id. A user's visible prompts are this partition plus the
 `prompt` documents in their own partition: two single-partition queries.
 
-The list ships with the app as `Data/Seed/curated-prompts.json`, exported from
-`src/lib/db/seed-prompts.ts`. It holds the 14 original prompts only; the entries transcribed
+The list ships with the app as `Data/Seed/curated-prompts.json`. It holds the 14 original prompts only; the entries transcribed
 from a published exam book are not in it, and a test fails if one returns.
 
 On startup the API makes the stored list equal to the shipped one: it adds new prompts,
@@ -149,8 +147,7 @@ A counter is one document per key **and time window**: `id = rate:sha256(key):wi
 The window start is part of the id, so a new window is a new document that starts at one.
 Counting a request is a single server-side patch (`increment /count by 1`); if the document
 does not exist yet it is created, and if two requests race to create it the loser patches
-instead. Two concurrent requests can never read the same count, which is the property the
-SQL upsert in `src/lib/rate-limit.ts` provided. Finished windows expire by `ttl`.
+instead. Two concurrent requests can never read the same count. Finished windows expire by `ttl`.
 
 The global daily cap on Free AI usage is the same mechanism with `id = free-ai:yyyy-MM-dd`.
 It replaces a count over every user's usage rows, which here would be a cross-partition query
@@ -160,8 +157,8 @@ Rate-limit keys are hashed because they can contain IP addresses, which are not 
 
 ## `errors`: error events
 
-Partitioned by UTC day, with a container-level time-to-live of 30 days. This replaces the
-occasional manual cleanup of `error_events`.
+Partitioned by UTC day, with a container-level time-to-live of 30 days, so old events
+need no cleanup.
 
 Before an event is stored it is shortened (message 1,000 characters, stack 4,000) and
 anything shaped like a credential is replaced with `[redacted]`: bearer tokens, API keys,
@@ -221,29 +218,25 @@ the Stripe customer first, then the user's image blobs, and then calls this.
 
 Defined in `FluentEscritor.Api/Data/Repositories.cs`.
 
-| Interface | Purpose | Equivalent today |
-|---|---|---|
-| `IUserAccountRepository` | Accounts, unique by email | Better Auth `user`, `account` |
-| `IAuthSessionStore` | Session token → user | Better Auth `session` |
-| `IOneTimeTokenStore` | Emailed verification and reset tokens | Better Auth `verification` |
-| `ISettingsRepository` | `GetOrCreateAsync`, `UpdateAsync` | `getOrCreateSettings` |
-| `ISubscriptionRepository` | Billing state, lookup by Stripe customer | `src/lib/billing/subscription.ts` |
-| `IPromptRepository` | `ListVisibleAsync`, `GetVisibleAsync`, own prompts | `visiblePrompts`, `getVisiblePrompt` |
-| `IWritingRepository` | Sessions, drafts, evaluations | `getOwnedSession` and the session routes |
-| `IVaultRepository`, `IDrillRepository`, `IImageRepository` | Vault items, drills, image metadata | |
-| `IAiUsageRepository` | Usage records and the quota count | `src/lib/ai/access.ts` |
-| `IRateLimiter` | Fixed-window rate limit | `checkRateLimit` |
-| `IFreeAiDailyCounter` | Daily Free AI cap | Count in `src/lib/ai/access.ts` |
-| `IErrorEventRepository` | Error events | `src/lib/errors.ts` |
-| `IUserDataRepository` | Export, restore and delete everything for a user | `src/lib/account.ts`, the export route |
-| `IAdminRepository` | Platform-wide figures | Queries in `src/app/admin/page.tsx` |
-| `ICuratedPromptStore` | Used only by the startup seeding | `migrateAndSeed` in `src/lib/db/index.ts` |
+| Interface | Purpose |
+|---|---|
+| `IUserAccountRepository` | Accounts, unique by email |
+| `IAuthSessionStore` | Session token → user |
+| `IOneTimeTokenStore` | Emailed verification and reset tokens |
+| `ISettingsRepository` | `GetOrCreateAsync`, `UpdateAsync` |
+| `ISubscriptionRepository` | Billing state, lookup by Stripe customer |
+| `IPromptRepository` | `ListVisibleAsync`, `GetVisibleAsync`, own prompts |
+| `IWritingRepository` | Sessions, drafts, evaluations |
+| `IVaultRepository`, `IDrillRepository`, `IImageRepository` | Vault items, drills, image metadata |
+| `IAiUsageRepository` | Usage records and the quota count |
+| `IRateLimiter` | Fixed-window rate limit |
+| `IFreeAiDailyCounter` | Daily Free AI cap |
+| `IErrorEventRepository` | Error events |
+| `IUserDataRepository` | Export, restore and delete everything for a user |
+| `IAdminRepository` | Platform-wide figures |
+| `ICuratedPromptStore` | Used only by the startup seeding |
 
-## Not carried over
-
-- `rate_limit` (Better Auth's own counters): replaced by `IRateLimiter`.
-- The legacy single-user data claim and `LEGACY_USER_ID`: there is no live data.
-- Inline image bytes in the database (`data_base64`): images are always in Blob Storage.
+Image bytes are never stored in the database: they are always in Blob Storage.
 
 ## Open points for review
 

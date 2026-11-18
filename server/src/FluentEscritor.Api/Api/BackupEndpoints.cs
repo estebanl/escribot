@@ -144,7 +144,7 @@ internal static class BackupEndpoints
 
 /// <summary>
 /// A backup file after validation. The file is untrusted input: every row is checked
-/// field by field as the zod schemas of the Next.js route did, and anything not named
+/// field by field, and anything not named
 /// here, a <c>userId</c> included, is ignored.
 /// </summary>
 internal sealed record BackupFile(

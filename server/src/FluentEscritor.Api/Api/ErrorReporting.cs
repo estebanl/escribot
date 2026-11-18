@@ -83,7 +83,7 @@ internal sealed class ApiErrorHandler(RequestDelegate next, ErrorReporter report
 
 internal static class ErrorReportingExtensions
 {
-    /// <summary>The message this route answers with a 500, as the Next.js route did.</summary>
+    /// <summary>The message this route answers with a 500.</summary>
     public static TBuilder OnFailure<TBuilder>(this TBuilder builder, string message)
         where TBuilder : IEndpointConventionBuilder => builder.WithMetadata(new FailureMessage(message));
 }

@@ -203,7 +203,7 @@ export function StudioHomeClient({
               <span className="font-mono uppercase">
                 {settingsSummary.activeProvider}
               </span>{" "}
-              API key in Settings (or Vercel env vars) to activate live{" "}
+              API key in Settings to activate live{" "}
               <code className="font-mono">deepseek-v4-pro</code> rubric grading, Band 8+
               rewrites, and <code className="font-mono">deepseek-flash</code> chart vision.
             </div>

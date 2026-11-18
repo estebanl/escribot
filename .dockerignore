@@ -7,7 +7,6 @@
 client/dist/
 server/src/FluentEscritor.Api/wwwroot/
 .git/
-.next/
 
 # Never send local settings or secrets to the build.
 **/appsettings.Development.json

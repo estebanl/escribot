@@ -24,7 +24,7 @@ public sealed record DeleteAccountRequest(string? Password);
 public sealed record UserResponse(string Id, string Name, string Email, bool EmailVerified, string? Image, bool HasPassword, bool IsOwner, bool IsAdmin);
 
 /// <summary>
-/// The sign-in endpoints, on the paths the Next.js app used: <c>/api/auth/...</c>.
+/// The sign-in endpoints, under <c>/api/auth/...</c>.
 /// Errors are <c>{ "error": "...", "code": "..." }</c>.
 /// </summary>
 internal static partial class AuthEndpoints

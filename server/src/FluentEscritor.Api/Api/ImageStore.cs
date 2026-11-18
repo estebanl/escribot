@@ -15,7 +15,6 @@ public sealed class ImageUploadException(string message, int statusCode = Status
 /// <summary>
 /// Uploaded images (Task 1 chart screenshots). The bytes are in Blob Storage, the
 /// description in the user's partition, and an image is only ever read for its owner.
-/// Ported from <c>src/lib/storage.ts</c>.
 /// </summary>
 public sealed partial class ImageStore(IImageRepository images, IFileStore files, TimeProvider time, ILogger<ImageStore> logger)
 {
