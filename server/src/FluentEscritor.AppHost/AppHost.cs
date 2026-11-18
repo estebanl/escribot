@@ -1,4 +1,5 @@
 using Azure.Provisioning.CosmosDB;
+using Azure.Provisioning.KeyVault;
 using FluentEscritor.DataModel;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -47,12 +48,51 @@ var files = storage.AddBlobContainer(DataModelSchema.FilesBlobContainer);
 var api = builder.AddProject<Projects.FluentEscritor_Api>("api")
     .WithReference(cosmos).WaitFor(database)
     .WithReference(blobs).WaitFor(files)
-    .WithEnvironment("App__EncryptionSecret", encryptionSecret)
     .WithHttpHealthCheck("/health");
 
+// Secrets reach the API as environment variables either way. Locally they come straight from
+// the parameters, as Key Vault has no emulator. When published to Azure each one is stored in
+// this Key Vault, and the environment variable refers to the vault secret instead of holding
+// the value, so the value never appears in the deployment templates. The API reads them with
+// its managed identity, which may only read secrets.
+var vault = builder.ExecutionContext.IsPublishMode ? builder.AddAzureKeyVault("vault") : null;
+if (vault is not null)
+{
+    // The API runs in Azure Container Apps, which resolves the Key Vault references and
+    // gives the app the managed identity the role below is assigned to.
+    builder.AddAzureContainerAppEnvironment("aca");
+    api.WithRoleAssignments(vault, KeyVaultBuiltInRole.KeyVaultSecretsUser);
+}
+
+void WithSecret(string variable, IResourceBuilder<ParameterResource> parameter)
+{
+    if (vault is null)
+    {
+        api.WithEnvironment(variable, parameter);
+        return;
+    }
+
+    // The secret keeps the parameter's name in the vault, which is already a valid Key Vault
+    // secret name (letters, digits and dashes). Its Aspire resource needs a name of its own.
+    var secretName = parameter.Resource.Name;
+    vault.AddSecret($"{vault.Resource.Name}-{secretName}", secretName, parameter);
+    api.WithEnvironment(variable, vault.GetSecret(secretName));
+}
+
+WithSecret("App__EncryptionSecret", encryptionSecret);
+
 // Billing stays off unless these are set, for example in this project's user secrets
-// (`dotnet user-secrets set STRIPE_SECRET_KEY sk_test_...`). They are passed on as they are.
-foreach (var name in new[] { "STRIPE_SECRET_KEY", "STRIPE_PRICE_PRO_MONTHLY", "STRIPE_PRICE_PRO_YEARLY", "STRIPE_WEBHOOK_SECRET" })
+// (`dotnet user-secrets set STRIPE_SECRET_KEY sk_test_...`). The secrets go through
+// WithSecret; the price ids are not secret and are passed on as they are.
+foreach (var (name, parameterName) in new[] { ("STRIPE_SECRET_KEY", "stripe-secret-key"), ("STRIPE_WEBHOOK_SECRET", "stripe-webhook-secret") })
+{
+    if (builder.Configuration[name] is { Length: > 0 })
+    {
+        WithSecret(name, builder.AddParameterFromConfiguration(parameterName, name, secret: true));
+    }
+}
+
+foreach (var name in new[] { "STRIPE_PRICE_PRO_MONTHLY", "STRIPE_PRICE_PRO_YEARLY" })
 {
     if (builder.Configuration[name] is { Length: > 0 } value)
     {
