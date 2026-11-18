@@ -89,7 +89,7 @@ internal static class ClientApp
         }
         else if (session is null)
         {
-            context.Response.Redirect($"/login?next={Uri.EscapeDataString(path)}");
+            context.Response.Redirect($"/login?next={Uri.EscapeDataString($"{path}{request.QueryString}")}");
             return;
         }
         else if (path == "/admin")

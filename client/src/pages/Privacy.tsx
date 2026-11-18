@@ -77,7 +77,7 @@ export function PrivacyPage() {
           your own API key, your agreement with that provider applies instead.
         </li>
         <li>
-          <strong>Hosting and storage</strong> (Vercel, Turso): run the application and store
+          <strong>Hosting and storage</strong> (Microsoft Azure): run the application and store
           your account, content and uploaded images.
         </li>
         <li>

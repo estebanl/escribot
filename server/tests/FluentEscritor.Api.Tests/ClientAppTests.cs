@@ -65,7 +65,7 @@ public sealed class ClientAppTests : IDisposable
 
     [Theory]
     [InlineData("/vault", "/login?next=%2Fvault")]
-    [InlineData("/settings?billing=success", "/login?next=%2Fsettings")]
+    [InlineData("/settings?billing=success", "/login?next=%2Fsettings%3Fbilling%3Dsuccess")]
     [InlineData("/write/sess-123", "/login?next=%2Fwrite%2Fsess-123")]
     [InlineData("/admin", "/login?next=%2Fadmin")]
     [InlineData("/no-such-page", "/login?next=%2Fno-such-page")]

@@ -1,9 +1,14 @@
 import { data, redirect } from "react-router";
 import type { PlanId } from "@/lib/plans";
 
-/** The sign-in page, returning to `pathname` afterwards (as the Next.js proxy did). */
-export function loginUrl(pathname: string) {
-  return pathname === "/" ? "/login" : `/login?next=${encodeURIComponent(pathname)}`;
+/** The sign-in page, returning to `target` (path + query) afterwards. */
+export function loginUrl(target: string) {
+  return target === "/" ? "/login" : `/login?next=${encodeURIComponent(target)}`;
+}
+
+function requestTarget(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
 }
 
 /**
@@ -13,7 +18,7 @@ export function loginUrl(pathname: string) {
 export async function loadJson<T>(path: string, request: Request): Promise<T> {
   const res = await fetch(path, { signal: request.signal, headers: { Accept: "application/json" } });
   if (res.status === 401) {
-    throw redirect(loginUrl(new URL(request.url).pathname));
+    throw redirect(loginUrl(requestTarget(request)));
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -52,7 +57,7 @@ export async function requireUser(
   { allowNotOnboarded = false }: { allowNotOnboarded?: boolean } = {}
 ): Promise<Viewer> {
   const user = await getViewer(request);
-  if (!user) throw redirect(loginUrl(new URL(request.url).pathname));
+  if (!user) throw redirect(loginUrl(requestTarget(request)));
   if (!user.onboarded && !allowNotOnboarded) throw redirect("/welcome");
   return user;
 }
