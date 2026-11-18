@@ -73,6 +73,17 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Refuse to deploy while the budget kill switch has stopped the app
+        env:
+          RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          set -euo pipefail
+          status=$(az containerapp show -g "$RESOURCE_GROUP_NAME" -n api --query properties.runningStatus -o tsv 2>/dev/null || true)
+          if [ "$status" = "Stopped" ]; then
+            echo "::error::The Container App is stopped (the monthly budget kill switch may have fired). Start it with 'az containerapp start -g <resource group> -n api', then re-run this workflow."
+            exit 1
+          fi
+
       - name: Deploy infrastructure and roll out image
         env:
           RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP }}
@@ -84,7 +95,7 @@ jobs:
           PUBLIC_URL: ${{ vars.APP_PUBLIC_URL }}
           ACS_DATA_LOCATION: ${{ vars.ACS_DATA_LOCATION || 'United States' }}
           BUDGET_ALERT_EMAIL: ${{ vars.BUDGET_ALERT_EMAIL }}
-          BUDGET_AMOUNT: ${{ vars.BUDGET_AMOUNT || '5' }}
+          BUDGET_AMOUNT: ${{ secrets.BUDGET_AMOUNT }}
           ENCRYPTION_SECRET: ${{ secrets.APP_ENCRYPTION_SECRET }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
@@ -107,6 +118,10 @@ jobs:
           SITE_JURISDICTION: ${{ vars.SITE_JURISDICTION }}
         run: |
           set -euo pipefail
+          if ! [[ "$BUDGET_AMOUNT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Set the BUDGET_AMOUNT secret in the production environment to a whole number (the monthly budget)."
+            exit 1
+          fi
           params_file="$RUNNER_TEMP/deploy-params.json"
           trap 'rm -f "$params_file"' EXIT
 

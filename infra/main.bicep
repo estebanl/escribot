@@ -14,8 +14,12 @@ param acsDataLocation string = 'United States'
 var effectiveEmailDomain = !empty(emailDomain) ? emailDomain : customDomain
 
 param budgetAlertEmail string = ''
-param budgetAmount int = 5
+@description('Monthly budget in the billing currency. Kept out of the repository: the deploy workflow passes it from the BUDGET_AMOUNT secret.')
+@minValue(1)
+param budgetAmount int
 param budgetStartDate string = '2026-11-01'
+@description('Stop the Container App when actual spend in the resource group reaches the budget.')
+param enableBudgetKillSwitch bool = true
 
 @secure()
 param encryption_secret string
@@ -195,7 +199,38 @@ module api 'api/api-containerapp.bicep' = {
   }
 }
 
-resource monthlyBudget 'Microsoft.Consumption/budgets@2023-05-01' = if (!empty(budgetAlertEmail)) {
+module budget_killswitch 'budget-killswitch/budget-killswitch.bicep' = if (enableBudgetKillSwitch) {
+  name: 'budget-killswitch'
+  scope: rg
+  params: {
+    location: location
+    containerAppName: api.outputs.name
+  }
+}
+
+var budgetEmails = empty(budgetAlertEmail) ? [] : [budgetAlertEmail]
+var budgetKillSwitchGroups = enableBudgetKillSwitch ? [budget_killswitch!.outputs.actionGroupId] : []
+
+var budgetEmailNotifications = empty(budgetAlertEmail) ? {} : {
+  Actual_50_Percent: {
+    enabled: true
+    operator: 'GreaterThanOrEqualTo'
+    threshold: 50
+    thresholdType: 'Actual'
+    contactEmails: budgetEmails
+  }
+  Forecasted_100_Percent: {
+    enabled: true
+    operator: 'GreaterThanOrEqualTo'
+    threshold: 100
+    thresholdType: 'Forecasted'
+    contactEmails: budgetEmails
+  }
+}
+
+// Counts only this app's resource group. At 100% actual spend it emails the owner and,
+// with the kill switch on, stops the Container App.
+resource monthlyBudget 'Microsoft.Consumption/budgets@2023-05-01' = if (!empty(budgetAlertEmail) || enableBudgetKillSwitch) {
   name: 'escribot-monthly-budget'
   properties: {
     category: 'Cost'
@@ -204,35 +239,25 @@ resource monthlyBudget 'Microsoft.Consumption/budgets@2023-05-01' = if (!empty(b
     timePeriod: {
       startDate: budgetStartDate
     }
-    notifications: {
-      Actual_50_Percent: {
-        enabled: true
-        operator: 'GreaterThanOrEqualTo'
-        threshold: 50
-        thresholdType: 'Actual'
-        contactEmails: [
-          budgetAlertEmail
+    filter: {
+      dimensions: {
+        name: 'ResourceGroupName'
+        operator: 'In'
+        values: [
+          resourceGroupName
         ]
       }
+    }
+    notifications: union(budgetEmailNotifications, {
       Actual_100_Percent: {
         enabled: true
         operator: 'GreaterThanOrEqualTo'
         threshold: 100
         thresholdType: 'Actual'
-        contactEmails: [
-          budgetAlertEmail
-        ]
+        contactEmails: budgetEmails
+        contactGroups: budgetKillSwitchGroups
       }
-      Forecasted_100_Percent: {
-        enabled: true
-        operator: 'GreaterThanOrEqualTo'
-        threshold: 100
-        thresholdType: 'Forecasted'
-        contactEmails: [
-          budgetAlertEmail
-        ]
-      }
-    }
+    })
   }
 }
 

@@ -269,3 +269,4 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
 }
 
 output fqdn string = api.properties.configuration.ingress.fqdn
+output name string = api.name
