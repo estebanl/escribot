@@ -1,4 +1,4 @@
-namespace FluentEscritor.DataModel;
+namespace Escribot.DataModel;
 
 /// <summary>
 /// The Cosmos DB database and containers, defined once. This file is compiled into both

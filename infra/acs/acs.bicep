@@ -30,7 +30,7 @@ resource senderUsername 'Microsoft.Communication/emailServices/domains/senderUse
   parent: emailDomain
   properties: {
     username: 'DoNotReply'
-    displayName: 'FluentEscritor'
+    displayName: 'Escribot'
   }
 }
 

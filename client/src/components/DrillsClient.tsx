@@ -80,7 +80,7 @@ const LEVEL_OPTIONS: Array<{ value: DrillLevel; label: string }> = [
   { value: "advanced", label: "Advanced" },
 ];
 
-const LEVEL_STORAGE_KEY = "fluentescritor:drill-level";
+const LEVEL_STORAGE_KEY = "escribot:drill-level";
 
 function readStoredLevel(): DrillLevel | null {
   try {

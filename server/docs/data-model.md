@@ -1,6 +1,6 @@
 # Data model
 
-How FluentEscritor stores its data in Azure Cosmos DB (NoSQL API, serverless), and the
+How Escribot stores its data in Azure Cosmos DB (NoSQL API, serverless), and the
 repository layer the rest of the server uses.
 
 ## Summary
@@ -13,7 +13,7 @@ repository layer the rest of the server uses.
   documents read by id.
 - Rate limits and the daily Free AI cap are counters incremented atomically on the server.
 - Error events and expired sessions are removed by time-to-live, not by application code.
-- The Cosmos DB SDK is used only inside `FluentEscritor.Api/Data/Cosmos`. Everything else
+- The Cosmos DB SDK is used only inside `Escribot.Api/Data/Cosmos`. Everything else
   depends on the interfaces in `Data/Repositories.cs` and the records in `Data/Models`.
 
 The database, the containers, their partition keys and time-to-live are defined once, in
@@ -216,7 +216,7 @@ the Stripe customer first, then the user's image blobs, and then calls this.
 
 ## Repository interfaces
 
-Defined in `FluentEscritor.Api/Data/Repositories.cs`.
+Defined in `Escribot.Api/Data/Repositories.cs`.
 
 | Interface | Purpose |
 |---|---|

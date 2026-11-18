@@ -42,8 +42,8 @@ Fixes #<!-- issue number, or remove if not applicable -->
   ```
 - [ ] **Docker Image & Tenant Isolation Suite** (if `server/`, `client/` or `Dockerfile` changed):
   ```bash
-  docker build --file server/Dockerfile --tag fluentescritor-api:ci .
-  cd server && ISOLATION_TEST_IMAGE=fluentescritor-api:ci dotnet test --filter "Category=Image"
+  docker build --file server/Dockerfile --tag escribot-api:ci .
+  cd server && ISOLATION_TEST_IMAGE=escribot-api:ci dotnet test --filter "Category=Image"
   ```
 
 ### Manual Verification Steps

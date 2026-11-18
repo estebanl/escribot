@@ -19,12 +19,12 @@ export function TermsPage() {
     <LegalPage title="Terms of Service" updated="November 14, 2026">
       <p>
         These terms are an agreement between you and {site.operator} (“we”) for your use of
-        FluentEscritor. By creating an account you accept them.
+        Escribot. By creating an account you accept them.
       </p>
 
       <h2>The service</h2>
       <p>
-        FluentEscritor is a practice tool for Academic IELTS Writing. It uses AI models to
+        Escribot is a practice tool for Academic IELTS Writing. It uses AI models to
         estimate band scores and suggest improvements. {TRADEMARK_NOTICE} Feedback can be wrong
         or incomplete; use it as practice guidance, not as a prediction of your test result.
       </p>

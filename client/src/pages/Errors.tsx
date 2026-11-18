@@ -66,7 +66,7 @@ export function RootError() {
 
   useEffect(() => {
     reportClientError(errorOf(error));
-    document.title = "Something went wrong — FluentEscritor";
+    document.title = "Something went wrong — Escribot";
   }, [error]);
 
   return (

@@ -225,7 +225,7 @@ export function PricingClient({
 
       <p className="text-center text-sm text-ink-secondary max-w-xl mx-auto">
         Have your own OpenRouter, OpenAI, Anthropic, Gemini or DeepSeek API key? Add it in
-        Settings to use FluentEscritor without monthly limits on any plan. Subscriptions
+        Settings to use Escribot without monthly limits on any plan. Subscriptions
         renew automatically and can be canceled any time from Manage billing.
       </p>
     </div>

@@ -10,7 +10,7 @@ export function PublicHeader() {
           <span className="w-9 h-9 rounded-lg bg-accent text-accent-fg flex items-center justify-center">
             <Feather className="w-4 h-4" />
           </span>
-          <span className="font-serif text-lg font-semibold text-ink">FluentEscritor</span>
+          <span className="font-serif text-lg font-semibold text-ink">Escribot</span>
         </Link>
         <nav aria-label="Site" className="flex items-center gap-1 sm:gap-3 text-sm">
           <Link to="/pricing" className="px-2 py-2 text-ink-secondary hover:text-ink">

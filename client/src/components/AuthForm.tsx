@@ -170,7 +170,7 @@ export function AuthForm({
               Academic IELTS Prep
             </p>
             <h1 className="font-serif text-2xl font-semibold tracking-tight text-ink">
-              FluentEscritor
+              Escribot
             </h1>
           </div>
         </div>

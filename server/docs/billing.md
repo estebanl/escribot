@@ -1,7 +1,7 @@
 # Billing and admin
 
 Stripe Checkout, the customer portal, the Stripe webhook and the admin endpoints. The code is in
-`FluentEscritor.Api/Billing` and `FluentEscritor.Api/Api/{Billing,Admin}Endpoints.cs`.
+`Escribot.Api/Billing` and `Escribot.Api/Api/{Billing,Admin}Endpoints.cs`.
 
 ## Configuration
 
@@ -66,8 +66,8 @@ Stripe no longer has counts as deleted. If Stripe cannot be reached, nothing is 
 1. In test mode, create a Pro product with a monthly (and optionally yearly) price.
 2. `stripe login`, then `stripe listen --forward-to https://localhost:<port>/api/stripe/webhook`
    (add `--skip-verify` for the development certificate). It prints the `whsec_...` secret.
-3. Set the four `STRIPE_*` settings above as user secrets of `FluentEscritor.AppHost`
-   (`dotnet user-secrets set STRIPE_SECRET_KEY sk_test_... --project src/FluentEscritor.AppHost`),
+3. Set the four `STRIPE_*` settings above as user secrets of `Escribot.AppHost`
+   (`dotnet user-secrets set STRIPE_SECRET_KEY sk_test_... --project src/Escribot.AppHost`),
    which passes them on to the API, and run the AppHost.
 4. Sign in, `POST /api/billing/checkout`, and pay with card `4242 4242 4242 4242`. The
    `stripe listen` window shows `customer.subscription.created` answered with `applied`,
