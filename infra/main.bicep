@@ -6,8 +6,12 @@ param apiContainerImage string
 
 param customDomain string = ''
 param enableCustomDomainCert bool = false
+@description('Domain Azure Communication Services sends email from. Defaults to customDomain; use a subdomain such as mail.<customDomain> when customDomain is a CNAME.')
+param emailDomain string = ''
 param publicUrl string = ''
 param acsDataLocation string = 'United States'
+
+var effectiveEmailDomain = !empty(emailDomain) ? emailDomain : customDomain
 
 param budgetAlertEmail string = ''
 param budgetAmount int = 5
@@ -90,12 +94,12 @@ module vault 'vault/vault.bicep' = {
   }
 }
 
-module acs 'acs/acs.bicep' = if (!empty(customDomain)) {
+module acs 'acs/acs.bicep' = if (!empty(effectiveEmailDomain)) {
   name: 'acs'
   scope: rg
   params: {
     dataLocation: acsDataLocation
-    customDomain: customDomain
+    customDomain: effectiveEmailDomain
     vaultName: vault.outputs.name
   }
 }
@@ -176,14 +180,14 @@ module api 'api/api-containerapp.bicep' = {
     hasGeminiApiKey: !empty(gemini_api_key)
     hasOpenAiApiKey: !empty(openai_api_key)
     hasAnthropicApiKey: !empty(anthropic_api_key)
-    hasAcsConnectionString: !empty(customDomain)
+    hasAcsConnectionString: !empty(effectiveEmailDomain)
     googleClientId: googleClientId
     stripePriceProMonthly: stripePriceProMonthly
     stripePriceProYearly: stripePriceProYearly
     ownerEmail: ownerEmail
     allowedSignupEmails: allowedSignupEmails
     adminEmails: adminEmails
-    emailFrom: !empty(emailFrom) ? emailFrom : (!empty(customDomain) ? 'DoNotReply@${customDomain}' : '')
+    emailFrom: !empty(emailFrom) ? emailFrom : (!empty(effectiveEmailDomain) ? 'DoNotReply@${effectiveEmailDomain}' : '')
     freePlanDailyAiCap: freePlanDailyAiCap
     siteOperator: siteOperator
     supportEmail: supportEmail

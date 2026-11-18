@@ -80,6 +80,7 @@ jobs:
           API_CONTAINER_IMAGE: ${{ needs.build.outputs.image }}
           CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
           ENABLE_CUSTOM_DOMAIN_CERT: ${{ vars.ENABLE_CUSTOM_DOMAIN_CERT || 'false' }}
+          EMAIL_DOMAIN: ${{ vars.EMAIL_DOMAIN }}
           PUBLIC_URL: ${{ vars.APP_PUBLIC_URL }}
           ACS_DATA_LOCATION: ${{ vars.ACS_DATA_LOCATION || 'United States' }}
           BUDGET_ALERT_EMAIL: ${{ vars.BUDGET_ALERT_EMAIL }}
@@ -115,6 +116,7 @@ jobs:
             --arg img "$API_CONTAINER_IMAGE" \
             --arg domain "$CUSTOM_DOMAIN" \
             --argjson cert "$ENABLE_CUSTOM_DOMAIN_CERT" \
+            --arg emailDomain "$EMAIL_DOMAIN" \
             --arg pub "$PUBLIC_URL" \
             --arg acsLoc "$ACS_DATA_LOCATION" \
             --arg budgetEmail "$BUDGET_ALERT_EMAIL" \
@@ -148,6 +150,7 @@ jobs:
                 "apiContainerImage": { "value": $img },
                 "customDomain": { "value": $domain },
                 "enableCustomDomainCert": { "value": $cert },
+                "emailDomain": { "value": $emailDomain },
                 "publicUrl": { "value": $pub },
                 "acsDataLocation": { "value": $acsLoc },
                 "budgetAlertEmail": { "value": $budgetEmail },
