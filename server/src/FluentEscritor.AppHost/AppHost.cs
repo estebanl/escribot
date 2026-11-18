@@ -1,5 +1,7 @@
+using Azure.Provisioning.AppContainers;
 using Azure.Provisioning.CosmosDB;
 using Azure.Provisioning.KeyVault;
+using Azure.Provisioning.Storage;
 using FluentEscritor.DataModel;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -40,6 +42,14 @@ cosmos.ConfigureInfrastructure(infrastructure =>
 });
 
 var storage = builder.AddAzureStorage("storage").RunAsEmulator();
+storage.ConfigureInfrastructure(infrastructure =>
+{
+    foreach (var account in infrastructure.GetProvisionableResources().OfType<StorageAccount>())
+    {
+        account.AllowBlobPublicAccess = false;
+        account.Sku = new StorageSku { Name = StorageSkuName.StandardLrs };
+    }
+});
 var blobs = storage.AddBlobs("blobs");
 // The one container the API keeps uploaded files in. Aspire creates it in Azurite on
 // start and emits it for Azure on publish; the API never creates containers itself.
@@ -78,7 +88,30 @@ if (vault is not null)
     // The API runs in Azure Container Apps, which resolves the Key Vault references and
     // gives the app the managed identity the role below is assigned to.
     builder.AddAzureContainerAppEnvironment("aca");
+    api.WithExternalHttpEndpoints();
+    api.WithEnvironment("App__TrustForwardedHeaders", "true");
     api.WithRoleAssignments(vault, KeyVaultBuiltInRole.KeyVaultSecretsUser);
+    api.PublishAsAzureContainerApp((_, app) =>
+    {
+        app.Template.Scale.MinReplicas = 0;
+        app.Template.Scale.MaxReplicas = 3;
+
+        var container = app.Template.Containers.Single().Value!;
+        container.Probes.Add(new ContainerAppProbe
+        {
+            ProbeType = ContainerAppProbeType.Liveness,
+            HttpGet = new ContainerAppHttpRequestInfo { Path = "/alive", Port = 8080 },
+            InitialDelaySeconds = 5,
+            PeriodSeconds = 30,
+        });
+        container.Probes.Add(new ContainerAppProbe
+        {
+            ProbeType = ContainerAppProbeType.Readiness,
+            HttpGet = new ContainerAppHttpRequestInfo { Path = "/health", Port = 8080 },
+            InitialDelaySeconds = 5,
+            PeriodSeconds = 30,
+        });
+    });
 }
 
 void WithSecret(string variable, IResourceBuilder<ParameterResource> parameter)

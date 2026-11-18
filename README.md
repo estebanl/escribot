@@ -190,34 +190,71 @@ docker build -f server/Dockerfile -t fluentescritor-api .
 
 The image contains the API and the built browser app, which the API serves with `index.html` for every page address: no secrets and no development settings. It listens on port 8080 and answers `/alive` (the process is up) and `/health` (Cosmos DB and Blob Storage are reachable).
 
-## Deploying to Vercel
+## Deploying to Azure
 
-1. **Create a free Turso database**:
+The `.NET 11` app deploys to Azure Container Apps from the infrastructure definitions in [`infra/`](infra/main.bicep) (derived from the Aspire AppHost) via [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). It is designed to cost **$0 when idle** and to keep every credential and Azure identifier out of this public repository:
+
+- **No Azure Container Registry**: the Docker image is built in GitHub Actions and pushed to GitHub Container Registry (`ghcr.io`), so there is no ~$5/month registry fee.
+- **Scale to zero**: the Container App runs on the Consumption plan with `minReplicas: 0`, startup/liveness/readiness probes on `/alive` and `/health`, and `App__TrustForwardedHeaders=true`.
+- **Serverless & private storage**: Cosmos DB runs in Serverless mode (`disableLocalAuth: true`), and Blob Storage uses `Standard_LRS` with `allowSharedKeyAccess: false` and `allowBlobPublicAccess: false` (`files` container has `publicAccess: None`). The Container App accesses both via its user-assigned managed identity.
+- **Key Vault for secrets**: application secrets are stored in an RBAC-enabled Azure Key Vault and referenced from Container Apps via managed identity (`Key Vault Secrets User`).
+- **Telemetry**: the Aspire Dashboard component on Container Apps provides traces, metrics, and logs (protected by Microsoft Entra ID / Azure RBAC — never reachable anonymously), and Log Analytics uses 30-day retention inside the free allowance.
+- **Budget alert**: when `BUDGET_ALERT_EMAIL` is set, a monthly subscription budget alert (`Microsoft.Consumption/budgets`) notifies at 50% actual, 100% actual, and 100% forecasted spend.
+
+### One-time setup (owner)
+
+1. **Azure OIDC app registration**: create a Microsoft Entra ID app registration with a federated credential scoped to this repository's `main` branch (or the `production` GitHub environment), and grant its service principal `Owner` (or `Contributor` + `User Access Administrator`) on the subscription so it can create the resource group, RBAC role assignments, and subscription budget.
+2. **GitHub `production` environment**: in **Settings → Environments**, create an environment named `production` with **Required reviewers** enabled. Deployment only runs on `main` and never on pull requests or forks.
+3. **GitHub environment secrets** (`production` environment):
+   - `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` — OIDC credentials for `azure/login`.
+   - `APP_ENCRYPTION_SECRET` — required; at least 32 random characters (`openssl rand -hex 32`).
+   - Optional secrets: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GOOGLE_CLIENT_SECRET`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
+4. **GitHub environment variables** (`production` environment):
+   - `AZURE_RESOURCE_GROUP` — target resource group name.
+   - `AZURE_LOCATION` — Azure region (e.g. `eastus2`).
+   - Optional variables: `CUSTOM_DOMAIN`, `ENABLE_CUSTOM_DOMAIN_CERT` (`false` until DNS is added), `APP_PUBLIC_URL`, `ACS_DATA_LOCATION` (defaults to `United States`), `BUDGET_ALERT_EMAIL`, `BUDGET_AMOUNT` (defaults to `5`), `GOOGLE_CLIENT_ID`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS`, `EMAIL_FROM`, `FREE_PLAN_DAILY_AI_CAP`, `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION`.
+5. **Public GHCR package**: after the first `build` job pushes `ghcr.io/<owner>/<repo>`, ensure the package visibility is **Public** in GitHub Packages so Container Apps can pull without credentials.
+6. **Custom domain & free managed certificate**:
+   - Run the first deploy with `ENABLE_CUSTOM_DOMAIN_CERT=false` to provision the environment and read `apiFqdn` and `customDomainVerificationId` from the deployment outputs.
+   - Add a `CNAME` record for your domain pointing to `apiFqdn`, and a `TXT` record `asuid.<domain>` with `customDomainVerificationId`.
+   - Set `ENABLE_CUSTOM_DOMAIN_CERT=true` in the `production` environment variables and re-run the deploy workflow.
+7. **Email domain verification (ACS)**: when `CUSTOM_DOMAIN` is set, Azure Communication Services provisions the email domain. In the Azure Portal under the Email Communication Service domain, copy the **SPF** and **DKIM** DNS records to your DNS provider and verify them.
+8. **External callbacks**:
+   - Stripe webhook endpoint: `https://<your-domain>/api/billing/webhook`
+   - Google OAuth redirect URI: `https://<your-domain>/api/auth/callback/google`
+9. **Verify isolation**:
    ```bash
-   turso db create fluentescritor
-   turso db show fluentescritor --url
-   turso db tokens create fluentescritor
+   BASE_URL=https://<your-domain> node scripts/test-isolation.mjs
    ```
-2. **Import the repository into Vercel** and set these Environment Variables:
-   - `BETTER_AUTH_SECRET` — 32+ character random secret for session cookies (`openssl rand -base64 32`).
-   - `BETTER_AUTH_URL` — Public URL of the deployment, e.g. `https://your-app.vercel.app`.
-   - `TURSO_DATABASE_URL` — `libsql://...` URL from Turso.
-   - `TURSO_AUTH_TOKEN` — Auth token from Turso.
-   - `OPENROUTER_API_KEY` — Platform OpenRouter key used for users who have not saved their own key in **Settings**.
-   - `APP_SECRET` — Required. Long random secret for `AES-256-GCM` encryption of API keys saved in Settings.
-   - *(Optional)* `ALLOWED_SIGNUP_EMAILS` — Comma-separated allowlist of emails that may sign up. Leave empty for open sign-ups; each Free account can then spend the platform AI keys up to its monthly quota.
-   - *(Strongly recommended)* `RESEND_API_KEY` + `EMAIL_FROM` — Email verification and password-reset links. Without them, password reset is disabled and Free accounts can only use the platform AI keys via Google sign-in or `ALLOWED_SIGNUP_EMAILS`.
-   - *(Optional)* `FREE_PLAN_DAILY_AI_CAP` — Daily ceiling on Free-plan AI requests across all accounts.
-   - *(Optional)* `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `STRIPE_WEBHOOK_SECRET` — Enables paid Pro (see **Billing** above).
-   - `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION` — Shown on the Terms and Privacy pages.
-   - *(Recommended)* `BLOB_READ_WRITE_TOKEN` — Create a **private** Vercel Blob store for uploaded chart images.
-   - *(Optional)* `ADMIN_EMAILS` — Extra admins for `/admin`.
-   - *(Optional)* `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` — Enables "Continue with Google" (redirect URI `<BETTER_AUTH_URL>/api/auth/callback/google`).
-   - *(Optional)* `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
-3. **Deploy**: Migrations and the curated Academic IELTS starter bank are applied idempotently on first request.
 
-### Upgrading a single-user (passcode) deployment
+### Full environment variable reference
 
-1. Set `OWNER_EMAIL` to the email you will sign up with, plus `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`.
-2. Set `APP_SECRET`. If you never defined it before, also keep `APP_PASSCODE` set until you have opened Settings and pressed Save once: keys encrypted with the old passcode are then re-encrypted with `APP_SECRET`.
-3. Deploy and sign up with that email, then verify it: through the emailed link (with email configured), by signing in with Google, or manually with `UPDATE user SET email_verified = 1 WHERE email = '<OWNER_EMAIL>';`. On your next page load your existing essays, evaluations, Vault, drills, custom prompts, and settings move to your account. Until then the data is held by a placeholder owner and is visible to no one. If someone else registered your address first, delete that account in the database (`DELETE FROM user WHERE email = '...'`) and sign up again.
+| Variable | Secret | Required | Purpose |
+|---|---|---|---|
+| `App__EncryptionSecret` | Yes | Yes | 32+ char secret used to encrypt user-saved AI API keys. |
+| `App__PublicUrl` | No | In prod | Public HTTPS origin used for email links, OAuth, and Stripe redirects. |
+| `App__TrustForwardedHeaders` | No | Behind proxy | Set to `true` behind Container Apps ingress for `X-Forwarded-For` / `X-Forwarded-Proto`. |
+| `ConnectionStrings__cosmos` | No | Yes | Cosmos DB account endpoint (uses Managed Identity in Azure). |
+| `ConnectionStrings__blobs` | No | Yes | Blob Storage endpoint (uses Managed Identity in Azure). |
+| `AZURE_CLIENT_ID` | No | In Azure | User-assigned managed identity client ID. |
+| `AZURE_TOKEN_CREDENTIALS` | No | In Azure | Set to `ManagedIdentityCredential` in production. |
+| `OWNER_EMAIL` | No | No | Verified account with this email is the site owner/admin. |
+| `ALLOWED_SIGNUP_EMAILS` | No | No | Comma-separated allowlist of emails permitted to sign up. |
+| `ADMIN_EMAILS` | No | No | Comma-separated list of additional admin emails. |
+| `GOOGLE_CLIENT_ID` | No | No | Google OAuth client ID (enables "Continue with Google" with `GOOGLE_CLIENT_SECRET`). |
+| `GOOGLE_CLIENT_SECRET` | Yes | No | Google OAuth client secret. |
+| `AZURE_COMMUNICATION_CONNECTION_STRING` | Yes | No | ACS Email connection string (provisioned to Key Vault when `CUSTOM_DOMAIN` is set). |
+| `EMAIL_FROM` | No | No | Bare sender address (defaults to `DoNotReply@<CUSTOM_DOMAIN>`). |
+| `STRIPE_SECRET_KEY` | Yes | No | Stripe secret API key. |
+| `STRIPE_WEBHOOK_SECRET` | Yes | No | Stripe webhook signing secret. |
+| `STRIPE_PRICE_PRO_MONTHLY` | No | No | Stripe monthly Pro price ID. |
+| `STRIPE_PRICE_PRO_YEARLY` | No | No | Stripe yearly Pro price ID. |
+| `OPENROUTER_API_KEY` | Yes | No | Platform OpenRouter API key for Free-tier users. |
+| `DEEPSEEK_API_KEY` | Yes | No | Platform DeepSeek API key. |
+| `GEMINI_API_KEY` | Yes | No | Platform Gemini API key. |
+| `OPENAI_API_KEY` | Yes | No | Platform OpenAI API key. |
+| `ANTHROPIC_API_KEY` | Yes | No | Platform Anthropic API key. |
+| `FREE_PLAN_DAILY_AI_CAP` | No | No | Daily ceiling on Free-plan AI requests across all accounts. |
+| `SITE_OPERATOR` | No | No | Operator name shown on Terms and Privacy pages. |
+| `SUPPORT_EMAIL` | No | No | Support email shown on Terms and Privacy pages. |
+| `SITE_JURISDICTION` | No | No | Governing jurisdiction shown on Terms and Privacy pages. |
