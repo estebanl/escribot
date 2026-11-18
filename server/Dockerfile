@@ -7,7 +7,7 @@
 # The image holds no secrets and no development settings. Every secret is supplied at
 # run time as an environment variable (see "Local development (.NET)" in the README).
 
-FROM node:22-alpine AS client
+FROM node:26-alpine AS client
 WORKDIR /client
 
 # Install first, from the lock file alone, so this layer is reused until a dependency changes.
