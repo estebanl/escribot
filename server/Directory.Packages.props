@@ -3,7 +3,7 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <!-- Keep in step with the Aspire.AppHost.Sdk version in Escribot.AppHost.csproj. -->
-    <AspireVersion>13.6.5</AspireVersion>
+    <AspireVersion>17.0.0</AspireVersion>
     <OpenTelemetryVersion>1.21.0</OpenTelemetryVersion>
   </PropertyGroup>
 
