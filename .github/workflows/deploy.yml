@@ -1,0 +1,190 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute lowercase image name
+        id: meta
+        run: |
+          repo_lower=$(printf '%s' "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo_lower=${repo_lower}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${repo_lower}:sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.repo_lower }}:sha-${{ github.sha }}
+            ghcr.io/${{ steps.meta.outputs.repo_lower }}:latest
+            ${{ steps.meta.outputs.image }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Log in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy infrastructure and roll out image
+        env:
+          RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP }}
+          LOCATION: ${{ vars.AZURE_LOCATION }}
+          API_CONTAINER_IMAGE: ${{ needs.build.outputs.image }}
+          CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
+          ENABLE_CUSTOM_DOMAIN_CERT: ${{ vars.ENABLE_CUSTOM_DOMAIN_CERT || 'false' }}
+          PUBLIC_URL: ${{ vars.APP_PUBLIC_URL }}
+          ACS_DATA_LOCATION: ${{ vars.ACS_DATA_LOCATION || 'United States' }}
+          BUDGET_ALERT_EMAIL: ${{ vars.BUDGET_ALERT_EMAIL }}
+          BUDGET_AMOUNT: ${{ vars.BUDGET_AMOUNT || '5' }}
+          ENCRYPTION_SECRET: ${{ secrets.APP_ENCRYPTION_SECRET }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          STRIPE_PRICE_PRO_MONTHLY: ${{ vars.STRIPE_PRICE_PRO_MONTHLY }}
+          STRIPE_PRICE_PRO_YEARLY: ${{ vars.STRIPE_PRICE_PRO_YEARLY }}
+          OWNER_EMAIL: ${{ vars.OWNER_EMAIL }}
+          ALLOWED_SIGNUP_EMAILS: ${{ vars.ALLOWED_SIGNUP_EMAILS }}
+          ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          FREE_PLAN_DAILY_AI_CAP: ${{ vars.FREE_PLAN_DAILY_AI_CAP }}
+          SITE_OPERATOR: ${{ vars.SITE_OPERATOR }}
+          SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
+          SITE_JURISDICTION: ${{ vars.SITE_JURISDICTION }}
+        run: |
+          set -euo pipefail
+          params_file="$RUNNER_TEMP/deploy-params.json"
+          trap 'rm -f "$params_file"' EXIT
+
+          jq -n \
+            --arg rg "$RESOURCE_GROUP_NAME" \
+            --arg loc "$LOCATION" \
+            --arg img "$API_CONTAINER_IMAGE" \
+            --arg domain "$CUSTOM_DOMAIN" \
+            --argjson cert "$ENABLE_CUSTOM_DOMAIN_CERT" \
+            --arg pub "$PUBLIC_URL" \
+            --arg acsLoc "$ACS_DATA_LOCATION" \
+            --arg budgetEmail "$BUDGET_ALERT_EMAIL" \
+            --argjson budgetAmt "$BUDGET_AMOUNT" \
+            --arg enc "$ENCRYPTION_SECRET" \
+            --arg stripeKey "$STRIPE_SECRET_KEY" \
+            --arg stripeWh "$STRIPE_WEBHOOK_SECRET" \
+            --arg googleSec "$GOOGLE_CLIENT_SECRET" \
+            --arg orKey "$OPENROUTER_API_KEY" \
+            --arg dsKey "$DEEPSEEK_API_KEY" \
+            --arg gemKey "$GEMINI_API_KEY" \
+            --arg oaiKey "$OPENAI_API_KEY" \
+            --arg antKey "$ANTHROPIC_API_KEY" \
+            --arg googleId "$GOOGLE_CLIENT_ID" \
+            --arg priceMo "$STRIPE_PRICE_PRO_MONTHLY" \
+            --arg priceYr "$STRIPE_PRICE_PRO_YEARLY" \
+            --arg owner "$OWNER_EMAIL" \
+            --arg allowed "$ALLOWED_SIGNUP_EMAILS" \
+            --arg admins "$ADMIN_EMAILS" \
+            --arg emailFrom "$EMAIL_FROM" \
+            --arg cap "$FREE_PLAN_DAILY_AI_CAP" \
+            --arg op "$SITE_OPERATOR" \
+            --arg sup "$SUPPORT_EMAIL" \
+            --arg jur "$SITE_JURISDICTION" \
+            '{
+              "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+              "contentVersion": "1.0.0.0",
+              "parameters": {
+                "resourceGroupName": { "value": $rg },
+                "location": { "value": $loc },
+                "apiContainerImage": { "value": $img },
+                "customDomain": { "value": $domain },
+                "enableCustomDomainCert": { "value": $cert },
+                "publicUrl": { "value": $pub },
+                "acsDataLocation": { "value": $acsLoc },
+                "budgetAlertEmail": { "value": $budgetEmail },
+                "budgetAmount": { "value": $budgetAmt },
+                "encryption_secret": { "value": $enc },
+                "stripe_secret_key": { "value": $stripeKey },
+                "stripe_webhook_secret": { "value": $stripeWh },
+                "google_client_secret": { "value": $googleSec },
+                "openrouter_api_key": { "value": $orKey },
+                "deepseek_api_key": { "value": $dsKey },
+                "gemini_api_key": { "value": $gemKey },
+                "openai_api_key": { "value": $oaiKey },
+                "anthropic_api_key": { "value": $antKey },
+                "googleClientId": { "value": $googleId },
+                "stripePriceProMonthly": { "value": $priceMo },
+                "stripePriceProYearly": { "value": $priceYr },
+                "ownerEmail": { "value": $owner },
+                "allowedSignupEmails": { "value": $allowed },
+                "adminEmails": { "value": $admins },
+                "emailFrom": { "value": $emailFrom },
+                "freePlanDailyAiCap": { "value": $cap },
+                "siteOperator": { "value": $op },
+                "supportEmail": { "value": $sup },
+                "siteJurisdiction": { "value": $jur }
+              }
+            }' > "$params_file"
+
+          az deployment sub create \
+            --name "fluentescritor-${GITHUB_RUN_NUMBER}" \
+            --location "$LOCATION" \
+            --template-file infra/main.bicep \
+            --parameters "@${params_file}" \
+            --query "properties.outputs.{apiFqdn:apiFqdn.value}" \
+            --output json > "$RUNNER_TEMP/outputs.json"
+
+          fqdn=$(jq -r '.apiFqdn' "$RUNNER_TEMP/outputs.json")
+          echo "Deployed Container App FQDN: https://${fqdn}"
+          curl -sf --retry 10 --retry-delay 3 --retry-all-errors "https://${fqdn}/health"
+          echo ""
+          echo "Health check passed."
