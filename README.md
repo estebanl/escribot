@@ -207,13 +207,14 @@ The `.NET 11` app deploys to Azure Container Apps from the infrastructure defini
 4. **GitHub environment variables** (`production` environment):
    - `AZURE_RESOURCE_GROUP` — target resource group name.
    - `AZURE_LOCATION` — Azure region (e.g. `eastus2`).
-   - Optional variables: `CUSTOM_DOMAIN`, `ENABLE_CUSTOM_DOMAIN_CERT` (`false` until DNS is added), `APP_PUBLIC_URL`, `ACS_DATA_LOCATION` (defaults to `United States`), `BUDGET_ALERT_EMAIL`, `BUDGET_AMOUNT` (defaults to `5`), `GOOGLE_CLIENT_ID`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS`, `EMAIL_FROM`, `FREE_PLAN_DAILY_AI_CAP`, `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION`.
+   - Optional variables: `CUSTOM_DOMAIN`, `ENABLE_CUSTOM_DOMAIN_CERT` (`false` until DNS is added), `EMAIL_DOMAIN` (defaults to `CUSTOM_DOMAIN`), `APP_PUBLIC_URL`, `ACS_DATA_LOCATION` (defaults to `United States`), `BUDGET_ALERT_EMAIL`, `BUDGET_AMOUNT` (defaults to `5`), `GOOGLE_CLIENT_ID`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS`, `EMAIL_FROM`, `FREE_PLAN_DAILY_AI_CAP`, `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION`.
 5. **Public GHCR package**: after the first `build` job pushes `ghcr.io/<owner>/<repo>`, ensure the package visibility is **Public** in GitHub Packages so Container Apps can pull without credentials.
 6. **Custom domain & free managed certificate**:
    - Run the first deploy with `ENABLE_CUSTOM_DOMAIN_CERT=false` to provision the environment and read `apiFqdn` and `customDomainVerificationId` from the deployment outputs.
    - Add a `CNAME` record for your domain pointing to `apiFqdn`, and a `TXT` record `asuid.<domain>` with `customDomainVerificationId`.
    - Set `ENABLE_CUSTOM_DOMAIN_CERT=true` in the `production` environment variables and re-run the deploy workflow.
-7. **Email domain verification (ACS)**: when `CUSTOM_DOMAIN` is set, Azure Communication Services provisions the email domain. In the Azure Portal under the Email Communication Service domain, copy the **SPF** and **DKIM** DNS records to your DNS provider and verify them.
+7. **Email domain verification (ACS)**: when `CUSTOM_DOMAIN` (or `EMAIL_DOMAIN`) is set, Azure Communication Services provisions the email domain. In the Azure Portal under the Email Communication Service domain, copy the **domain verification TXT**, **SPF** and **DKIM** DNS records to your DNS provider and verify them. Azure only links a verified domain, so the deploy fails at the `acs` step until verification passes; verify, then re-run it.
+   - The verification and SPF records are TXT records on the email domain itself, and a name with a `CNAME` can't hold other records. When `CUSTOM_DOMAIN` is a `CNAME` (any subdomain pointed at the Container App), set `EMAIL_DOMAIN` to a subdomain such as `mail.<CUSTOM_DOMAIN>`; email then goes out from `DoNotReply@<EMAIL_DOMAIN>`.
 8. **External callbacks**:
    - Stripe webhook endpoint: `https://<your-domain>/api/stripe/webhook`
    - Google OAuth redirect URI: `https://<your-domain>/api/auth/callback/google`
@@ -238,8 +239,8 @@ The `.NET 11` app deploys to Azure Container Apps from the infrastructure defini
 | `ADMIN_EMAILS` | No | No | Comma-separated list of additional admin emails. |
 | `GOOGLE_CLIENT_ID` | No | No | Google OAuth client ID (enables "Continue with Google" with `GOOGLE_CLIENT_SECRET`). |
 | `GOOGLE_CLIENT_SECRET` | Yes | No | Google OAuth client secret. |
-| `AZURE_COMMUNICATION_CONNECTION_STRING` | Yes | No | ACS Email connection string (provisioned to Key Vault when `CUSTOM_DOMAIN` is set). |
-| `EMAIL_FROM` | No | No | Bare sender address (defaults to `DoNotReply@<CUSTOM_DOMAIN>`). |
+| `AZURE_COMMUNICATION_CONNECTION_STRING` | Yes | No | ACS Email connection string (provisioned to Key Vault when `CUSTOM_DOMAIN` or `EMAIL_DOMAIN` is set). |
+| `EMAIL_FROM` | No | No | Bare sender address (defaults to `DoNotReply@<EMAIL_DOMAIN>`, or `DoNotReply@<CUSTOM_DOMAIN>`). |
 | `STRIPE_SECRET_KEY` | Yes | No | Stripe secret API key. |
 | `STRIPE_WEBHOOK_SECRET` | Yes | No | Stripe webhook signing secret. |
 | `STRIPE_PRICE_PRO_MONTHLY` | No | No | Stripe monthly Pro price ID. |
