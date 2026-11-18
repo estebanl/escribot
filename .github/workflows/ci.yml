@@ -12,7 +12,7 @@ jobs:
   secret-scan:
     # Runs with no secrets and read-only contents, so it is safe for pull
     # requests from forks. Scans every commit reachable from the checked-out ref.
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     env:
       GITLEAKS_VERSION: 8.30.1
@@ -33,7 +33,7 @@ jobs:
         run: '"$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner --exit-code 1 .'
 
   check:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 20
     env:
       # Throwaway values for an ephemeral local database; no real services are used.
@@ -54,6 +54,7 @@ jobs:
       - name: Start production server
         run: |
           npm start > server.log 2>&1 &
+          echo $! > server.pid
           for i in $(seq 1 30); do
             curl -sf -o /dev/null http://localhost:3000/login && exit 0
             sleep 2
@@ -62,6 +63,13 @@ jobs:
           exit 1
       - name: Tenant isolation test
         run: BASE_URL=http://localhost:3000 npm run test:isolation
+      - name: Stop production server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill "$(cat server.pid)" 2>/dev/null || true
+            rm -f server.pid
+          fi
       - name: Server log
         if: always()
         run: cat server.log || true
@@ -70,7 +78,7 @@ jobs:
     # The .NET server (server/). Uses no repository secrets: the one secret the app needs
     # is generated per run. The AppHost test starts the Cosmos DB and Azurite emulators as
     # containers on the runner.
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 20
     defaults:
       run:
@@ -119,6 +127,7 @@ jobs:
             exit 1
           fi
 
+          docker rm -f api >/dev/null 2>&1 || true
           docker run --detach --name api --publish 8080:8080 "${settings[@]}" \
             --env App__EncryptionSecret="$(openssl rand -hex 32)" \
             fluentescritor-api:ci
@@ -128,3 +137,6 @@ jobs:
           done
           docker logs api
           exit 1
+      - name: Cleanup Docker container
+        if: always()
+        run: docker rm -f api >/dev/null 2>&1 || true
