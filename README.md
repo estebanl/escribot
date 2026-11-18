@@ -143,6 +143,22 @@ dotnet user-secrets set "Parameters:encryption-secret" "$(openssl rand -hex 32)"
 
 To run the API on its own, without the AppHost, give it the same settings through user secrets or environment variables.
 
+#### Secrets in Azure (Key Vault)
+
+Key Vault has no local emulator, so it is only part of the published app: local runs keep passing secrets straight from user secrets. When the AppHost is published to Azure (for example with `aspire deploy` or `azd up`), it adds:
+
+- an Azure Key Vault (`vault`) that uses Azure RBAC, holding `encryption-secret` and, when they are set, `stripe-secret-key` and `stripe-webhook-secret`;
+- an Azure Container Apps environment (`aca`) for the API, whose managed identity gets only the **Key Vault Secrets User** role on the vault.
+
+The API still receives `App__EncryptionSecret`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` as environment variables. In Azure, Container Apps reads them from the vault, so the values never appear in the generated Bicep or the deployment manifest, and the API code does not change. The deployment asks for `encryption-secret`; the Stripe secrets are included only when `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are set in the AppHost's configuration when you publish. To see what would be deployed without deploying it:
+
+```bash
+cd server
+dotnet run --project src/FluentEscritor.AppHost -- --operation publish --publisher manifest --output-path "$(mktemp -d)"
+```
+
+To store another secret in the vault, add a secret parameter in `AppHost.cs` and pass it to `WithSecret`.
+
 ### Tests
 
 ```bash
