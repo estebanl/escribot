@@ -23,7 +23,7 @@ internal static class StorageExtensions
         builder.AddAzureCosmosClient(
             CosmosConnectionName,
             settings => settings.DisableHealthChecks = true,
-            DataExtensions.ConfigureCosmosClient);
+            (_, options) => DataExtensions.ConfigureCosmosClient(options));
         builder.AddAzureBlobServiceClient(BlobsConnectionName, settings => settings.DisableHealthChecks = true);
 
         builder.Services.AddSingleton<IDocumentDatabase, CosmosDocumentDatabase>();
