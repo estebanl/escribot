@@ -41,7 +41,7 @@ jobs:
           echo "image=ghcr.io/${repo_lower}:sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push container image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: server/Dockerfile
