@@ -2,6 +2,7 @@ using FluentEscritor.Api.Api;
 using FluentEscritor.Api.Auth;
 using FluentEscritor.Api.Configuration;
 using FluentEscritor.Api.Email;
+using FluentEscritor.Api.Hosting;
 using FluentEscritor.Api.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,8 +18,10 @@ var app = builder.Build();
 
 app.EnsureStorageConfigured();
 app.EnsureEmailConfigured();
+app.UseClientAppFiles();
 app.UseAuth();
 app.MapDataApi();
 app.MapDefaultEndpoints();
+app.MapClientApp();
 
 app.Run();

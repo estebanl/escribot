@@ -99,3 +99,6 @@ __azurite_db_*.json
 
 # front-end build output (Vite)
 dist/
+
+# the browser app copied next to the API to serve it without the Vite dev server
+server/src/FluentEscritor.Api/wwwroot/

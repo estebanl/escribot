@@ -71,6 +71,7 @@ internal static class ApiExtensions
         api.MapAiEndpoints();
         api.MapBillingEndpoints();
         api.MapAdminEndpoints();
+        api.MapPageEndpoints();
         return app;
     }
 }

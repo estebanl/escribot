@@ -46,7 +46,7 @@ Fixes #<!-- issue number, or remove if not applicable -->
   ```
 - [ ] **Docker Image & Secret Guard** (if `server/` or `Dockerfile` changed):
   ```bash
-  cd server && docker build --tag fluentescritor-api:ci .
+  docker build --file server/Dockerfile --tag fluentescritor-api:ci .
   ```
 
 ### Manual Verification Steps

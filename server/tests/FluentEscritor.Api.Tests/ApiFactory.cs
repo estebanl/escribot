@@ -38,6 +38,9 @@ public sealed class ApiFactory : WebApplicationFactory<AppOptions>
 
     public Action<IServiceCollection>? ConfigureServices { get; init; }
 
+    /// <summary>The folder the app serves the browser app from, instead of its own wwwroot.</summary>
+    public string? WebRoot { get; init; }
+
     /// <summary>The clock of the app and of <see cref="Data"/>. Move it to let sessions, links and rate-limit windows expire.</summary>
     internal ManualTimeProvider Clock { get; } = new(DateTimeOffset.UtcNow);
 
@@ -75,6 +78,10 @@ public sealed class ApiFactory : WebApplicationFactory<AppOptions>
         // Empty values override anything a developer has in their own environment.
         builder.UseSetting("App:EncryptionSecret", EncryptionSecret ?? string.Empty);
         builder.UseSetting("App:PublicUrl", PublicUrl);
+        if (WebRoot is not null)
+        {
+            builder.UseSetting(WebHostDefaults.WebRootKey, WebRoot);
+        }
 
         foreach (var (key, value) in Settings)
         {
