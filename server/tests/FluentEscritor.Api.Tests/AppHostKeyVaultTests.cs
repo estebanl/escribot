@@ -41,13 +41,18 @@ public class AppHostKeyVaultTests
 
     private static async Task<DistributedApplication> BuildAsync(bool publish)
     {
-        string[] args = publish
-            ? ["--operation", "publish", "--publisher", "manifest", "--output-path", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))]
-            : [];
-        var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.FluentEscritor_AppHost>(args);
+        List<string> args =
+        [
+            "--STRIPE_SECRET_KEY=sk_test_not_a_real_key",
+            "--STRIPE_WEBHOOK_SECRET=whsec_not_a_real_secret",
+        ];
+        if (publish)
+        {
+            args.AddRange(["--operation", "publish", "--publisher", "manifest", "--output-path", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))]);
+        }
+
+        var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.FluentEscritor_AppHost>([.. args]);
         appHost.Configuration["Parameters:encryption-secret"] = TestSecrets.NewSecret();
-        appHost.Configuration["STRIPE_SECRET_KEY"] = "sk_test_not_a_real_key";
-        appHost.Configuration["STRIPE_WEBHOOK_SECRET"] = "whsec_not_a_real_secret";
 
         return await appHost.BuildAsync();
     }
