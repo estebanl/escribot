@@ -55,7 +55,7 @@ var blobs = storage.AddBlobs("blobs");
 // start and emits it for Azure on publish; the API never creates containers itself.
 var files = storage.AddBlobContainer(DataModelSchema.FilesBlobContainer);
 
-var api = builder.AddProject<Projects.Escribot_Api>("api")
+var api = builder.AddDotnetProject("api", "../Escribot.Api/Escribot.Api.csproj")
     .WithReference(cosmos).WaitFor(database)
     .WithReference(blobs).WaitFor(files)
     .WithHttpHealthCheck("/health");

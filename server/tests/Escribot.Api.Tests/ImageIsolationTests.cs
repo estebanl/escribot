@@ -46,7 +46,7 @@ public class ImageIsolationTests
             [$"--Parameters:encryption-secret={TestSecrets.NewSecret()}", "--BrowserApp:Enabled=false"],
             cancellationToken);
 
-        builder.Resources.Remove(builder.Resources.OfType<ProjectResource>().Single(r => r.Name == "api"));
+        builder.Resources.Remove(builder.Resources.Single(r => r.Name == "api"));
         var database = Resource<AzureCosmosDBDatabaseResource>(builder, DataModelSchema.DatabaseName);
         var cosmos = builder.CreateResourceBuilder(database.Resource.Parent);
         var files = Resource<AzureBlobStorageContainerResource>(builder, DataModelSchema.FilesBlobContainer);

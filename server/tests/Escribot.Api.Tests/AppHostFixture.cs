@@ -52,7 +52,7 @@ public sealed class AppHostFixture : IAsyncLifetime
         builder.AddAzureCosmosClient(
             StorageExtensions.CosmosConnectionName,
             settings => settings.DisableHealthChecks = true,
-            DataExtensions.ConfigureCosmosClient);
+            (_, options) => DataExtensions.ConfigureCosmosClient(options));
         builder.Services.AddRepositories();
         _repositoryHost = builder.Build();
 
