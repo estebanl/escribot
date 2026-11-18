@@ -5,8 +5,8 @@
 !server/Directory.Build.props
 !server/Directory.Packages.props
 !server/src/Shared/
-!server/src/FluentEscritor.Api/
-!server/src/FluentEscritor.ServiceDefaults/
+!server/src/Escribot.Api/
+!server/src/Escribot.ServiceDefaults/
 !client/
 
 **/bin/
@@ -16,7 +16,7 @@
 **/*.user
 client/node_modules/
 client/dist/
-server/src/FluentEscritor.Api/wwwroot/
+server/src/Escribot.Api/wwwroot/
 
 # Never send local settings or secrets to the build.
 **/appsettings.Development.json

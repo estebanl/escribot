@@ -1,6 +1,6 @@
-# FluentEscritor
+# Escribot
 
-**FluentEscritor** is an Academic IELTS Writing Coach & Authentic Computer-Delivered (Inspera) Exam Simulator built to help writers break past the **Band 6.5 → 7.5/8.0+ plateau**, with private per-user accounts. It runs as one ASP.NET Core app on Azure Container Apps, with Azure Cosmos DB and Blob Storage.
+**Escribot** is an Academic IELTS Writing Coach & Authentic Computer-Delivered (Inspera) Exam Simulator built to help writers break past the **Band 6.5 → 7.5/8.0+ plateau**, with private per-user accounts. It runs as one ASP.NET Core app on Azure Container Apps, with Azure Cosmos DB and Blob Storage.
 
 ## Core Capabilities
 
@@ -25,8 +25,8 @@
 | Part | Where | What |
 |---|---|---|
 | Browser app | [`client/`](client/) | React 19, React Router, Tailwind 4, built with Vite |
-| API | [`server/src/FluentEscritor.Api`](server/src/FluentEscritor.Api) | ASP.NET Core 11 minimal API; serves the built browser app from `wwwroot` |
-| Local orchestration | [`server/src/FluentEscritor.AppHost`](server/src/FluentEscritor.AppHost) | Aspire AppHost: the API, the Cosmos DB emulator, Azurite and the Vite dev server |
+| API | [`server/src/Escribot.Api`](server/src/Escribot.Api) | ASP.NET Core 11 minimal API; serves the built browser app from `wwwroot` |
+| Local orchestration | [`server/src/Escribot.AppHost`](server/src/Escribot.AppHost) | Aspire AppHost: the API, the Cosmos DB emulator, Azurite and the Vite dev server |
 | Data | Azure Cosmos DB (serverless) and Blob Storage | Described in [server/docs/data-model.md](server/docs/data-model.md) |
 | Email | Azure Communication Services | Verification and password-reset links |
 | Infrastructure | [`infra/`](infra/main.bicep), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Bicep for Azure Container Apps, Key Vault and the rest |
@@ -41,7 +41,7 @@ More detail: [sign-in](server/docs/sign-in.md), [data API](server/docs/data-api.
 
 ### Plans, quotas & rate limits
 
-- **Platform keys are metered.** Requests paid for by the deployment's keys count toward the account's plan (`server/src/FluentEscritor.Api/Common/Plans.cs`): Free = 5 graded essays + 60 coaching requests per month, Pro = 100 + 1,500. Limits reset on the 1st (UTC). The `OWNER_EMAIL` account is unlimited.
+- **Platform keys are metered.** Requests paid for by the deployment's keys count toward the account's plan (`server/src/Escribot.Api/Common/Plans.cs`): Free = 5 graded essays + 60 coaching requests per month, Pro = 100 + 1,500. Limits reset on the 1st (UTC). The `OWNER_EMAIL` account is unlimited.
 - **Own key = no limits.** A user who saves their own provider key in Settings pays for their own usage and is never metered.
 - **Model choice is plan-gated.** On platform keys, Free accounts always use the default provider and models; Pro and own-key users can choose.
 - **Free AI needs a real address.** In production, Free accounts can use the platform keys only once their email is verified (or they signed in with Google, or are listed in `ALLOWED_SIGNUP_EMAILS`), so throwaway sign-ups cannot multiply the allowance. Set `FREE_PLAN_DAILY_AI_CAP` (e.g. `500`) to also cap total Free usage per day across all accounts.
@@ -69,7 +69,7 @@ How it works:
 - Signed-out visitors to `/` see the landing page; signed-in users get the studio. `/pricing`, `/terms` and `/privacy` are public.
 - New accounts answer a short calibration step at `/welcome` (current and target band, exam date, first language) before reaching the studio.
 - `/terms` and `/privacy` are written to match what the app actually does with data (providers, retention, deletion). Set `SITE_OPERATOR`, `SUPPORT_EMAIL` and `SITE_JURISDICTION`, and **have them reviewed by a lawyer before launch**; they are a starting point, not legal advice.
-- The footer carries a trademark notice: FluentEscritor is not affiliated with the IELTS partners, and band scores are AI estimates.
+- The footer carries a trademark notice: Escribot is not affiliated with the IELTS partners, and band scores are AI estimates.
 
 ### Account deletion and data export
 
@@ -95,7 +95,7 @@ Uploaded Task 1 screenshots are stored in a private Blob Storage container and s
 
 ```bash
 cd server
-dotnet run --project src/FluentEscritor.AppHost
+dotnet run --project src/Escribot.AppHost
 ```
 
 This starts the API, the Linux-based Cosmos DB emulator, Azurite and the Vite dev server (`web`, after an `npm install` in `client/`), creates the database, its containers and the blob container in the emulators, and prints a link to the Aspire dashboard, where you can see each resource with its logs, traces and metrics. Open the app at the `web` resource's address and sign up. The first run downloads the emulator images. Without email configured, verification and password-reset links are printed to the API's console.
@@ -111,12 +111,12 @@ npm run lint && npm run typecheck && npm run build
 
 | Project | Purpose |
 |---|---|
-| `src/FluentEscritor.Api` | ASP.NET Core minimal API; also serves the browser app from `wwwroot` |
+| `src/Escribot.Api` | ASP.NET Core minimal API; also serves the browser app from `wwwroot` |
 | `../client` | The browser app: Vite, React, React Router and Tailwind 4 |
-| `src/FluentEscritor.AppHost` | Aspire AppHost: starts the API and the emulators for local development |
+| `src/Escribot.AppHost` | Aspire AppHost: starts the API and the emulators for local development |
 | `src/Shared` | The database and container definitions, compiled into both the AppHost and the API |
-| `src/FluentEscritor.ServiceDefaults` | Shared OpenTelemetry, health checks, service discovery and HTTP resilience |
-| `tests/FluentEscritor.Api.Tests` | xUnit tests |
+| `src/Escribot.ServiceDefaults` | Shared OpenTelemetry, health checks, service discovery and HTTP resilience |
+| `tests/Escribot.Api.Tests` | xUnit tests |
 
 ### Settings and secrets
 
@@ -138,7 +138,7 @@ When you run the AppHost, it generates a random `App:EncryptionSecret` the first
 
 ```bash
 cd server
-dotnet user-secrets set "Parameters:encryption-secret" "$(openssl rand -hex 32)" --project src/FluentEscritor.AppHost
+dotnet user-secrets set "Parameters:encryption-secret" "$(openssl rand -hex 32)" --project src/Escribot.AppHost
 ```
 
 To run the API on its own, without the AppHost, give it the same settings through user secrets or environment variables.
@@ -154,7 +154,7 @@ The API still receives `App__EncryptionSecret`, `STRIPE_SECRET_KEY` and `STRIPE_
 
 ```bash
 cd server
-dotnet run --project src/FluentEscritor.AppHost -- --operation publish --publisher manifest --output-path "$(mktemp -d)"
+dotnet run --project src/Escribot.AppHost -- --operation publish --publisher manifest --output-path "$(mktemp -d)"
 ```
 
 To store another secret in the vault, add a secret parameter in `AppHost.cs` and pass it to `WithSecret`.
@@ -170,9 +170,9 @@ dotnet test --filter "Category!=Integration"     # skips the tests that start th
 `scripts/test-isolation.mjs` signs up two throwaway accounts and checks that one cannot read or change the other's data on any route, that signed-out requests get 401, and that deleting an account leaves the other intact. It runs against any address (`BASE_URL=... node scripts/test-isolation.mjs`). CI runs it against the Docker image, started with the emulators in place of the API project:
 
 ```bash
-docker build -f server/Dockerfile -t fluentescritor-api:ci .
+docker build -f server/Dockerfile -t escribot-api:ci .
 cd server
-ISOLATION_TEST_IMAGE=fluentescritor-api:ci dotnet test --filter "Category=Image"
+ISOLATION_TEST_IMAGE=escribot-api:ci dotnet test --filter "Category=Image"
 ```
 
 ### Docker image
@@ -180,7 +180,7 @@ ISOLATION_TEST_IMAGE=fluentescritor-api:ci dotnet test --filter "Category=Image"
 Build from the repository root, so the image can include the browser app:
 
 ```bash
-docker build -f server/Dockerfile -t fluentescritor-api .
+docker build -f server/Dockerfile -t escribot-api .
 ```
 
 The image contains the API and the built browser app, which the API serves with `index.html` for every page address: no secrets and no development settings. It listens on port 8080 and answers `/alive` (the process is up) and `/health` (Cosmos DB and Blob Storage are reachable).

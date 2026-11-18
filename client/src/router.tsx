@@ -15,14 +15,14 @@ import * as Vault from "@/pages/Vault";
 import * as Welcome from "@/pages/Welcome";
 import * as Write from "@/pages/Write";
 
-export const DEFAULT_TITLE = "FluentEscritor — Academic IELTS Writing Studio & Exam Simulator";
+export const DEFAULT_TITLE = "Escribot — Academic IELTS Writing Studio & Exam Simulator";
 
 interface RouteHandle {
   title?: string;
 }
 
 function title(text: string): RouteHandle {
-  return { title: `${text} — FluentEscritor` };
+  return { title: `${text} — Escribot` };
 }
 
 function RootLayout() {

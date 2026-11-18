@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Escribot.Api/Escribot.Api.csproj" />
+    <Project Path="src/Escribot.AppHost/Escribot.AppHost.csproj" />
+    <Project Path="src/Escribot.ServiceDefaults/Escribot.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Escribot.Api.Tests/Escribot.Api.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="Dockerfile" />
+    <File Path="global.json" />
+  </Folder>
+</Solution>

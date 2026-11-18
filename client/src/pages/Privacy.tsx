@@ -18,8 +18,8 @@ export function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy" updated="November 18, 2026">
       <p>
-        FluentEscritor is operated by {site.operator} (“we”). This policy explains what we
-        collect when you use FluentEscritor, why, who we share it with, and the choices you have.
+        Escribot is operated by {site.operator} (“we”). This policy explains what we
+        collect when you use Escribot, why, who we share it with, and the choices you have.
       </p>
 
       <h2>What we collect</h2>
@@ -129,7 +129,7 @@ export function PrivacyPage() {
 
       <h2>Children</h2>
       <p>
-        FluentEscritor is intended for people aged 16 or older. If you are younger, you need
+        Escribot is intended for people aged 16 or older. If you are younger, you need
         permission from a parent or guardian.
       </p>
 

@@ -1,7 +1,7 @@
 # Sign-in
 
-How accounts, sessions and email work, under `/api/auth/...`. The code is in `FluentEscritor.Api/Auth` and
-`FluentEscritor.Api/Email`.
+How accounts, sessions and email work, under `/api/auth/...`. The code is in `Escribot.Api/Auth` and
+`Escribot.Api/Email`.
 
 ## Parts
 
@@ -49,7 +49,7 @@ straight to the `/reset-password?token=...` page.
 - Every request reads the session and its account. Signing out, resetting the password and
   deleting the account remove sessions on the server, so they end at once everywhere.
 - The cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`. Over HTTPS, and always in production,
-  it is also `Secure` and named `__Host-fluentescritor-session`.
+  it is also `Secure` and named `__Host-escribot-session`.
 
 ## Rules
 

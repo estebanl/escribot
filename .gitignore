@@ -86,4 +86,4 @@ __azurite_db_*.json
 dist/
 
 # the browser app copied next to the API to serve it without the Vite dev server
-server/src/FluentEscritor.Api/wwwroot/
+server/src/Escribot.Api/wwwroot/

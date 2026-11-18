@@ -92,7 +92,7 @@ jobs:
       - name: Build Docker image
         # From the repository root: the image also builds and serves client/.
         working-directory: .
-        run: docker build --file server/Dockerfile --tag fluentescritor-api:ci .
+        run: docker build --file server/Dockerfile --tag escribot-api:ci .
       - name: Image starts only with its secret
         run: |
           # Placeholder connections: creating the clients makes no network call.
@@ -102,7 +102,7 @@ jobs:
             --env ConnectionStrings__blobs=UseDevelopmentStorage=true
           )
 
-          if docker run --rm "${settings[@]}" fluentescritor-api:ci > no-secret.log 2>&1; then
+          if docker run --rm "${settings[@]}" escribot-api:ci > no-secret.log 2>&1; then
             echo "The container started without App__EncryptionSecret."
             exit 1
           fi
@@ -115,7 +115,7 @@ jobs:
           docker rm -f api >/dev/null 2>&1 || true
           docker run --detach --name api --publish 8080:8080 "${settings[@]}" \
             --env App__EncryptionSecret="$(openssl rand -hex 32)" \
-            fluentescritor-api:ci
+            escribot-api:ci
           for i in $(seq 1 30); do
             if curl -sf -o /dev/null http://localhost:8080/alive; then
               # The browser app is in the image: a page address answers with index.html.
@@ -135,5 +135,5 @@ jobs:
         # Starts the AppHost's emulators with this image in place of the API project and runs
         # scripts/test-isolation.mjs against it (see ImageIsolationTests).
         env:
-          ISOLATION_TEST_IMAGE: fluentescritor-api:ci
+          ISOLATION_TEST_IMAGE: escribot-api:ci
         run: dotnet test --no-build --configuration Release --filter "Category=Image" --logger "console;verbosity=normal"

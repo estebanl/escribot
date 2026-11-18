@@ -76,7 +76,7 @@ export function AppShell({
             </div>
             <div className="leading-tight">
               <span className="font-serif text-lg font-semibold tracking-tight text-ink block">
-                FluentEscritor
+                Escribot
               </span>
               <span className="text-[10px] font-mono uppercase tracking-widest text-ink-muted hidden sm:block">
                 Academic IELTS Studio

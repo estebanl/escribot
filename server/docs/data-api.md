@@ -1,7 +1,7 @@
 # Data API
 
-The non-AI routes of the API: paths, methods, status codes and JSON. The code is in `FluentEscritor.Api/Api` and
-`FluentEscritor.Api/Common`. Sign-in is described in [sign-in.md](sign-in.md) and the
+The non-AI routes of the API: paths, methods, status codes and JSON. The code is in `Escribot.Api/Api` and
+`Escribot.Api/Common`. Sign-in is described in [sign-in.md](sign-in.md) and the
 stored documents in [data-model.md](data-model.md).
 
 ## Routes

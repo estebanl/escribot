@@ -2,7 +2,7 @@
 
 # One image for the app: the API, serving the browser app from wwwroot. Build from the
 # repository root, so both server/ and client/ are in the context:
-#   docker build -f server/Dockerfile -t fluentescritor-api .
+#   docker build -f server/Dockerfile -t escribot-api .
 #
 # The image holds no secrets and no development settings. Every secret is supplied at
 # run time as an environment variable (see "Local development (.NET)" in the README).
@@ -22,14 +22,14 @@ WORKDIR /source
 
 # Restore first, from the project files alone, so this layer is reused until a dependency changes.
 COPY server/global.json server/Directory.Build.props server/Directory.Packages.props ./
-COPY server/src/FluentEscritor.Api/FluentEscritor.Api.csproj src/FluentEscritor.Api/
-COPY server/src/FluentEscritor.ServiceDefaults/FluentEscritor.ServiceDefaults.csproj src/FluentEscritor.ServiceDefaults/
-RUN dotnet restore src/FluentEscritor.Api/FluentEscritor.Api.csproj
+COPY server/src/Escribot.Api/Escribot.Api.csproj src/Escribot.Api/
+COPY server/src/Escribot.ServiceDefaults/Escribot.ServiceDefaults.csproj src/Escribot.ServiceDefaults/
+RUN dotnet restore src/Escribot.Api/Escribot.Api.csproj
 
 COPY server/src/Shared/ src/Shared/
-COPY server/src/FluentEscritor.Api/ src/FluentEscritor.Api/
-COPY server/src/FluentEscritor.ServiceDefaults/ src/FluentEscritor.ServiceDefaults/
-RUN dotnet publish src/FluentEscritor.Api/FluentEscritor.Api.csproj \
+COPY server/src/Escribot.Api/ src/Escribot.Api/
+COPY server/src/Escribot.ServiceDefaults/ src/Escribot.ServiceDefaults/
+RUN dotnet publish src/Escribot.Api/Escribot.Api.csproj \
     --configuration Release --no-restore --output /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS final
@@ -44,4 +44,4 @@ EXPOSE 8080
 # The non-root user defined by the base image.
 USER $APP_UID
 
-ENTRYPOINT ["dotnet", "FluentEscritor.Api.dll"]
+ENTRYPOINT ["dotnet", "Escribot.Api.dll"]
