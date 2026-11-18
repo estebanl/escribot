@@ -12,7 +12,6 @@ namespace FluentEscritor.Api.Api;
 
 /// <summary>
 /// Stripe Checkout, the customer portal, the pricing page's prices and the Stripe webhook.
-/// Ported from <c>src/app/api/billing</c> and <c>src/app/api/stripe/webhook</c>.
 /// </summary>
 internal static partial class BillingEndpoints
 {

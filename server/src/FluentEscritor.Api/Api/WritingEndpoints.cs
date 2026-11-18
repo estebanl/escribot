@@ -7,7 +7,7 @@ using FluentEscritor.Api.Data.Models;
 
 namespace FluentEscritor.Api.Api;
 
-/// <summary>Writing sessions, prompts, the Vault and drills, on the paths and with the JSON of the Next.js routes.</summary>
+/// <summary>Writing sessions, prompts, the Vault and drills, and the JSON the browser app expects.</summary>
 internal static class WritingEndpoints
 {
     private const int MaxShortText = 300;

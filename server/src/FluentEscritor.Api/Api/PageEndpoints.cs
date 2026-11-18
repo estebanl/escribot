@@ -9,9 +9,8 @@ using FluentEscritor.Api.Data.Models;
 namespace FluentEscritor.Api.Api;
 
 /// <summary>
-/// What the browser app needs to draw a page, for the pages whose Next.js server component
-/// queried the database itself (<c>src/app/**/page.tsx</c>). Each answer has the shape of
-/// the props that page passed to its client component. Pages that only show what an
+/// What the browser app needs to draw a page, for the pages that need more than one
+/// endpoint's data. Each answer has the shape of the props that page's component takes. Pages that only show what an
 /// existing endpoint returns (the Vault, the evaluation of a session, pricing, admin) use
 /// that endpoint instead.
 /// </summary>

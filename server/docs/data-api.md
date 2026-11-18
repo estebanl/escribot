@@ -1,7 +1,6 @@
 # Data API
 
-The non-AI routes of the Next.js app on the .NET server, with the same paths, methods,
-status codes and JSON. The code is in `FluentEscritor.Api/Api` and
+The non-AI routes of the API: paths, methods, status codes and JSON. The code is in `FluentEscritor.Api/Api` and
 `FluentEscritor.Api/Common`. Sign-in is described in [sign-in.md](sign-in.md) and the
 stored documents in [data-model.md](data-model.md).
 
@@ -25,32 +24,30 @@ stored documents in [data-model.md](data-model.md).
 | `GET /api/admin/overview`, `PATCH /api/admin/users/{id}` | Admins only; 404 for everyone else. See [billing.md](billing.md) |
 | `GET /api/viewer` | The signed-in person with plan, `canUpgrade`, `isAdmin` and `onboarded`, or `{ "user": null }`; public |
 | `GET /api/config` | `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION` for the legal pages; public |
-| `GET /api/pages/studio`, `/write/{id}`, `/analytics`, `/settings`, `/drills` | The data of the browser app's pages, in the shape of the props the Next.js page passed to its component. `/write/{id}` is 404 for a session that is not the user's |
+| `GET /api/pages/studio`, `/write/{id}`, `/analytics`, `/settings`, `/drills` | The data of the browser app's pages, in the shape of the props its component takes. `/write/{id}` is 404 for a session that is not the user's |
 
 Every route needs a session except `/api/errors`, `/api/billing/prices`, `/api/viewer`,
-`/api/config` and `/api/stripe/webhook` (see `ApiGuard`). The admin image migration is not ported: there are
-no inline images to move.
+`/api/config` and `/api/stripe/webhook` (see `ApiGuard`). 
 
-## Same JSON over a different store
+## Wire format
 
-The Next.js routes returned database rows: nested values were JSON text in fields ending
-in `Json` (`chartSpecJson`, `criterionFeedbackJson`, …). The documents now hold those
-values as real JSON. `Wire` turns each document back into the old row, so the browser
-code does not change. Timestamps are UTC with three decimals, as before.
+The browser app receives one flat object per record: nested values are JSON text in fields
+ending in `Json` (`chartSpecJson`, `criterionFeedbackJson`, …). The documents hold those
+values as real JSON, and `Wire` turns each document into the flat shape. Timestamps are UTC
+with three decimals.
 
 ## Validation
 
-The routes read a body the forgiving way the originals did: a field of the wrong type
-counts as missing, and the route then answers with its original message. On top of that:
+The routes read a body the forgiving way: a field of the wrong type counts as missing, and
+the route then answers with its own message. On top of that:
 
 - A session `mode`, a prompt `taskType`, a settings `nativeLanguage` and `activeProvider`
-  must be known values. The originals stored whatever was sent.
+  must be known values.
 - `apiKeysToUpdate` accepts only the five known providers.
 - Bands are 0 to 9. Prompt and Vault texts are limited to 20,000 characters, titles and
   the like to 300.
-- A backup file is checked row by row as the zod schemas did. It must also hold JSON in
-  its `…Json` fields and dates in its date fields, because they are stored as such now,
-  and at most 20,000 rows.
+- A backup file is checked row by row. It must hold JSON in its `…Json` fields and dates
+  in its date fields, and at most 20,000 rows.
 - A body that is not JSON is a 400 `{"error":"The request could not be read."}`.
 
 ## Images
@@ -66,8 +63,7 @@ counts as missing, and the route then answers with its original message. On top 
 ## Saved API keys
 
 AES-256-GCM with the SHA-256 of `App:EncryptionSecret` as the key, stored as
-`iv:tag:ciphertext` in Base64: the format of `src/lib/crypto.ts`. The older fallbacks
-(`APP_PASSCODE`, the built-in development secret) are gone. A key is never returned,
+`iv:tag:ciphertext` in Base64. A key is never returned,
 only whether one is saved and its first and last characters; exports name the provider only.
 
 ## Plans and usage
@@ -96,8 +92,8 @@ Restoring the same file again adds a second copy, as it did before.
 ## Shared helpers
 
 `Common/Ielts.cs` (band rounding, the weighted exam band, word counts, task minimums) and
-`Common/ChartSpecNormalizer.cs` are ports of `src/lib/ielts-utils.ts` and
-`src/lib/chart-utils.ts`, for the AI endpoints to use. Both have unit tests.
+`Common/ChartSpecNormalizer.cs` mirror `client/src/lib/ielts-utils.ts` and
+`client/src/lib/chart-utils.ts`, for the AI endpoints to use. Both have unit tests.
 
 ## The browser app
 

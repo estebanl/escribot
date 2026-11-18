@@ -10,7 +10,6 @@ namespace FluentEscritor.Api.Ai;
 /// <summary>
 /// IELTS examiner functions: visual extraction, 4-criterion evaluation, outline check,
 /// toolkit, prompt generation, and micro-drill generation &amp; scoring.
-/// Ported from <c>src/lib/ai/examiner.ts</c>.
 /// </summary>
 public sealed partial class ExaminerService(AiConfigResolver configResolver, AiCompletionService ai)
 {

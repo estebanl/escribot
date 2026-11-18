@@ -9,7 +9,7 @@ public sealed record ApiError(
 
 internal static class ApiResults
 {
-    /// <summary>The body the Next.js app returns to signed-out API calls, kept as it is.</summary>
+    /// <summary>The body returned to signed-out API calls; the browser app relies on it.</summary>
     public const string UnauthorizedMessage = "Unauthorized — please sign in.";
 
     public static IResult Error(int statusCode, string message, string? code = null) =>

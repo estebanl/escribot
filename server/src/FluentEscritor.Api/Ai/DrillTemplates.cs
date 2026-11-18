@@ -4,7 +4,6 @@ namespace FluentEscritor.Api.Ai;
 
 /// <summary>
 /// Built-in advanced, intermediate, and beginner micro-drill templates.
-/// Ported verbatim from <c>src/lib/ai/examiner.ts</c>.
 /// </summary>
 internal static class DrillTemplates
 {

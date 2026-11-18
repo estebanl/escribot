@@ -38,13 +38,11 @@ const TIMEOUT_MESSAGE =
   "Grading took too long, please try again. Your essay is still safely in the editor.";
 
 function detectHttpTimeout(res: Response, rawText: string): boolean {
-  const vercelError = res.headers.get("x-vercel-error") || "";
   if (
     res.status === 504 ||
     res.status === 408 ||
     res.status === 524 ||
-    vercelError.toUpperCase().includes("TIMEOUT") ||
-    /FUNCTION_INVOCATION_TIMEOUT|gateway timeout|timed?\s*out/i.test(rawText)
+    /gateway timeout|timed?\s*out/i.test(rawText)
   ) {
     return true;
   }

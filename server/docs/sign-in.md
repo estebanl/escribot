@@ -1,8 +1,6 @@
 # Sign-in
 
-How accounts, sessions and email work on the .NET server. It replaces Better Auth
-(`src/lib/auth.ts`, `src/lib/session.ts`, `src/proxy.ts`, `src/lib/email.ts`) and keeps
-its rules and its `/api/auth/...` paths. The code is in `FluentEscritor.Api/Auth` and
+How accounts, sessions and email work, under `/api/auth/...`. The code is in `FluentEscritor.Api/Auth` and
 `FluentEscritor.Api/Email`.
 
 ## Parts
@@ -38,9 +36,8 @@ All under `/api/auth`. Errors are `{ "error": "...", "code": "..." }`.
 
 `user` is `{ id, name, email, emailVerified, image, hasPassword, isOwner, isAdmin }`.
 
-Differences from Better Auth's paths: the current user is `GET /me` (was `GET /get-session`),
-Google starts with a plain link to `GET /sign-in/google` (was `POST /sign-in/social`), and
-the reset email links straight to the `/reset-password?token=...` page.
+Google sign-in starts with a plain link to `GET /sign-in/google`, and the reset email links
+straight to the `/reset-password?token=...` page.
 
 ## Sessions
 
@@ -54,7 +51,7 @@ the reset email links straight to the `/reset-password?token=...` page.
 - The cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`. Over HTTPS, and always in production,
   it is also `Secure` and named `__Host-fluentescritor-session`.
 
-## Rules kept from the Next.js app
+## Rules
 
 - **Passwords:** 8 to 128 characters, no other rule. Stored as Identity's PBKDF2 hash.
 - **Email verification** is required only when email is configured. Until then a new
@@ -77,7 +74,7 @@ the reset email links straight to the `/reset-password?token=...` page.
 - **Signed-out API calls** get 401 with `{"error":"Unauthorized — please sign in."}`. Public:
   `/api/auth/...`, `/api/stripe/webhook`, `/api/errors`, `/api/billing/prices`.
 
-## What is new or stricter
+## Links, enumeration and Google
 
 - **Enumeration:** when verification is required, signing up with a taken address answers
   exactly as for a new one. Reset and resend always answer the same.

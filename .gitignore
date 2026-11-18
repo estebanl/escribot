@@ -13,10 +13,6 @@
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
-
 # production
 /build
 
@@ -34,22 +30,11 @@ yarn-error.log*
 .env*
 !.env.example
 
-# local sqlite / libsql dev database
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-/data/
-
-# vercel
-.vercel
-
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 # ------------------------------------------------------------------------------
-# .NET / Aspire / Azure (migration, see issue #7)
+# .NET / Aspire / Azure
 # ------------------------------------------------------------------------------
 
 # build output

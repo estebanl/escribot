@@ -7,7 +7,7 @@ namespace FluentEscritor.Api.Common;
 
 /// <summary>
 /// Turns a chart specification written by an AI model (or stored earlier) into the exact
-/// shape the chart renderer expects. Ported from <c>src/lib/chart-utils.ts</c>.
+/// shape the chart renderer expects.
 /// </summary>
 public static partial class ChartSpecNormalizer
 {

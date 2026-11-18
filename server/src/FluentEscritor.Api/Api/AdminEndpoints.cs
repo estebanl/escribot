@@ -10,7 +10,6 @@ namespace FluentEscritor.Api.Api;
 /// <summary>
 /// The admin page's data and the complimentary Pro toggle. To anyone but an admin these
 /// routes do not exist: they answer 404 before reading anything, the request body included.
-/// Ported from <c>src/app/admin/page.tsx</c> and <c>src/app/api/admin/users/[id]</c>.
 /// </summary>
 internal static class AdminEndpoints
 {

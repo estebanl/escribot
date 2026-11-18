@@ -44,7 +44,6 @@ public enum SubscriptionApplyResult
 
 /// <summary>
 /// The user's Stripe customer, and the subscription state Stripe's webhook events carry.
-/// Ported from <c>src/lib/billing/subscription.ts</c>.
 /// </summary>
 public sealed class SubscriptionSync(
     ISubscriptionRepository subscriptions,
@@ -144,7 +143,7 @@ public sealed class SubscriptionSync(
         return SubscriptionApplyResult.Applied;
     }
 
-    /// <summary>The wire name of a result, as the Next.js webhook reported it.</summary>
+    /// <summary>The wire name of a result, as the webhook reports it.</summary>
     public static string WireName(SubscriptionApplyResult result) => result switch
     {
         SubscriptionApplyResult.Applied => "applied",

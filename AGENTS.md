@@ -1,9 +1,15 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Notes for coding agents
 
-## This is NOT the Next.js you know
+FluentEscritor is one ASP.NET Core 11 app with a React browser app, deployed to Azure Container Apps. See the README for the full picture.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+- `client/`: the browser app (Vite, React 19, React Router, Tailwind 4). Check with `npm run lint && npm run typecheck && npm run build` in `client/`.
+- `server/`: the API (`src/FluentEscritor.Api`), the Aspire AppHost that runs it locally with the Cosmos DB emulator and Azurite (`src/FluentEscritor.AppHost`), and the xUnit tests. Check with `dotnet build` and `dotnet test` in `server/`; tests in the `Integration` category need a container runtime.
+- `server/docs/`: how sign-in, the data API, billing and the Cosmos DB data model work. Update them with any change to endpoints, sign-in or stored documents.
+- `infra/` and `.github/workflows/deploy.yml`: the Azure deployment.
+- `scripts/test-isolation.mjs`: the end-to-end tenant-isolation test.
 
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+Rules that hold everywhere:
 
-<!-- END:nextjs-agent-rules -->
+- Every user-owned document is read and written through the repositories with the owner's user id. Another user's data answers 404, never 403; signed-out API calls answer 401.
+- No secret has a value in the repository, in code, settings or tests. Secrets reach the API as environment variables (user secrets locally, Key Vault in Azure).
+- The JSON the browser app receives is shaped by `server/src/FluentEscritor.Api/Api/Wire.cs`; change it and `client/src/lib/types.ts` together.

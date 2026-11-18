@@ -2,7 +2,7 @@ namespace FluentEscritor.Api.Ai;
 
 public sealed record L1LanguageProfile(string Label, string CoachingFocus);
 
-/// <summary>Ported from <c>L1_LANGUAGE_PROFILES</c> in <c>src/lib/ielts-utils.ts</c>.</summary>
+/// <summary>Coaching notes for the writer's first language, keyed by language code.</summary>
 public static class L1Profiles
 {
     public static readonly IReadOnlyDictionary<string, L1LanguageProfile> All = new Dictionary<string, L1LanguageProfile>

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { isRouteErrorResponse, Link, useRevalidator, useRouteError } from "react-router";
 import { reportClientError } from "@/lib/report-client-error";
 
-/** The not-found page, as Next.js showed it, for unknown addresses and data the viewer may not see. */
+/** The not-found page, for unknown addresses and data the viewer may not see. */
 export function NotFoundPage() {
   useEffect(() => {
     document.title = "404: This page could not be found.";

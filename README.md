@@ -1,6 +1,6 @@
 # FluentEscritor
 
-**FluentEscritor** is an Academic IELTS Writing Coach & Authentic Computer-Delivered (Inspera) Exam Simulator built to help writers break past the **Band 6.5 → 7.5/8.0+ plateau**, with private per-user accounts, deployed on Vercel + Turso.
+**FluentEscritor** is an Academic IELTS Writing Coach & Authentic Computer-Delivered (Inspera) Exam Simulator built to help writers break past the **Band 6.5 → 7.5/8.0+ plateau**, with private per-user accounts. It runs as one ASP.NET Core app on Azure Container Apps, with Azure Cosmos DB and Blob Storage.
 
 ## Core Capabilities
 
@@ -9,7 +9,7 @@
   - **Authentic Inspera Exam Simulator**: Faithful Computer-Delivered IELTS replica supporting **20m Task 1**, **40m Task 2**, and **60m Shared-Clock Full Mock Exams** (`Part 1` / `Part 2` switcher tabs, `1:2` weighted overall Writing Band `(T1 + 2 × T2) / 3`, prompt yellow highlighter, candidate scratchpad notes, spellcheck disabled).
 - **Full Academic Task 1 & Task 2 Coverage**
   - Pre-seeded library spanning **all 7 Task 1 visual archetypes** (Line Graph, Bar Chart, Comparative Pie Charts, Data Table, Mixed Dual-Axis Charts, Process Diagram, Two-Period Comparison Map) and **all 5 Task 2 essay archetypes**.
-  - **Screenshot Upload (`Ctrl/Cmd+V`)**: Paste or drop chart screenshots from external prep books (e.g., Cambridge IELTS); client-side WebP compression stores images directly in Turso without external S3 buckets.
+  - **Screenshot Upload (`Ctrl/Cmd+V`)**: Paste or drop chart screenshots from external prep books (e.g., Cambridge IELTS); they are compressed to WebP in the browser and stored privately in Azure Blob Storage.
   - **AI Prompt & Chart Generator**: Generates fresh structured visual datasets and discursive prompts on demand.
 - **Post-Submission Diagnostic & Multi-Draft (`v1 → v2 → v3`) Loop**
   - Official 4-criterion scoring (`TA/TR`, `CC`, `LR`, `GRA` in `0.5` steps), interactive color-coded inline span annotations, toggleable *"Your Ideas at Band 8.0+"* side-by-side diff, and iterative `v2/v3` re-scoring with band delta tracking.
@@ -20,32 +20,33 @@
 
 ---
 
-## Local Development
+## How it is built
 
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
+| Part | Where | What |
+|---|---|---|
+| Browser app | [`client/`](client/) | React 19, React Router, Tailwind 4, built with Vite |
+| API | [`server/src/FluentEscritor.Api`](server/src/FluentEscritor.Api) | ASP.NET Core 11 minimal API; serves the built browser app from `wwwroot` |
+| Local orchestration | [`server/src/FluentEscritor.AppHost`](server/src/FluentEscritor.AppHost) | Aspire AppHost: the API, the Cosmos DB emulator, Azurite and the Vite dev server |
+| Data | Azure Cosmos DB (serverless) and Blob Storage | Described in [server/docs/data-model.md](server/docs/data-model.md) |
+| Email | Azure Communication Services | Verification and password-reset links |
+| Infrastructure | [`infra/`](infra/main.bicep), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Bicep for Azure Container Apps, Key Vault and the rest |
 
-On first boot `FluentEscritor` creates `file:./local.db` (SQLite/LibSQL), applies the SQL migrations in `/drizzle`, and seeds the curated prompt bank — no manual migration command required. Open `http://localhost:3000/signup` to create your account.
-
-Without email configured, password-reset links are printed to the dev server console.
+More detail: [sign-in](server/docs/sign-in.md), [data API](server/docs/data-api.md), [billing and admin](server/docs/billing.md).
 
 ### Accounts & data isolation
 
-- Sign-in is handled by [Better Auth](https://www.better-auth.com) (email + password, optional Google), with sessions stored in the same database.
-- Every essay, draft, evaluation, Vault item, drill, custom prompt, settings row, and AI usage record belongs to one user (`user_id`). Curated prompts are the only shared rows.
-- Server pages call `requireUser()` and API routes call `getCurrentUser()` (`src/lib/session.ts`); ownership filters live in `src/lib/db/scope.ts`.
+- Accounts use email + password, with optional "Continue with Google". Sessions are opaque random tokens; the database keeps only their SHA-256.
+- Every essay, draft, evaluation, Vault item, drill, custom prompt, setting and AI usage record belongs to one user and lives in that user's Cosmos DB partition (`/userId`). Curated prompts are the only shared documents.
+- Repository calls always take the user id, so one account can never read or change another's documents, even knowing their ids. `TenantIsolationTests` and `scripts/test-isolation.mjs` check this.
 
 ### Plans, quotas & rate limits
 
-- **Platform keys are metered.** Requests paid for by the deployment's env keys count toward the account's plan (`src/lib/plans.ts`): Free = 5 graded essays + 60 coaching requests per month, Pro = 100 + 1,500. Limits reset on the 1st (UTC). The `OWNER_EMAIL` account is unlimited.
+- **Platform keys are metered.** Requests paid for by the deployment's keys count toward the account's plan (`server/src/FluentEscritor.Api/Common/Plans.cs`): Free = 5 graded essays + 60 coaching requests per month, Pro = 100 + 1,500. Limits reset on the 1st (UTC). The `OWNER_EMAIL` account is unlimited.
 - **Own key = no limits.** A user who saves their own provider key in Settings pays for their own usage and is never metered.
 - **Model choice is plan-gated.** On platform keys, Free accounts always use the default provider and models; Pro and own-key users can choose.
 - **Free AI needs a real address.** In production, Free accounts can use the platform keys only once their email is verified (or they signed in with Google, or are listed in `ALLOWED_SIGNUP_EMAILS`), so throwaway sign-ups cannot multiply the allowance. Set `FREE_PLAN_DAILY_AI_CAP` (e.g. `500`) to also cap total Free usage per day across all accounts.
-- **Rate limits** are stored in the database so they hold across serverless instances: 20 AI requests per minute per user, plus per-IP limits on sign-in, sign-up and password reset.
-- To give someone complimentary Pro without a subscription: `UPDATE user_settings SET plan = 'pro' WHERE user_id = '<id>';`
+- **Rate limits** are counted in Cosmos DB so they hold across replicas: 20 AI requests per minute per user, plus per-address limits on sign-in, sign-up and password reset.
+- To give someone complimentary Pro without a subscription, use the toggle on `/admin`.
 
 ### Billing (Stripe)
 
@@ -53,15 +54,15 @@ Paid Pro runs on Stripe Checkout and the Stripe customer portal; the app never h
 
 1. In Stripe, create a **Pro** product with a recurring price. Suggested: **$9/month** and **$90/year** (two months free).
 2. In **Settings → Billing → Customer portal**, enable cancellations, payment-method updates, invoice history and (if you created both prices) switching between them.
-3. Add a webhook endpoint at `<BETTER_AUTH_URL>/api/stripe/webhook` for `customer.subscription.created`, `.updated`, `.deleted`, `.paused` and `.resumed`.
+3. Add a webhook endpoint at `<App:PublicUrl>/api/stripe/webhook` for `customer.subscription.created`, `.updated`, `.deleted`, `.paused` and `.resumed`.
 4. Set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO_MONTHLY`, optionally `STRIPE_PRICE_PRO_YEARLY`, and `STRIPE_WEBHOOK_SECRET`.
 
 How it works:
 
 - `/pricing` is public. Free users see an **Upgrade** button in the header, in Settings, and in the message shown when they run out of their monthly allowance.
-- Checkout creates one Stripe customer per user. The webhook stores the subscription in the `subscriptions` table; `active`, `trialing` and `past_due` grant Pro (past-due keeps access while Stripe retries the card).
+- Checkout creates one Stripe customer per user. The webhook stores the subscription; `active`, `trialing` and `past_due` grant Pro (past-due keeps access while Stripe retries the card).
 - **Manage billing** in Settings opens the Stripe portal for cancelling, changing card or billing period, and invoices. A cancelled subscription keeps Pro until the end of the paid period.
-- Test locally with the Stripe CLI: `stripe listen --forward-to localhost:3000/api/stripe/webhook` and use its `whsec_...` secret.
+- Test locally with the Stripe CLI: `stripe listen --forward-to <API address>/api/stripe/webhook` and use its `whsec_...` secret.
 
 ### Onboarding, landing page and legal pages
 
@@ -75,34 +76,20 @@ How it works:
 **Settings → Account & Privacy** lets a user:
 
 - Download everything held about them as one JSON file (`/api/account/export`). Saved API keys are listed but never exported.
-- Delete their account, after confirming with their password. This deletes the Stripe customer (cancelling any subscription immediately), uploaded images and every row they own.
+- Delete their account, after confirming with their password. This deletes the Stripe customer (cancelling any subscription immediately), uploaded images and every document they own.
 
 ### Chart image storage
 
-Uploaded Task 1 screenshots are stored in a private Vercel Blob store when `BLOB_READ_WRITE_TOKEN` is set, or in an `images` table otherwise. They are served only to their owner through `/api/images/[id]`.
-
-Limits: 2 MB per image; 25 MB total on Free and 250 MB on Pro (`src/lib/plans.ts`). Images uploaded before this change stay inline until an admin moves them from `/admin`.
+Uploaded Task 1 screenshots are stored in a private Blob Storage container and served only to their owner through `/api/images/{id}`. Limits: 2 MB per image; 25 MB total on Free and 250 MB on Pro.
 
 ### Admin and error tracking
 
-- `/admin` is visible to the verified `OWNER_EMAIL` account and verified addresses in `ADMIN_EMAILS`; everyone else gets a 404. It shows users, sign-ups, paying subscribers, platform AI cost by plan, recent errors, a complimentary-Pro toggle per user, and the inline-image migration.
-- Errors are recorded in the `error_events` table (kept 30 days) from three places: uncaught server errors (`src/instrumentation.ts`), API routes' own error handling, and browser error boundaries (`/api/errors`). To use Sentry or similar instead, forward from `reportError` in `src/lib/errors.ts`.
-
-### Tests
-
-`npm run test:isolation` runs against a live server (`BASE_URL`, default `http://localhost:3000`). It creates two throwaway accounts and checks that one cannot read or change the other's data on any route, that signed-out requests get 401, and that deleting an account leaves other users intact. CI (`.github/workflows/ci.yml`) runs lint, type-check, build and this test on every pull request.
-
-### Database migrations
-
-Schema changes are versioned: edit `src/lib/db/schema.ts`, run `npm run db:generate`, and commit the new file in `/drizzle`. Migrations are applied automatically at startup (or manually with `npm run db:migrate`).
+- `/admin` is visible to the verified `OWNER_EMAIL` account and verified addresses in `ADMIN_EMAILS`; everyone else gets a 404. It shows users, sign-ups, paying subscribers, platform AI cost by plan, recent errors and a complimentary-Pro toggle per user.
+- Server errors and browser error reports (`/api/errors`) are stored in Cosmos DB for 30 days, with anything shaped like a credential redacted. Traces, metrics and logs go to OpenTelemetry (the Aspire dashboard locally and in Azure).
 
 ---
 
-## Local development (.NET)
-
-The app is being moved to a .NET 11 server on Azure (see issue #7). The new server lives in `server/` next to the Next.js app, which keeps working until the move is finished. So far it has health endpoints, configuration, the data layer (the Cosmos DB containers and the repositories over them, described in [server/docs/data-model.md](server/docs/data-model.md)) sign-in, described in [server/docs/sign-in.md](server/docs/sign-in.md), and the data endpoints (sessions, prompts, Vault, settings, images, backup and export), described in [server/docs/data-api.md](server/docs/data-api.md). The AI and billing endpoints and the browser app (`client/`) are there too.
-
-The browser app for the .NET server is in `client/`: the same React components as the Next.js app, built with Vite and React Router. In production the API serves the built files itself; in development the Vite dev server runs it and passes `/api` on to the API.
+## Local development
 
 **You need:** the [.NET 11 SDK](https://dotnet.microsoft.com/download), Node.js 22 or later, and a running container runtime (Docker Desktop or Podman). The Cosmos DB emulator and Azurite run as containers.
 
@@ -111,7 +98,7 @@ cd server
 dotnet run --project src/FluentEscritor.AppHost
 ```
 
-This starts the API, the Linux-based Cosmos DB emulator, Azurite and the Vite dev server (`web`, after an `npm install` in `client/`), creates the database, its containers and the blob container in the emulators, and prints a link to the Aspire dashboard, where you can see each resource with its logs, traces and metrics. Open the app at the `web` resource's address. The first run downloads the emulator images.
+This starts the API, the Linux-based Cosmos DB emulator, Azurite and the Vite dev server (`web`, after an `npm install` in `client/`), creates the database, its containers and the blob container in the emulators, and prints a link to the Aspire dashboard, where you can see each resource with its logs, traces and metrics. Open the app at the `web` resource's address and sign up. The first run downloads the emulator images. Without email configured, verification and password-reset links are printed to the API's console.
 
 The browser app on its own:
 
@@ -142,7 +129,7 @@ No secret has a default value in the code, and none belongs in a file inside the
 | `ConnectionStrings:cosmos` | `ConnectionStrings__cosmos` | Always. Supplied by the AppHost locally. |
 | `ConnectionStrings:blobs` | `ConnectionStrings__blobs` | Always. Supplied by the AppHost locally. |
 | `App:TrustForwardedHeaders` | `App__TrustForwardedHeaders` | Set to `true` behind the Azure Container Apps ingress, and only behind a proxy. |
-|  | `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS` | Optional. Same meaning as in the Next.js app. |
+|  | `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS` | Optional. The owner account, a sign-up allowlist and extra admins (see above). |
 |  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Both turn on "Continue with Google". |
 |  | `AZURE_COMMUNICATION_CONNECTION_STRING`, `EMAIL_FROM` | Optional. Both turn on email through Azure Communication Services. |
 |  | `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION` | Optional. Shown on the Terms and Privacy pages (public, from `GET /api/config`). |
@@ -178,6 +165,14 @@ To store another secret in the vault, add a secret parameter in `AppHost.cs` and
 cd server
 dotnet test                                      # everything; needs a container runtime
 dotnet test --filter "Category!=Integration"     # skips the tests that start the emulators
+```
+
+`scripts/test-isolation.mjs` signs up two throwaway accounts and checks that one cannot read or change the other's data on any route, that signed-out requests get 401, and that deleting an account leaves the other intact. It runs against any address (`BASE_URL=... node scripts/test-isolation.mjs`). CI runs it against the Docker image, started with the emulators in place of the API project:
+
+```bash
+docker build -f server/Dockerfile -t fluentescritor-api:ci .
+cd server
+ISOLATION_TEST_IMAGE=fluentescritor-api:ci dotnet test --filter "Category=Image"
 ```
 
 ### Docker image
@@ -220,7 +215,7 @@ The `.NET 11` app deploys to Azure Container Apps from the infrastructure defini
    - Set `ENABLE_CUSTOM_DOMAIN_CERT=true` in the `production` environment variables and re-run the deploy workflow.
 7. **Email domain verification (ACS)**: when `CUSTOM_DOMAIN` is set, Azure Communication Services provisions the email domain. In the Azure Portal under the Email Communication Service domain, copy the **SPF** and **DKIM** DNS records to your DNS provider and verify them.
 8. **External callbacks**:
-   - Stripe webhook endpoint: `https://<your-domain>/api/billing/webhook`
+   - Stripe webhook endpoint: `https://<your-domain>/api/stripe/webhook`
    - Google OAuth redirect URI: `https://<your-domain>/api/auth/callback/google`
 9. **Verify isolation**:
    ```bash
