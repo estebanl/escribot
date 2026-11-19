@@ -22,6 +22,145 @@ in the local emulator and emits them in the Azure infrastructure definitions, an
 API, which reads and writes them. The app never creates containers itself, so in Azure its
 managed identity needs data access only.
 
+## Diagram
+
+The database, its containers and Blob Storage. Arrows are references by id; nothing
+enforces them (there are no foreign keys), and each is resolved inside one partition or
+by a point read.
+
+```mermaid
+flowchart LR
+    subgraph cosmos["Cosmos DB: escribot"]
+        subgraph users["users (/userId)"]
+            U1["partition: user A<br/>account · settings · subscription<br/>prompt · session · draft · evaluation<br/>vaultItem · drill · aiUsage · image"]
+            U2["partition: user B<br/>…"]
+        end
+        subgraph shared["shared (/pk)"]
+            S["partition: curated-prompts<br/>curated prompt documents"]
+        end
+        subgraph lookups["lookups (/id, ttl per document)"]
+            L["email:sha256 · session:sha256<br/>stripe:sha256 · verify-email:sha256<br/>reset-password:sha256"]
+        end
+        subgraph counters["counters (/id, ttl per document)"]
+            C["rate:sha256(key):windowStart<br/>free-ai:yyyy-MM-dd"]
+        end
+        subgraph errors["errors (/day, ttl 30 days)"]
+            E["error events, one partition per UTC day"]
+        end
+    end
+    subgraph blob["Blob Storage: files"]
+        B["users/{userId}/images/{id}.{ext}"]
+    end
+
+    L -- "userId" --> U1
+    U1 -- "task1PromptId / task2PromptId / promptId" --> S
+    U1 -- "image.blobName" --> B
+    E -. "userId (optional)" .-> U1
+```
+
+The documents in one user's partition of `users`. Every one also has `id`, `type` and
+`userId`; only the fields that matter for the relationships are shown. A session's prompts
+can be the user's own `prompt` documents or curated prompts in `shared`.
+
+```mermaid
+erDiagram
+    account ||--|| settings : "one per user"
+    account ||--o| subscription : "one Stripe customer"
+    account ||--o{ session : owns
+    account ||--o{ prompt : "custom and AI-generated"
+    account ||--o{ vaultItem : owns
+    account ||--o{ drill : owns
+    account ||--o{ aiUsage : owns
+    account ||--o{ image : owns
+    session ||--o{ draft : "sessionId"
+    draft ||--o{ evaluation : "draftId"
+    session ||--o{ evaluation : "sessionId (copy)"
+    prompt |o--o{ session : "task1PromptId, task2PromptId"
+    prompt ||--o{ draft : "promptId"
+    draft |o--o{ vaultItem : "sourceDraftId"
+    image |o--o{ prompt : "imageUrl"
+
+    account {
+        string id "account"
+        string email
+        string normalizedEmail
+        bool emailVerified
+        string passwordHash
+        list externalLogins
+    }
+    settings {
+        string id "settings"
+        double currentBand
+        double targetBand
+        string activeProvider
+        map encryptedApiKeys
+        string plan
+    }
+    subscription {
+        string id "subscription"
+        string stripeCustomerId
+        string stripeSubscriptionId
+        string status
+        long lastEventAt
+    }
+    prompt {
+        string id "prompt:{id}"
+        string taskType
+        string source
+        json chartSpec
+        string imageUrl
+    }
+    session {
+        string id "session:{id}"
+        string mode
+        string status
+        string task1PromptId
+        string task2PromptId
+        double weightedBand
+    }
+    draft {
+        string id "draft:{id}"
+        string sessionId
+        string promptId
+        int version
+        string essayText
+        json outline
+    }
+    evaluation {
+        string id "evaluation:{id}"
+        string sessionId
+        string draftId
+        double overallBand
+        json criterionFeedback
+    }
+    vaultItem {
+        string id "vaultItem:{id}"
+        string sourceDraftId
+        string itemType
+        string criterion
+        int masteryLevel
+    }
+    drill {
+        string id "drill:{id}"
+        string drillType
+        string targetCriterion
+        json score
+    }
+    aiUsage {
+        string id "aiUsage:{id}"
+        string feature
+        string keySource
+        int totalTokens
+        double costUsd
+    }
+    image {
+        string id "image:{id}"
+        string contentType
+        long bytes
+        string blobName
+    }
+```
+
 ## Containers
 
 | Container | Partition key | Time-to-live | Holds |
