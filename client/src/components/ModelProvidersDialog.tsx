@@ -24,6 +24,8 @@ export function ModelProvidersDialog({ providers, openRouterModels, onClose, onC
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingUp, setSettingUp] = useState<AIProviderId | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  // The Add provider button and its picker: a click in here is not a click outside the picker.
+  const pickerAreaRef = useRef<HTMLDivElement>(null);
 
   const configured = providers.filter((p) => p.configured);
   const available = providers.filter((p) => !p.configured && p.id !== settingUp);
@@ -92,7 +94,7 @@ export function ModelProvidersDialog({ providers, openRouterModels, onClose, onC
                 and only used to call that provider.
               </p>
             </div>
-            <div className="relative shrink-0">
+            <div ref={pickerAreaRef} className="relative shrink-0">
               <button
                 id="add-provider-button"
                 type="button"
@@ -106,6 +108,7 @@ export function ModelProvidersDialog({ providers, openRouterModels, onClose, onC
               </button>
               {pickerOpen && (
                 <ProviderPicker
+                  areaRef={pickerAreaRef}
                   providers={available}
                   onPick={(id) => {
                     setSettingUp(id);
@@ -152,10 +155,13 @@ export function ModelProvidersDialog({ providers, openRouterModels, onClose, onC
 /* ---------- Add provider picker ---------- */
 
 function ProviderPicker({
+  areaRef,
   providers,
   onPick,
   onDismiss,
 }: {
+  /** The picker and the button that toggles it; a mousedown outside this closes the picker. */
+  areaRef: React.RefObject<HTMLDivElement | null>;
   providers: ProviderInfo[];
   onPick: (id: AIProviderId) => void;
   onDismiss: () => void;
@@ -163,7 +169,6 @@ function ProviderPicker({
   const listId = useId();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -173,14 +178,15 @@ function ProviderPicker({
   }, [providers, query]);
   const activeIndex = Math.min(active, Math.max(matches.length - 1, 0));
 
-  // A click anywhere else closes the picker.
+  // A click anywhere else closes the picker. The toggle button is left to its own onClick,
+  // or a mousedown here would close the picker and the click would reopen it.
   useEffect(() => {
     function onDown(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) onDismiss();
+      if (!areaRef.current?.contains(e.target as Node)) onDismiss();
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [onDismiss]);
+  }, [areaRef, onDismiss]);
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") {
@@ -197,7 +203,6 @@ function ProviderPicker({
 
   return (
     <div
-      ref={rootRef}
       className="absolute right-0 top-full mt-2 z-10 w-[min(26rem,calc(100vw-4rem))] rounded-xl border border-line-strong bg-elevated shadow-xl overflow-hidden"
     >
       <div className="flex items-center gap-2 px-3 border-b border-line">
@@ -314,7 +319,14 @@ function SetupCard({
         />
       </div>
 
-      <ModelList providerId={provider.id} models={models} onChange={setModels} />
+      <ModelList
+        providerId={provider.id}
+        models={models}
+        onChange={(next) => {
+          setModels(next);
+          return true;
+        }}
+      />
 
       {error && (
         <p role="alert" className="text-sm" style={{ color: "var(--status-danger)" }}>
@@ -400,7 +412,10 @@ function ProviderCard({
             type="button"
             disabled={busy}
             onClick={() => {
-              if (window.confirm(`Remove ${provider.name} and its saved API key?`)) {
+              const message = provider.hasEnvKey
+                ? `Remove your saved ${provider.name} API key and model list? Escribot's own ${provider.name} key is used again only while you have no API key of your own.`
+                : `Remove ${provider.name} and its saved API key?`;
+              if (window.confirm(message)) {
                 void run(() => removeProvider(provider.id));
               }
             }}
@@ -467,7 +482,7 @@ function ProviderCard({
           providerId={provider.id}
           models={provider.models}
           disabled={busy}
-          onChange={(models) => void run(() => saveProvider(provider.id, { models }))}
+          onChange={(models) => run(() => saveProvider(provider.id, { models }))}
         />
 
         {error && (
@@ -491,13 +506,14 @@ function ModelList({
   providerId: AIProviderId;
   models: string[];
   disabled?: boolean;
-  onChange: (models: string[]) => void;
+  /** Resolves to whether the new list was kept; a typed model is cleared only then. */
+  onChange: (models: string[]) => boolean | Promise<boolean>;
 }) {
   const inputId = useId();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  function add() {
+  async function add() {
     const model = draft.trim();
     if (!model) return;
     const problem =
@@ -509,8 +525,7 @@ function ModelList({
       return;
     }
     setError(null);
-    setDraft("");
-    onChange([...models, model]);
+    if (await onChange([...models, model])) setDraft("");
   }
 
   return (
@@ -527,7 +542,7 @@ function ModelList({
               type="button"
               disabled={disabled || models.length <= 1}
               title={models.length <= 1 ? "A provider needs at least one model" : undefined}
-              onClick={() => onChange(models.filter((x) => x !== m))}
+              onClick={() => void onChange(models.filter((x) => x !== m))}
               aria-label={`Remove ${m}`}
               className="p-1 rounded-md text-ink-muted hover:text-ink hover:bg-surface cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -553,7 +568,7 @@ function ModelList({
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              add();
+              void add();
             }
           }}
           placeholder={providerId === "openrouter" ? "vendor/model" : "Model name"}
@@ -562,7 +577,7 @@ function ModelList({
         <button
           type="button"
           disabled={disabled || !draft.trim()}
-          onClick={add}
+          onClick={() => void add()}
           className="px-3 py-1.5 rounded-lg border border-line-strong text-sm font-medium text-ink hover:bg-subtle cursor-pointer disabled:opacity-50"
         >
           Add

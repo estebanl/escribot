@@ -283,8 +283,20 @@ export function SettingsClient({
     const res = await fetch("/api/settings");
     if (!res.ok) return;
     const data = await res.json();
-    setProviders(data.providers ?? []);
-    if (data.settings?.models) setModels(data.settings.models);
+    const fresh: ProviderInfo[] = data.providers ?? [];
+    setProviders(fresh);
+    const saved: Record<ModelRole, ModelRef> | undefined = data.settings?.models;
+    if (saved) {
+      // Keep unsaved role choices that are still on a usable provider's list; take the
+      // saved choice for the rest (for example a role moved off a removed provider).
+      const stillListed = (r: ModelRef) =>
+        fresh.some((p) => p.configured && p.id === r.provider && p.models.includes(r.model));
+      setModels((local) => ({
+        grader: stillListed(local.grader) ? local.grader : saved.grader,
+        fast: stillListed(local.fast) ? local.fast : saved.fast,
+        vision: stillListed(local.vision) ? local.vision : saved.vision,
+      }));
+    }
     if (data.usage) setUsage(data.usage);
   }
 

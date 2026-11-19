@@ -88,18 +88,64 @@ internal static class AccountEndpoints
         var defaults = AiProviders.Defaults[id];
         var savedKey = stored.EncryptedApiKeys.TryGetValue(id, out var encrypted) ? protector.Decrypt(encrypted) : null;
         var hasPlatformKey = usage.HasPlatformKey(id);
+        var hasOwnKey = stored.EncryptedApiKeys.Values.Any(v => protector.Decrypt(v) is not null);
         return new JsonObject
         {
             ["id"] = id,
             ["name"] = defaults.Name,
             ["description"] = defaults.Description,
-            ["configured"] = savedKey is not null || hasPlatformKey,
+            // Once the user has a key of their own, AI requests use only their keys, so a
+            // provider covered only by the platform's key is no longer usable.
+            ["configured"] = IsUsable(id, savedKey is not null, hasOwnKey, hasPlatformKey),
             ["hasStoredKey"] = savedKey is not null,
             ["maskedStoredKey"] = savedKey is null ? null : ApiKeyProtector.Mask(savedKey),
             ["hasEnvKey"] = hasPlatformKey,
             ["models"] = new JsonArray([.. ModelsOf(stored, id).Select(m => (JsonNode)m)]),
             ["suggestedModels"] = new JsonArray([.. defaults.SuggestedModels.Select(m => (JsonNode)m)]),
         };
+    }
+
+    /// <summary>
+    /// Whether AI requests can use a provider, matching <see cref="Ai.AiConfigResolver"/>: the
+    /// user's own key for it, or, while the user has no key of their own, the platform's.
+    /// </summary>
+    private static bool IsUsable(string id, bool hasStoredKey, bool hasAnyOwnKey, bool hasPlatformKey) =>
+        hasStoredKey || (!hasAnyOwnKey && hasPlatformKey);
+
+    /// <summary>
+    /// Moves every role onto a usable provider and a model that provider lists, so Settings
+    /// shows what AI requests will actually use. A role on a provider that is no longer
+    /// usable moves to <paramref name="preferred"/> when that is usable, else the first
+    /// usable provider; it takes that provider's default model for the role if listed,
+    /// else its first listed model. With no usable provider at all, roles stay as they are.
+    /// </summary>
+    private static UserSettings WithUsableRoles(UserSettings settings, IReadOnlyDictionary<string, string> keys, UsageService usage, string? preferred = null)
+    {
+        var hasOwnKey = keys.Count > 0;
+        bool Usable(string p) => IsUsable(p, keys.ContainsKey(p), hasOwnKey, usage.HasPlatformKey(p));
+        var fallback = preferred is not null && Usable(preferred) ? preferred : AiProviders.Ids.FirstOrDefault(Usable);
+
+        var next = settings;
+        foreach (var (_, role) in Roles)
+        {
+            var (provider, model) = AiProviders.Chosen(next, role);
+            var target = Usable(provider) ? provider : fallback;
+            if (target is null)
+            {
+                continue;
+            }
+
+            var listed = ModelsOf(next, target);
+            if (target == provider && listed.Contains(model))
+            {
+                continue;
+            }
+
+            var preferredModel = AiProviders.DefaultModel(target, role);
+            next = WithRole(next, role, target, listed.Contains(preferredModel) ? preferredModel : listed[0]);
+        }
+
+        return next;
     }
 
     /// <summary>The models listed for a provider; its suggested ones until the user lists their own.</summary>
@@ -263,7 +309,8 @@ internal static class AccountEndpoints
                 keys[id] = protector.Encrypt(apiKey);
             }
 
-            missingKey = !keys.ContainsKey(id) && !hasPlatformKey;
+            // The platform's key covers a provider only while the user has no key of their own.
+            missingKey = !keys.ContainsKey(id) && !(hasPlatformKey && keys.Count == 0);
             if (missingKey)
             {
                 return existing;
@@ -279,20 +326,10 @@ internal static class AccountEndpoints
                 listed[id] = AiProviders.Defaults[id].SuggestedModels;
             }
 
-            var next = existing with { EncryptedApiKeys = keys, ProviderModels = listed };
-
-            // A role whose model was just taken off this provider's list moves to the
-            // provider's first remaining model.
-            foreach (var (_, role) in Roles)
-            {
-                var (provider, model) = AiProviders.Chosen(next, role);
-                if (provider == id && !listed[id].Contains(model))
-                {
-                    next = WithRole(next, role, id, listed[id][0]);
-                }
-            }
-
-            return next;
+            // Roles on a provider that is not usable (such as the first provider a user adds,
+            // or a platform-only one once they have a key) move here, and a role whose model
+            // was just taken off this provider's list moves to one it still lists.
+            return WithUsableRoles(existing with { EncryptedApiKeys = keys, ProviderModels = listed }, keys, usage, preferred: id);
         }, cancellationToken);
 
         if (missingKey)
@@ -305,7 +342,7 @@ internal static class AccountEndpoints
 
     /// <summary>
     /// Removes a provider's saved key and model list. Roles that used it move to another
-    /// provider the user still has, or fall back when AI requests are resolved.
+    /// usable provider; with none left, they fall back when AI requests are resolved.
     /// </summary>
     private static async Task<IResult> RemoveProviderAsync(
         string id,
@@ -327,26 +364,9 @@ internal static class AccountEndpoints
             keys.Remove(id);
             var listed = new Dictionary<string, IReadOnlyList<string>>(existing.ProviderModels);
             listed.Remove(id);
-            var next = existing with { EncryptedApiKeys = keys, ProviderModels = listed };
-
-            // Prefer a provider with the user's own key, then one the platform covers.
-            var replacement = AiProviders.Ids.FirstOrDefault(p => p != id && keys.ContainsKey(p))
-                ?? AiProviders.Ids.FirstOrDefault(p => p != id && usage.HasPlatformKey(p));
-            if (replacement is not null)
-            {
-                foreach (var (_, role) in Roles)
-                {
-                    if (AiProviders.Chosen(next, role).Provider == id)
-                    {
-                        // The replacement's default for the role if the user still lists it, else its first listed model.
-                        var listedModels = ModelsOf(next, replacement);
-                        var preferred = AiProviders.DefaultModel(replacement, role);
-                        next = WithRole(next, role, replacement, listedModels.Contains(preferred) ? preferred : listedModels[0]);
-                    }
-                }
-            }
-
-            return next;
+            // Roles on a provider that is no longer usable move to another one, preferring the
+            // user's own keys; roles that stay (on the platform's key) move off removed models.
+            return WithUsableRoles(existing with { EncryptedApiKeys = keys, ProviderModels = listed }, keys, usage);
         }, cancellationToken);
 
         return Results.NoContent();

@@ -74,6 +74,10 @@ public sealed class AiConfigResolver(
             }
 
             // 2. Another provider the user has a key for, with its default model for the role.
+            // Once a user has a key of their own, platform keys are never used, even for a
+            // provider only the platform covers. Settings shows such providers as not
+            // configured and moves roles off them when providers change, so this step is
+            // only a safety net for settings saved before that or through PUT /api/settings.
             if (ownFallback is not null)
             {
                 return new ModelTarget(ownFallback, AiProviders.DefaultModel(ownFallback, role), storedKeys[ownFallback], "user");

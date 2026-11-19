@@ -39,7 +39,10 @@ export interface ProviderInfo {
   id: AIProviderId;
   name: string;
   description: string;
-  /** Usable: the user saved a key, or the platform has its own key for it. */
+  /**
+   * Usable for AI requests: the user saved a key for it, or the platform has its own key
+   * and the user has no key of their own (own keys always take over from platform keys).
+   */
   configured: boolean;
   hasStoredKey: boolean;
   maskedStoredKey: string | null;

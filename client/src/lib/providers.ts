@@ -28,10 +28,16 @@ export async function removeProvider(id: AIProviderId): Promise<void> {
   if (!res.ok) throw await errorFrom(res, "Could not remove this provider.");
 }
 
+/** The longest model name the API accepts (MaxModelNameLength on the server). */
+export const MAX_MODEL_NAME_LENGTH = 200;
+
 /** OpenRouter model names have a slash ("vendor/model"); every other provider's don't. */
 export function modelShapeError(id: AIProviderId, model: string): string | null {
-  const slashed = model.includes("/");
-  if (id === "openrouter" && !slashed) return "OpenRouter models look like vendor/model.";
-  if (id !== "openrouter" && slashed) return "Use the provider's own model name, without a vendor/ prefix.";
+  if (model.length > MAX_MODEL_NAME_LENGTH) return `Model names can be up to ${MAX_MODEL_NAME_LENGTH} characters.`;
+  const slash = model.indexOf("/");
+  if (id === "openrouter" && (slash <= 0 || slash === model.length - 1)) {
+    return "OpenRouter models look like vendor/model.";
+  }
+  if (id !== "openrouter" && slash >= 0) return "Use the provider's own model name, without a vendor/ prefix.";
   return null;
 }

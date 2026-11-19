@@ -91,9 +91,25 @@ public static class AiProviders
     public static string ModelFor(string provider, string? model, string fallback) =>
         IsValidModel(provider, model) ? model! : fallback;
 
-    /// <summary>Whether a model name has the right shape for the provider.</summary>
-    public static bool IsValidModel(string provider, string? model) =>
-        !string.IsNullOrEmpty(model) && model.Contains('/') == (provider == OpenRouter);
+    /// <summary>
+    /// Whether a model name has the right shape for the provider: <c>vendor/model</c> for
+    /// OpenRouter, with something on both sides of the slash, and no slash for the others.
+    /// </summary>
+    public static bool IsValidModel(string provider, string? model)
+    {
+        if (string.IsNullOrEmpty(model))
+        {
+            return false;
+        }
+
+        if (provider != OpenRouter)
+        {
+            return !model.Contains('/');
+        }
+
+        var slash = model.IndexOf('/');
+        return slash > 0 && slash < model.Length - 1;
+    }
 
     /// <summary>
     /// The provider and model a user picked for a role, before any key-based fallback.
