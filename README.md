@@ -129,6 +129,7 @@ No secret has a default value in the code, and none belongs in a file inside the
 | `ConnectionStrings:cosmos` | `ConnectionStrings__cosmos` | Always. Supplied by the AppHost locally. |
 | `ConnectionStrings:blobs` | `ConnectionStrings__blobs` | Always. Supplied by the AppHost locally. |
 | `App:TrustForwardedHeaders` | `App__TrustForwardedHeaders` | Set to `true` behind the Azure Container Apps ingress, and only behind a proxy. |
+| `App:CloudflareIpRanges` | `App__CloudflareIpRanges` | Behind Cloudflare's proxy only: Cloudflare's CIDR ranges, comma-separated. The deployment sets it. |
 |  | `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS` | Optional. The owner account, a sign-up allowlist and extra admins (see above). |
 |  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Both turn on "Continue with Google". |
 |  | `AZURE_COMMUNICATION_CONNECTION_STRING`, `EMAIL_FROM` | Optional. Both turn on email through Azure Communication Services. |
@@ -194,6 +195,7 @@ The `.NET 11` app deploys to Azure Container Apps from the infrastructure defini
 - **Serverless & private storage**: Cosmos DB runs in Serverless mode (`disableLocalAuth: true`), and Blob Storage uses `Standard_LRS` with `allowSharedKeyAccess: false` and `allowBlobPublicAccess: false` (`files` container has `publicAccess: None`). The Container App accesses both via its user-assigned managed identity.
 - **Key Vault for secrets**: application secrets are stored in an RBAC-enabled Azure Key Vault and referenced from Container Apps via managed identity (`Key Vault Secrets User`).
 - **Telemetry**: the Aspire Dashboard component on Container Apps provides traces, metrics, and logs (protected by Microsoft Entra ID / Azure RBAC — never reachable anonymously), and Log Analytics uses 30-day retention and a 0.15 GB daily ingestion cap, keeping it inside the 5 GB monthly free allowance (logs past the cap are dropped until the next UTC day).
+- **Cloudflare in front (optional, free)**: with `BEHIND_CLOUDFLARE=true`, the custom domain is served through Cloudflare's proxy, which absorbs floods and bot traffic before they wake the Container App or write rate-limit counters to Cosmos DB. The ingress then admits only Cloudflare's addresses, so the `azurecontainerapps.io` address can't be used to skip it, and the API keys its rate limits on the visitor's address from `CF-Connecting-IP`. See [Cloudflare proxy](#cloudflare-proxy).
 - **Budget and kill switch**: a monthly budget (`Microsoft.Consumption/budgets`, amount from the `BUDGET_AMOUNT` secret, so it never appears in the repository or the Actions logs) counts only this app's resource group. When actual spend reaches 100%, an action group runs the `budget-killswitch` Logic App, which stops the Container App through the ARM API (its managed identity has Contributor on that one app). When the `BUDGET_ALERT_EMAIL` secret is set, the budget also emails at 50% actual, 100% actual, and 100% forecasted spend. Azure cost data lags by several hours, so spend can pass the budget before the app stops. While the app is stopped, the deploy workflow refuses to run; bring it back with `az containerapp start -g <resource group> -n api` (for example, after raising `BUDGET_AMOUNT` or at the start of the next month). Set the Bicep parameter `enableBudgetKillSwitch` to `false` to keep only the email alerts.
 
 ### One-time setup (owner)
@@ -204,11 +206,11 @@ The `.NET 11` app deploys to Azure Container Apps from the infrastructure defini
    - `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` — OIDC credentials for `azure/login`.
    - `APP_ENCRYPTION_SECRET` — required; at least 32 random characters (`openssl rand -hex 32`).
    - `BUDGET_AMOUNT` — required; the monthly budget as a whole number. A secret rather than a variable, so the amount stays out of this public repository and its Actions logs.
-   - Optional secrets: `BUDGET_ALERT_EMAIL` (where budget alerts go; a secret so the address stays out of the public Actions logs), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GOOGLE_CLIENT_SECRET`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
+   - Optional secrets: `BUDGET_ALERT_EMAIL` (where budget alerts go; a secret so the address stays out of the public Actions logs), `ORIGIN_CERT_PFX` and `ORIGIN_CERT_PASSWORD` (the Cloudflare Origin certificate; see [Cloudflare proxy](#cloudflare-proxy)), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GOOGLE_CLIENT_SECRET`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
 4. **GitHub environment variables** (`production` environment):
    - `AZURE_RESOURCE_GROUP` — target resource group name.
    - `AZURE_LOCATION` — Azure region (e.g. `eastus2`).
-   - Optional variables: `CUSTOM_DOMAIN`, `ENABLE_CUSTOM_DOMAIN_CERT` (`false` until DNS is added), `EMAIL_DOMAIN` (defaults to `CUSTOM_DOMAIN`), `APP_PUBLIC_URL`, `ACS_DATA_LOCATION` (defaults to `United States`), `GOOGLE_CLIENT_ID`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS`, `EMAIL_FROM`, `FREE_PLAN_DAILY_AI_CAP`, `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION`.
+   - Optional variables: `CUSTOM_DOMAIN`, `ENABLE_CUSTOM_DOMAIN_CERT` (`false` until DNS is added), `BEHIND_CLOUDFLARE` (`false` until the domain is proxied; see [Cloudflare proxy](#cloudflare-proxy)), `EMAIL_DOMAIN` (defaults to `CUSTOM_DOMAIN`), `APP_PUBLIC_URL`, `ACS_DATA_LOCATION` (defaults to `United States`), `GOOGLE_CLIENT_ID`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS`, `EMAIL_FROM`, `FREE_PLAN_DAILY_AI_CAP`, `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION`.
 5. **Public GHCR package**: after the first `build` job pushes `ghcr.io/<owner>/<repo>`, ensure the package visibility is **Public** in GitHub Packages so Container Apps can pull without credentials.
 6. **Custom domain & free managed certificate**:
    - Run the first deploy with `ENABLE_CUSTOM_DOMAIN_CERT=false` to provision the environment and read `apiFqdn` and `customDomainVerificationId` from the deployment outputs.
@@ -224,6 +226,36 @@ The `.NET 11` app deploys to Azure Container Apps from the infrastructure defini
    BASE_URL=https://<your-domain> node scripts/test-isolation.mjs
    ```
 
+### Cloudflare proxy
+
+Cloudflare's free plan in front of the custom domain stops floods at the edge, for $0 (Azure Front Door would cost about $35 a month). Set it up after the custom domain works without it (step 6 above).
+
+1. **Get an Origin certificate.** Azure's free managed certificate can't be issued or renewed once the domain is proxied: Container Apps needs the `CNAME` to point straight at the app and DigiCert to reach it, and neither holds behind Cloudflare with the ingress restricted to Cloudflare's addresses. In the Cloudflare dashboard, go to **SSL/TLS → Origin Server → Create Certificate**, list the custom domain, and keep the default 15-year validity. Save the certificate and key, then make a PFX of them:
+   ```bash
+   openssl pkcs12 -export -in origin.pem -inkey origin.key -out origin.pfx -passout pass:<password>
+   base64 < origin.pfx | tr -d '\n'   # the value of ORIGIN_CERT_PFX
+   ```
+   Add `ORIGIN_CERT_PFX` and `ORIGIN_CERT_PASSWORD` to the `production` environment secrets and delete the local files. Cloudflare's browser-facing certificate is separate and managed by Cloudflare; the Origin certificate only secures Cloudflare → Azure, and only Cloudflare trusts it.
+2. **Move DNS to Cloudflare.** Add the domain to Cloudflare (or move its nameservers there). Recreate the app's `CNAME` (to `apiFqdn`), the `asuid.<domain>` `TXT` record, and the email records from step 7, all as **DNS only** for now.
+3. **Bind the Origin certificate.** Re-run the deploy workflow. With `ORIGIN_CERT_PFX` set, the deployment uploads it to the Container Apps environment and binds it to the custom domain in place of the managed certificate. Check that `https://<your-domain>/health` still answers.
+4. **Turn on the proxy.** Switch the app's `CNAME` to **Proxied** (orange cloud). Leave `asuid` and the email records as DNS only. In **SSL/TLS → Overview**, set the encryption mode to **Full (strict)**.
+5. **Restrict the ingress.** Set `BEHIND_CLOUDFLARE=true` in the `production` environment variables and re-run the deploy workflow. The Container App then accepts requests only from Cloudflare's IPv4 ranges (others get `403`), and the API reads the visitor's address from `CF-Connecting-IP` for requests that came from those ranges. The workflow's health check calls the custom domain through Cloudflare, and fails the run if the `azurecontainerapps.io` address still answers directly.
+6. **Turn on Cloudflare's free protections:**
+   - **Security → Bots → Bot Fight Mode**: on. Afterwards, check that Stripe webhook deliveries still succeed in the Stripe dashboard.
+   - **Security → WAF → Rate limiting rules**: the free plan allows one rule. For example, when the URI path starts with `/api/auth/`, block an IP that sends more than 20 requests in 10 seconds, for 10 seconds.
+   - **Under Attack mode** (**Overview → Quick Actions**): leave off, and switch it on during an incident. It shows every visitor a JavaScript challenge, so API calls from a page loaded before the switch may fail until it is reloaded.
+
+**Updating Cloudflare's IP ranges.** The ranges live in one file, [`infra/cloudflare-ips.json`](infra/cloudflare-ips.json), which feeds both the ingress rules (IPv4 entries only; the Container Apps ingress is IPv4) and `App__CloudflareIpRanges`. Cloudflare publishes the current list at <https://www.cloudflare.com/ips/> (plain text at `/ips-v4` and `/ips-v6`) and changes it rarely. To update, replace the file's contents and deploy:
+```bash
+{ curl -s https://www.cloudflare.com/ips-v4; echo; curl -s https://www.cloudflare.com/ips-v6; } \
+  | jq -R 'select(length > 0)' | jq -s . > infra/cloudflare-ips.json
+```
+If a new range is missing, visitors routed through it get `403` from the ingress.
+
+**Testing locally.** [`scripts/test-cloudflare-ip.sh`](scripts/test-cloudflare-ip.sh) sends sign-in requests shaped like the ones the ingress forwards from Cloudflare to a locally running API, and checks that visitors sharing a Cloudflare edge address are rate-limited separately and that a `CF-Connecting-IP` header from anyone else is ignored. Its header says how to start the API with the Cloudflare settings.
+
+**Turning it off.** Set the `CNAME` back to DNS only, set `BEHIND_CLOUDFLARE=false`, and re-run the deploy workflow. To go back to the free managed certificate, also delete `ORIGIN_CERT_PFX` and make sure `ENABLE_CUSTOM_DOMAIN_CERT=true`.
+
 ### Full environment variable reference
 
 | Variable | Secret | Required | Purpose |
@@ -231,6 +263,7 @@ The `.NET 11` app deploys to Azure Container Apps from the infrastructure defini
 | `App__EncryptionSecret` | Yes | Yes | 32+ char secret used to encrypt user-saved AI API keys. |
 | `App__PublicUrl` | No | In prod | Public HTTPS origin used for email links, OAuth, and Stripe redirects. |
 | `App__TrustForwardedHeaders` | No | Behind proxy | Set to `true` behind Container Apps ingress for `X-Forwarded-For` / `X-Forwarded-Proto`. |
+| `App__CloudflareIpRanges` | No | Behind Cloudflare | Cloudflare's CIDR ranges, comma-separated; set from `infra/cloudflare-ips.json` when `BEHIND_CLOUDFLARE=true`. Requests from those ranges take the client address from `CF-Connecting-IP`. |
 | `ConnectionStrings__cosmos` | No | Yes | Cosmos DB account endpoint (uses Managed Identity in Azure). |
 | `ConnectionStrings__blobs` | No | Yes | Blob Storage endpoint (uses Managed Identity in Azure). |
 | `AZURE_CLIENT_ID` | No | In Azure | User-assigned managed identity client ID. |

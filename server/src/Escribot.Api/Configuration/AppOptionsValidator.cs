@@ -36,6 +36,23 @@ internal sealed class AppOptionsValidator(IHostEnvironment environment) : IValid
             failures.Add("App:PublicUrl must use HTTPS in production.");
         }
 
+        if (!string.IsNullOrWhiteSpace(options.CloudflareIpRanges))
+        {
+            if (!options.TrustForwardedHeaders)
+            {
+                failures.Add("App:CloudflareIpRanges requires App:TrustForwardedHeaders.");
+            }
+
+            try
+            {
+                options.CloudflareNetworks();
+            }
+            catch (FormatException)
+            {
+                failures.Add("App:CloudflareIpRanges must be a comma-separated list of CIDR ranges.");
+            }
+        }
+
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
 }

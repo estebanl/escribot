@@ -91,6 +91,9 @@ jobs:
           API_CONTAINER_IMAGE: ${{ needs.build.outputs.image }}
           CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
           ENABLE_CUSTOM_DOMAIN_CERT: ${{ vars.ENABLE_CUSTOM_DOMAIN_CERT || 'false' }}
+          BEHIND_CLOUDFLARE: ${{ vars.BEHIND_CLOUDFLARE || 'false' }}
+          ORIGIN_CERT_PFX: ${{ secrets.ORIGIN_CERT_PFX }}
+          ORIGIN_CERT_PASSWORD: ${{ secrets.ORIGIN_CERT_PASSWORD }}
           EMAIL_DOMAIN: ${{ vars.EMAIL_DOMAIN }}
           PUBLIC_URL: ${{ vars.APP_PUBLIC_URL }}
           ACS_DATA_LOCATION: ${{ vars.ACS_DATA_LOCATION || 'United States' }}
@@ -122,6 +125,13 @@ jobs:
             echo "::error::Set the BUDGET_AMOUNT secret in the production environment to a whole number (the monthly budget)."
             exit 1
           fi
+          if [ "$BEHIND_CLOUDFLARE" = "true" ] && [ -z "$CUSTOM_DOMAIN" ]; then
+            echo "::error::BEHIND_CLOUDFLARE is true but CUSTOM_DOMAIN is not set. Cloudflare proxies the custom domain."
+            exit 1
+          fi
+          if [ "$BEHIND_CLOUDFLARE" = "true" ] && [ -z "$ORIGIN_CERT_PFX" ]; then
+            echo "::warning::BEHIND_CLOUDFLARE is true without ORIGIN_CERT_PFX. The free managed certificate cannot renew behind Cloudflare's proxy; add a Cloudflare Origin certificate (see README)."
+          fi
           params_file="$RUNNER_TEMP/deploy-params.json"
           trap 'rm -f "$params_file"' EXIT
 
@@ -131,6 +141,9 @@ jobs:
             --arg img "$API_CONTAINER_IMAGE" \
             --arg domain "$CUSTOM_DOMAIN" \
             --argjson cert "$ENABLE_CUSTOM_DOMAIN_CERT" \
+            --argjson cloudflare "$BEHIND_CLOUDFLARE" \
+            --arg originPfx "$ORIGIN_CERT_PFX" \
+            --arg originPwd "$ORIGIN_CERT_PASSWORD" \
             --arg emailDomain "$EMAIL_DOMAIN" \
             --arg pub "$PUBLIC_URL" \
             --arg acsLoc "$ACS_DATA_LOCATION" \
@@ -165,6 +178,9 @@ jobs:
                 "apiContainerImage": { "value": $img },
                 "customDomain": { "value": $domain },
                 "enableCustomDomainCert": { "value": $cert },
+                "behindCloudflare": { "value": $cloudflare },
+                "origin_certificate_pfx": { "value": $originPfx },
+                "origin_certificate_password": { "value": $originPwd },
                 "emailDomain": { "value": $emailDomain },
                 "publicUrl": { "value": $pub },
                 "acsDataLocation": { "value": $acsLoc },
@@ -203,6 +219,19 @@ jobs:
 
           fqdn=$(jq -r '.apiFqdn' "$RUNNER_TEMP/outputs.json")
           echo "Deployed Container App FQDN: https://${fqdn}"
-          curl -sf --retry 10 --retry-delay 3 --retry-all-errors "https://${fqdn}/health"
-          echo ""
+          if [ "$BEHIND_CLOUDFLARE" = "true" ]; then
+            # The ingress only admits Cloudflare, so check through the proxy, then check
+            # that the direct address is refused.
+            curl -sf --retry 10 --retry-delay 3 --retry-all-errors "https://${CUSTOM_DOMAIN}/health"
+            echo ""
+            direct=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://${fqdn}/health" || true)
+            if [ "$direct" = "200" ]; then
+              echo "::error::https://${fqdn} answered directly; the Cloudflare-only ingress restriction is not in effect."
+              exit 1
+            fi
+            echo "Direct address refused (HTTP ${direct})."
+          else
+            curl -sf --retry 10 --retry-delay 3 --retry-all-errors "https://${fqdn}/health"
+            echo ""
+          fi
           echo "Health check passed."

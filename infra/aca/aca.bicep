@@ -9,6 +9,16 @@ param customDomain string = ''
 @description('Set to true after DNS records (CNAME and asuid TXT) point to the Container App.')
 param enableCustomDomainCert bool = false
 
+@secure()
+@description('Base64 PFX of a Cloudflare Origin certificate for customDomain. When set, it is used instead of the free managed certificate, which cannot be issued or renewed behind Cloudflare\'s proxy.')
+param originCertificatePfx string = ''
+
+@secure()
+param originCertificatePassword string = ''
+
+var useOriginCertificate = !empty(customDomain) && !empty(originCertificatePfx)
+var useManagedCertificate = enableCustomDomainCert && !empty(customDomain) && !useOriginCertificate
+
 resource aca_law 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
   name: take('acalaw-${uniqueString(resourceGroup().id)}', 63)
   location: location
@@ -57,7 +67,7 @@ resource aspireDashboard 'Microsoft.App/managedEnvironments/dotNetComponents@202
   parent: aca
 }
 
-resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2025-07-01' = if (enableCustomDomainCert && !empty(customDomain)) {
+resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2025-07-01' = if (useManagedCertificate) {
   name: take('cert-${replace(customDomain, '.', '-')}', 64)
   location: location
   parent: aca
@@ -67,10 +77,22 @@ resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificat
   }
 }
 
+resource originCertificate 'Microsoft.App/managedEnvironments/certificates@2025-07-01' = if (useOriginCertificate) {
+  name: take('origin-${replace(customDomain, '.', '-')}', 64)
+  location: location
+  parent: aca
+  properties: {
+    value: originCertificatePfx
+    password: originCertificatePassword
+  }
+}
+
 output AZURE_LOG_ANALYTICS_WORKSPACE_NAME string = aca_law.name
 output AZURE_LOG_ANALYTICS_WORKSPACE_ID string = aca_law.id
 output AZURE_CONTAINER_APPS_ENVIRONMENT_NAME string = aca.name
 output AZURE_CONTAINER_APPS_ENVIRONMENT_ID string = aca.id
 output AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN string = aca.properties.defaultDomain
 output customDomainVerificationId string = aca.properties.customDomainConfiguration.customDomainVerificationId
-output managedCertificateId string = (enableCustomDomainCert && !empty(customDomain)) ? managedCertificate.id : ''
+output customDomainCertificateId string = useOriginCertificate
+  ? originCertificate.id
+  : (useManagedCertificate ? managedCertificate.id : '')

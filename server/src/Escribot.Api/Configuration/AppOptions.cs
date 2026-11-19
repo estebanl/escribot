@@ -2,7 +2,8 @@ namespace Escribot.Api.Configuration;
 
 /// <summary>
 /// Application settings, bound from the <c>App</c> configuration section.
-/// As environment variables: <c>App__EncryptionSecret</c>, <c>App__PublicUrl</c>, <c>App__TrustForwardedHeaders</c>.
+/// As environment variables: <c>App__EncryptionSecret</c>, <c>App__PublicUrl</c>, <c>App__TrustForwardedHeaders</c>,
+/// <c>App__CloudflareIpRanges</c>.
 /// </summary>
 public sealed class AppOptions
 {
@@ -31,4 +32,21 @@ public sealed class AppOptions
     /// app directly, because they could then send the headers themselves.
     /// </summary>
     public bool TrustForwardedHeaders { get; set; }
+
+    /// <summary>
+    /// Comma-separated CIDR ranges of Cloudflare's edge, set when the app is served through
+    /// Cloudflare's proxy. A request whose forwarded address falls in one of these ranges
+    /// takes its client address from <c>CF-Connecting-IP</c>; any other request ignores that
+    /// header. Requires <see cref="TrustForwardedHeaders"/>. The deployment fills it from
+    /// <c>infra/cloudflare-ips.json</c>.
+    /// </summary>
+    public string? CloudflareIpRanges { get; set; }
+
+    /// <summary>The parsed <see cref="CloudflareIpRanges"/>; empty when it is not set.</summary>
+    /// <exception cref="FormatException">An entry is not a CIDR range.</exception>
+    public IReadOnlyList<System.Net.IPNetwork> CloudflareNetworks() =>
+        (CloudflareIpRanges ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(System.Net.IPNetwork.Parse)
+            .ToList();
 }

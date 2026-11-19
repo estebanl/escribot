@@ -134,6 +134,18 @@ scheme for Google's redirect URI then come from `X-Forwarded-For` and `X-Forward
 Only the last `X-Forwarded-For` entry, the one the ingress adds, is used. Do not set it
 when clients can reach the app directly.
 
+## Behind Cloudflare's proxy
+
+There, the last `X-Forwarded-For` entry is a Cloudflare edge server, shared by many
+visitors: rate limits keyed on it would let one abuser lock everyone out of sign-in.
+Set `App__CloudflareIpRanges` to Cloudflare's CIDR ranges (the deployment does, from
+`infra/cloudflare-ips.json`, when `BEHIND_CLOUDFLARE=true`). A request whose forwarded
+address is in one of those ranges then takes its client address from `CF-Connecting-IP`
+(`CloudflareClientAddress`). Any other request keeps the forwarded address and ignores
+the header, since anyone could send it. The setting requires
+`App__TrustForwardedHeaders=true`, and the ingress admits only Cloudflare's ranges, so
+the proxy can't be skipped.
+
 ## Not done here
 
 - **Changing an email address** is still not supported.

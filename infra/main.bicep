@@ -9,6 +9,19 @@ param enableCustomDomainCert bool = false
 @description('Domain Azure Communication Services sends email from. Defaults to customDomain; use a subdomain such as mail.<customDomain> when customDomain is a CNAME.')
 param emailDomain string = ''
 param publicUrl string = ''
+
+@description('Set to true once customDomain is proxied through Cloudflare. The Container App then accepts requests only from Cloudflare\'s ranges in cloudflare-ips.json, and the API reads the visitor\'s address from CF-Connecting-IP.')
+param behindCloudflare bool = false
+
+@secure()
+@description('Base64 PFX of the Cloudflare Origin certificate for customDomain.')
+param origin_certificate_pfx string = ''
+
+@secure()
+param origin_certificate_password string = ''
+
+// Cloudflare's published edge ranges (https://www.cloudflare.com/ips/), kept in one file.
+var cloudflareIpRanges = loadJsonContent('cloudflare-ips.json')
 param acsDataLocation string = 'United States'
 
 var effectiveEmailDomain = !empty(emailDomain) ? emailDomain : customDomain
@@ -115,6 +128,8 @@ module aca 'aca/aca.bicep' = {
     location: location
     customDomain: customDomain
     enableCustomDomainCert: enableCustomDomainCert
+    originCertificatePfx: origin_certificate_pfx
+    originCertificatePassword: origin_certificate_password
   }
 }
 
@@ -173,8 +188,10 @@ module api 'api/api-containerapp.bicep' = {
     storage_outputs_blobendpoint: storage.outputs.blobEndpoint
     vault_outputs_vaultUri: vault.outputs.vaultUri
     customDomain: customDomain
-    enableCustomDomainCert: enableCustomDomainCert
-    managedCertificateId: aca.outputs.managedCertificateId
+    customDomainCertificateId: aca.outputs.customDomainCertificateId
+    // The Container Apps ingress is IPv4 only, so only the IPv4 ranges become ingress rules.
+    allowedIngressIpRanges: behindCloudflare ? filter(cloudflareIpRanges, range => !contains(range, ':')) : []
+    cloudflareIpRanges: behindCloudflare ? join(cloudflareIpRanges, ',') : ''
     publicUrl: publicUrl
     hasStripeSecretKey: !empty(stripe_secret_key)
     hasStripeWebhookSecret: !empty(stripe_webhook_secret)
