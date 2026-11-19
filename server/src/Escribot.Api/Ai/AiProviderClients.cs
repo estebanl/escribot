@@ -431,12 +431,24 @@ public sealed class AnthropicClient(HttpClient http) : IAiProviderClient
     }
 }
 
-public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration configuration, TimeProvider time)
+/// <summary>
+/// The OpenRouter catalogue, shared by every <see cref="OpenRouterModelsClient"/>: a typed
+/// HTTP client is created anew for each use, so it cannot hold the cache itself.
+/// </summary>
+public sealed class OpenRouterCatalogCache
+{
+    internal SemaphoreSlim Gate { get; } = new(1, 1);
+
+    internal (DateTimeOffset ExpiresAt, IReadOnlyList<OpenRouterModelInfo> Models)? Entry { get; set; }
+}
+
+public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration configuration, TimeProvider time, OpenRouterCatalogCache cache)
 {
     private static readonly TimeSpan SuccessCacheTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan FailureCacheTtl = TimeSpan.FromMinutes(2);
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private (DateTimeOffset ExpiresAt, IReadOnlyList<OpenRouterModelInfo> Models)? _cache;
+
+    /// <summary>The catalogue as last loaded, even if stale, without calling OpenRouter; null before the first load.</summary>
+    public IReadOnlyList<OpenRouterModelInfo>? CachedModels => cache.Entry?.Models;
 
     private static readonly IReadOnlyList<OpenRouterModelInfo> FallbackModels =
     [
@@ -444,24 +456,28 @@ public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration confi
         new("anthropic/claude-opus-5.5", "Anthropic: Claude Opus 5.5", 1000000, true, true, 4.0, 20.0),
         new("anthropic/claude-haiku-5.5", "Anthropic: Claude Haiku 5.5", 1000000, true, true, 0.1, 0.5),
         new("deepseek/deepseek-v4.1-flash-1017", "DeepSeek: DeepSeek V4.1 Flash", 1048576, true, true, 0.006, 0.5),
-        new("openai/gpt-6.1-sol", "OpenAI: GPT-6.1 Sol", 1050000, true, true, 2.0, 10.0),
+        new("deepseek/deepseek-v4-pro-0813", "DeepSeek: DeepSeek V4 Pro", 1048576, false, true, 0.111, 4.44),
+        new("openai/gpt-6.2-sol", "OpenAI: GPT-6.2 Sol", 1050000, true, true, 2.0, 10.0),
+        new("openai/gpt-6.1-terra", "OpenAI: GPT-6.1 Terra", 1050000, true, true, 1.0, 5.0),
         new("openai/gpt-6-luna", "OpenAI: GPT-6 Luna", 1050000, true, true, 0.1, 0.5),
+        new("google/gemini-4-carbon", "Google: Gemini 4 Carbon", 1048576, true, true, 2.0, 10.0),
         new("google/gemini-4-argon", "Google: Gemini 4 Argon", 1048576, true, true, 2.0, 10.0),
+        new("google/gemini-3.8-flash", "Google: Gemini 3.8 Flash", 1048576, true, true, 0.825, 4.125),
     ];
 
     public async Task<IReadOnlyList<OpenRouterModelInfo>> GetModelsAsync(CancellationToken cancellationToken = default)
     {
         var now = time.GetUtcNow();
-        if (_cache is { } cached && now < cached.ExpiresAt)
+        if (cache.Entry is { } cached && now < cached.ExpiresAt)
         {
             return cached.Models;
         }
 
-        await _gate.WaitAsync(cancellationToken);
+        await cache.Gate.WaitAsync(cancellationToken);
         try
         {
             now = time.GetUtcNow();
-            if (_cache is { } rechecked && now < rechecked.ExpiresAt)
+            if (cache.Entry is { } rechecked && now < rechecked.ExpiresAt)
             {
                 return rechecked.Models;
             }
@@ -479,8 +495,8 @@ public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration confi
                 using var res = await http.SendAsync(req, cts.Token);
                 if (!res.IsSuccessStatusCode)
                 {
-                    var fallback = _cache?.Models ?? FallbackModels;
-                    _cache = (now.Add(FailureCacheTtl), fallback);
+                    var fallback = cache.Entry?.Models ?? FallbackModels;
+                    cache.Entry = (now.Add(FailureCacheTtl), fallback);
                     return fallback;
                 }
 
@@ -488,8 +504,8 @@ public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration confi
                 var root = JsonNode.Parse(json);
                 if (root?["data"] is not JsonArray dataArray)
                 {
-                    var fallback = _cache?.Models ?? FallbackModels;
-                    _cache = (now.Add(FailureCacheTtl), fallback);
+                    var fallback = cache.Entry?.Models ?? FallbackModels;
+                    cache.Entry = (now.Add(FailureCacheTtl), fallback);
                     return fallback;
                 }
 
@@ -541,19 +557,19 @@ public sealed class OpenRouterModelsClient(HttpClient http, IConfiguration confi
 
                 mapped.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
                 var models = mapped.Count > 0 ? (IReadOnlyList<OpenRouterModelInfo>)mapped : FallbackModels;
-                _cache = (now.Add(mapped.Count > 0 ? SuccessCacheTtl : FailureCacheTtl), models);
+                cache.Entry = (now.Add(mapped.Count > 0 ? SuccessCacheTtl : FailureCacheTtl), models);
                 return models;
             }
             catch when (!cancellationToken.IsCancellationRequested)
             {
-                var fallback = _cache?.Models ?? FallbackModels;
-                _cache = (now.Add(FailureCacheTtl), fallback);
+                var fallback = cache.Entry?.Models ?? FallbackModels;
+                cache.Entry = (now.Add(FailureCacheTtl), fallback);
                 return fallback;
             }
         }
         finally
         {
-            _gate.Release();
+            cache.Gate.Release();
         }
     }
 

@@ -9,7 +9,9 @@ internal static class ApiExtensions
     /// <summary>Registers what the data endpoints are built from.</summary>
     public static IHostApplicationBuilder AddDataApi(this IHostApplicationBuilder builder)
     {
+        builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<ApiKeyProtector>();
+        builder.Services.AddSingleton<OpenRouterCatalogCache>();
         builder.Services.AddSingleton<PlanResolver>();
         builder.Services.AddSingleton<UsageService>();
         builder.Services.AddSingleton<ImageStore>();
@@ -25,6 +27,8 @@ internal static class ApiExtensions
 
 #pragma warning disable EXTEXP0001
         builder.Services.AddHttpClient<OpenRouterModelsClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+            .RemoveAllResilienceHandlers();
+        builder.Services.AddHttpClient<ProviderModelsClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
             .RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
 

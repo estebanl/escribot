@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Escribot.Api.Ai;
 using Escribot.Api.Auth;
 using Escribot.Api.Common;
 using Escribot.Api.Data;
@@ -24,6 +25,7 @@ internal static class AccountEndpoints
         api.MapPut("/settings", SaveSettingsAsync).OnFailure("Failed to save settings.");
         api.MapPut("/settings/providers/{id}", SaveProviderAsync).OnFailure("Failed to save the provider.");
         api.MapDelete("/settings/providers/{id}", RemoveProviderAsync).OnFailure("Failed to remove the provider.");
+        api.MapPost("/settings/providers/{id}/models", ListProviderModelsAsync).OnFailure("Failed to load the provider's models.");
         api.MapGet("/images/{id}", GetImageAsync);
         api.MapGet("/account/export", ExportAccountAsync);
         api.MapPost("/errors", ReportClientErrorAsync);
@@ -116,10 +118,18 @@ internal static class AccountEndpoints
     /// Moves every role onto a usable provider and a model that provider lists, so Settings
     /// shows what AI requests will actually use. A role on a provider that is no longer
     /// usable moves to <paramref name="preferred"/> when that is usable, else the first
-    /// usable provider; it takes that provider's default model for the role if listed,
-    /// else its first listed model. With no usable provider at all, roles stay as they are.
+    /// usable provider. Its model for the role is the one picked from the provider's live
+    /// list (<paramref name="picks"/>, for <paramref name="preferred"/>), else one picked
+    /// from what the provider lists (<see cref="ModelPicker"/>), else its first listed model.
+    /// With no usable provider at all, roles stay as they are.
     /// </summary>
-    private static UserSettings WithUsableRoles(UserSettings settings, IReadOnlyDictionary<string, string> keys, UsageService usage, string? preferred = null)
+    private static UserSettings WithUsableRoles(
+        UserSettings settings,
+        IReadOnlyDictionary<string, string> keys,
+        UsageService usage,
+        IReadOnlyList<OpenRouterModelInfo>? catalog,
+        string? preferred = null,
+        ProviderPicks? picks = null)
     {
         var hasOwnKey = keys.Count > 0;
         bool Usable(string p) => IsUsable(p, keys.ContainsKey(p), hasOwnKey, usage.HasPlatformKey(p));
@@ -141,7 +151,9 @@ internal static class AccountEndpoints
                 continue;
             }
 
-            var preferredModel = AiProviders.DefaultModel(target, role);
+            var preferredModel = target == preferred && picks is not null && listed.Contains(picks.For(role))
+                ? picks.For(role)
+                : ModelPicker.Resolve(target, listed, catalog).For(role);
             next = WithRole(next, role, target, listed.Contains(preferredModel) ? preferredModel : listed[0]);
         }
 
@@ -280,6 +292,9 @@ internal static class AccountEndpoints
         ISettingsRepository settings,
         ApiKeyProtector protector,
         UsageService usage,
+        IConfiguration configuration,
+        ProviderModelsClient providerModels,
+        OpenRouterModelsClient openRouterModels,
         CancellationToken cancellationToken)
     {
         if (!AiProviders.IsKnown(id))
@@ -300,6 +315,8 @@ internal static class AccountEndpoints
         }
 
         var hasPlatformKey = usage.HasPlatformKey(id);
+        var picks = CachedPicks(id, apiKey, await settings.GetOrCreateAsync(userId, cancellationToken), protector, configuration, providerModels, openRouterModels);
+        var catalog = openRouterModels.CachedModels;
         var missingKey = false;
         var updated = await settings.UpdateAsync(userId, existing =>
         {
@@ -323,13 +340,13 @@ internal static class AccountEndpoints
             }
             else if (!listed.ContainsKey(id))
             {
-                listed[id] = AiProviders.Defaults[id].SuggestedModels;
+                listed[id] = picks?.Starting ?? AiProviders.Defaults[id].SuggestedModels;
             }
 
             // Roles on a provider that is not usable (such as the first provider a user adds,
             // or a platform-only one once they have a key) move here, and a role whose model
             // was just taken off this provider's list moves to one it still lists.
-            return WithUsableRoles(existing with { EncryptedApiKeys = keys, ProviderModels = listed }, keys, usage, preferred: id);
+            return WithUsableRoles(existing with { EncryptedApiKeys = keys, ProviderModels = listed }, keys, usage, catalog, preferred: id, picks);
         }, cancellationToken);
 
         if (missingKey)
@@ -350,6 +367,7 @@ internal static class AccountEndpoints
         ISettingsRepository settings,
         ApiKeyProtector protector,
         UsageService usage,
+        OpenRouterModelsClient openRouterModels,
         CancellationToken cancellationToken)
     {
         if (!AiProviders.IsKnown(id))
@@ -366,10 +384,106 @@ internal static class AccountEndpoints
             listed.Remove(id);
             // Roles on a provider that is no longer usable move to another one, preferring the
             // user's own keys; roles that stay (on the platform's key) move off removed models.
-            return WithUsableRoles(existing with { EncryptedApiKeys = keys, ProviderModels = listed }, keys, usage);
+            return WithUsableRoles(existing with { EncryptedApiKeys = keys, ProviderModels = listed }, keys, usage, openRouterModels.CachedModels);
         }, cancellationToken);
 
         return Results.NoContent();
+    }
+
+    /// <summary>
+    /// The models a provider offers right now, newest first, from its own list-models API.
+    /// The setup form sends the key it is about to save; otherwise the user's saved key for
+    /// the provider is used, then the platform's (listing models costs nothing). OpenRouter's
+    /// catalog is public and needs no key. POST so a pasted key never lands in a URL.
+    /// </summary>
+    private static async Task<IResult> ListProviderModelsAsync(
+        string id,
+        JsonElement json,
+        HttpContext context,
+        ISettingsRepository settings,
+        ApiKeyProtector protector,
+        IConfiguration configuration,
+        IRateLimiter limiter,
+        ProviderModelsClient providerModels,
+        OpenRouterModelsClient openRouterModels,
+        CancellationToken cancellationToken)
+    {
+        if (!AiProviders.IsKnown(id))
+        {
+            return ApiResults.Error(StatusCodes.Status404NotFound, "Provider not found.");
+        }
+
+        var body = new Body(json);
+        var apiKey = body.Trimmed("apiKey");
+        if (apiKey?.Length > MaxApiKeyLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "This API key is not valid.");
+        }
+
+        if (id == AiProviders.OpenRouter)
+        {
+            var all = await openRouterModels.GetModelsAsync(cancellationToken);
+            return ModelsJson(id, [.. all.Select(m => new ProviderModel(m.Id, m.Name))], all);
+        }
+
+        var userId = context.GetSession()!.Account.Id;
+        var rate = await limiter.CheckAsync($"provider-models:{userId}", 30, TimeSpan.FromMinutes(10), cancellationToken);
+        if (!rate.Allowed)
+        {
+            context.Response.Headers.RetryAfter = rate.RetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+            return ApiResults.Error(StatusCodes.Status429TooManyRequests, "Too many requests. Please try again later.");
+        }
+
+        if (apiKey is null)
+        {
+            var stored = await settings.GetOrCreateAsync(userId, cancellationToken);
+            apiKey = stored.EncryptedApiKeys.TryGetValue(id, out var encrypted) ? protector.Decrypt(encrypted) : null;
+            apiKey ??= configuration[AiProviders.PlatformKeySetting(id)]?.Trim() is { Length: > 0 } platform ? platform : null;
+        }
+
+        if (apiKey is null)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Add an API key for this provider.");
+        }
+
+        try
+        {
+            var live = await providerModels.ListAsync(id, apiKey, cancellationToken);
+            // OpenRouter's catalogue prices each model for the role picks; it never throws.
+            return ModelsJson(id, live, await openRouterModels.GetModelsAsync(cancellationToken));
+        }
+        catch (ProviderKeyRejectedException)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "The provider rejected this API key.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return ApiResults.Error(StatusCodes.Status502BadGateway, "Could not load this provider's models. Please try again.");
+        }
+    }
+
+    private static IResult ModelsJson(string id, IReadOnlyList<ProviderModel> models, IReadOnlyList<OpenRouterModelInfo> catalog) =>
+        Results.Json(Wire.ProviderModels(models, ModelPicker.Resolve(id, [.. models.Select(m => m.Id)], catalog)));
+
+    /// <summary>
+    /// The picks for a provider from the list the setup form loaded moments ago, so saving
+    /// never waits on the provider. Null when that list is not cached (the configured
+    /// defaults are used then).
+    /// </summary>
+    private static ProviderPicks? CachedPicks(
+        string id, string? apiKey, UserSettings stored, ApiKeyProtector protector, IConfiguration configuration,
+        ProviderModelsClient providerModels, OpenRouterModelsClient openRouterModels)
+    {
+        if (!ProviderModelsClient.Supports(id))
+        {
+            return null;
+        }
+
+        apiKey ??= stored.EncryptedApiKeys.TryGetValue(id, out var encrypted) ? protector.Decrypt(encrypted) : null;
+        apiKey ??= configuration[AiProviders.PlatformKeySetting(id)]?.Trim() is { Length: > 0 } platform ? platform : null;
+        return apiKey is not null && providerModels.Cached(id, apiKey) is { Count: > 0 } live
+            ? ModelPicker.Resolve(id, [.. live.Select(m => m.Id)], openRouterModels.CachedModels)
+            : null;
     }
 
     /// <summary>

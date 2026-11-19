@@ -352,7 +352,7 @@ public class DataApiTests(AppHostFixture fixture)
         var providers = response.GetProperty("providers").EnumerateArray().ToList();
         Assert.Equal(["openrouter", "deepseek", "gemini", "openai", "anthropic"], providers.Select(p => p.GetProperty("id").GetString()));
         Assert.Equal(
-            """{"id":"openai","name":"OpenAI","description":"GPT models over the OpenAI API.","configured":false,"hasStoredKey":false,"maskedStoredKey":null,"hasEnvKey":false,"models":["gpt-4.1","gpt-4.1-mini"],"suggestedModels":["gpt-4.1","gpt-4.1-mini"]}""",
+            """{"id":"openai","name":"OpenAI","description":"GPT models over the OpenAI API.","configured":false,"hasStoredKey":false,"maskedStoredKey":null,"hasEnvKey":false,"models":["gpt-6.2-sol","gpt-6-luna","gpt-6.1-terra","gpt-6.2-astra"],"suggestedModels":["gpt-6.2-sol","gpt-6-luna","gpt-6.1-terra","gpt-6.2-astra"]}""",
             providers[3].GetRawText());
         Assert.Equal(6, providers[0].GetProperty("suggestedModels").GetArrayLength());
 
@@ -404,7 +404,7 @@ public class DataApiTests(AppHostFixture fixture)
         var response = JsonDocument.Parse(text).RootElement;
         // A legacy save (one provider, three model names) sets every role to that provider.
         Assert.Equal(
-            """{"currentBand":6,"targetBand":8,"examDate":"2027-01-15","nativeLanguage":"pt","l1CoachingEnabled":false,"models":{"grader":{"provider":"openai","model":"gpt-custom"},"fast":{"provider":"openai","model":"gpt-4.1-mini"},"vision":{"provider":"openai","model":"gpt-4.1"}}}""",
+            """{"currentBand":6,"targetBand":8,"examDate":"2027-01-15","nativeLanguage":"pt","l1CoachingEnabled":false,"models":{"grader":{"provider":"openai","model":"gpt-custom"},"fast":{"provider":"openai","model":"gpt-6-luna"},"vision":{"provider":"openai","model":"gpt-6.1-terra"}}}""",
             response.GetProperty("settings").GetRawText());
         var status = response.GetProperty("providers").EnumerateArray().Single(p => p.GetProperty("id").GetString() == "openai");
         Assert.True(status.GetProperty("configured").GetBoolean());
@@ -494,15 +494,15 @@ public class DataApiTests(AppHostFixture fixture)
         Assert.Empty((await Service<ISettingsRepository>().GetOrCreateAsync(otherId)).ProviderModels);
 
         // Removing a provider moves its roles to one the user still has, onto a model that provider lists.
-        using var openAi = await browser.PutAsJsonAsync("/api/settings/providers/openai", new { apiKey = key, models = new[] { "gpt-4.1-mini" } });
+        using var openAi = await browser.PutAsJsonAsync("/api/settings/providers/openai", new { apiKey = key, models = new[] { "gpt-6-luna" } });
         Assert.Equal(HttpStatusCode.OK, openAi.StatusCode);
         using var removed = await browser.DeleteAsync("/api/settings/providers/deepseek");
         Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
         stored = await Service<ISettingsRepository>().GetOrCreateAsync(userId);
         Assert.Equal(["openai"], stored.EncryptedApiKeys.Keys);
         Assert.False(stored.ProviderModels.ContainsKey("deepseek"));
-        // The examiner's default (gpt-4.1) is not on the list, so it gets the first listed model.
-        Assert.Equal(("openai", "gpt-4.1-mini"), (stored.GraderProvider, stored.GraderModel));
+        // The examiner's default (gpt-6.2-sol) is not on the list, so it gets the first listed model.
+        Assert.Equal(("openai", "gpt-6-luna"), (stored.GraderProvider, stored.GraderModel));
     }
 
     [Theory]

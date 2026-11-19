@@ -211,9 +211,6 @@ export function SettingsClient({
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [models, setModels] = useState<Record<ModelRole, ModelRef>>(DEFAULT_MODELS);
   const [providersOpen, setProvidersOpen] = useState(false);
-  const [openRouterModels, setOpenRouterModels] = useState<
-    Array<{ id: string; name: string; hasVision: boolean }>
-  >([]);
 
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
@@ -260,15 +257,6 @@ export function SettingsClient({
       .finally(() => {
         if (active) setLoading(false);
       });
-
-    // Prefetch OpenRouter models list for datalist autocomplete
-    fetch("/api/ai/models")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!active || !Array.isArray(data?.models)) return;
-        setOpenRouterModels(data.models);
-      })
-      .catch(() => {});
 
     return () => {
       active = false;
@@ -739,7 +727,6 @@ export function SettingsClient({
       {providersOpen && (
         <ModelProvidersDialog
           providers={providers}
-          openRouterModels={openRouterModels}
           onClose={() => setProvidersOpen(false)}
           onChanged={refreshProviders}
         />

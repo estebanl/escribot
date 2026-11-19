@@ -1,15 +1,19 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Search, Trash2, X } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
-import { modelShapeError, removeProvider, saveProvider } from "@/lib/providers";
-import type { AIProviderId, ProviderInfo } from "@/lib/types";
+import {
+  fetchProviderModels,
+  forgetProviderModels,
+  modelShapeError,
+  removeProvider,
+  saveProvider,
+} from "@/lib/providers";
+import type { AIProviderId, ProviderInfo, ProviderModel } from "@/lib/types";
 
 const MAX_MODELS = 20;
 
 interface Props {
   providers: ProviderInfo[];
-  /** OpenRouter's catalogue, for suggesting model names. */
-  openRouterModels: Array<{ id: string; name: string }>;
   onClose: () => void;
   /** Called after any change is saved, so the page can reload providers and roles. */
   onChanged: () => Promise<void> | void;
@@ -19,7 +23,7 @@ interface Props {
  * The "Model providers" dialog: the providers in use, each with its key and models, and
  * an "Add provider" picker for the rest. Every change is saved as soon as it is made.
  */
-export function ModelProvidersDialog({ providers, openRouterModels, onClose, onChanged }: Props) {
+export function ModelProvidersDialog({ providers, onClose, onChanged }: Props) {
   const titleId = useId();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingUp, setSettingUp] = useState<AIProviderId | null>(null);
@@ -56,14 +60,6 @@ export function ModelProvidersDialog({ providers, openRouterModels, onClose, onC
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <datalist id="provider-models-openrouter">
-        {openRouterModels.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.name}
-          </option>
-        ))}
-      </datalist>
-
       <div
         role="dialog"
         aria-modal="true"
@@ -269,8 +265,51 @@ function SetupCard({
 }) {
   const [apiKey, setApiKey] = useState("");
   const [models, setModels] = useState<string[]>(provider.suggestedModels);
+  // Once the user edits the list, a newly loaded live list no longer replaces it.
+  const [edited, setEdited] = useState(false);
+  const [live, setLive] = useState<ProviderModel[]>([]);
+  const [liveState, setLiveState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const loadedKey = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isOpenRouter = provider.id === "openrouter";
+
+  // OpenRouter's catalogue is public, so it loads right away; it is only for suggestions.
+  useEffect(() => {
+    if (!isOpenRouter) return;
+    let active = true;
+    fetchProviderModels(provider.id)
+      .then((list) => {
+        if (active) setLive(list.models);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isOpenRouter, provider.id]);
+
+  /** Loads the models this key can use, and starts the list with the newest of them. */
+  async function loadLatest() {
+    const key = apiKey.trim();
+    if (isOpenRouter || !key || key === loadedKey.current) return;
+    loadedKey.current = key;
+    setLiveState("loading");
+    setLiveError(null);
+    try {
+      const list = await fetchProviderModels(provider.id, key);
+      if (loadedKey.current !== key) return;
+      setLive(list.models);
+      setLiveState("ready");
+      // The server picks the starting list: each role's model, then the newest.
+      if (!edited) setModels(list.starting);
+    } catch (err) {
+      if (loadedKey.current !== key) return;
+      loadedKey.current = null;
+      setLiveState("failed");
+      setLiveError((err as Error).message);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -314,16 +353,36 @@ function SetupCard({
           autoComplete="off"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
+          onBlur={() => void loadLatest()}
           placeholder={`Paste your ${provider.name} API key`}
           className="w-full px-3 py-2 rounded-lg bg-surface border border-line-strong text-sm font-mono text-ink"
         />
+        {!isOpenRouter && (
+          <p className="text-xs mt-1.5 text-ink-muted" aria-live="polite">
+            {liveState === "loading" ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Loading the latest models…
+              </span>
+            ) : liveState === "ready" ? (
+              `${live.length} models available with this key. The newest are listed below.`
+            ) : liveState === "failed" ? (
+              <span style={{ color: "var(--status-danger)" }}>
+                {liveError} You can still add {provider.name} with the models below.
+              </span>
+            ) : (
+              "Paste a key to load the newest models it can use."
+            )}
+          </p>
+        )}
       </div>
 
       <ModelList
         providerId={provider.id}
         models={models}
+        available={live}
         onChange={(next) => {
           setModels(next);
+          setEdited(true);
           return true;
         }}
       />
@@ -368,7 +427,23 @@ function ProviderCard({
   const [newKey, setNewKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState<ProviderModel[]>([]);
+  // Bumped after the key changes, to load the list that key can use.
+  const [keyVersion, setKeyVersion] = useState(0);
   const envOnly = provider.hasEnvKey && !provider.hasStoredKey;
+
+  // The models the saved key can use, for suggestions when adding one.
+  useEffect(() => {
+    let active = true;
+    fetchProviderModels(provider.id)
+      .then((list) => {
+        if (active) setLive(list.models);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [provider.id, keyVersion]);
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -391,6 +466,8 @@ function ProviderCard({
     if (await run(() => saveProvider(provider.id, { apiKey: newKey.trim() }))) {
       setNewKey("");
       setReplacing(false);
+      forgetProviderModels(provider.id);
+      setKeyVersion((v) => v + 1);
     }
   }
 
@@ -481,6 +558,7 @@ function ProviderCard({
         <ModelList
           providerId={provider.id}
           models={provider.models}
+          available={live}
           disabled={busy}
           onChange={(models) => run(() => saveProvider(provider.id, { models }))}
         />
@@ -500,16 +578,20 @@ function ProviderCard({
 function ModelList({
   providerId,
   models,
+  available = [],
   disabled = false,
   onChange,
 }: {
   providerId: AIProviderId;
   models: string[];
+  /** The models the provider offers now, newest first, suggested as the user types. */
+  available?: ProviderModel[];
   disabled?: boolean;
   /** Resolves to whether the new list was kept; a typed model is cleared only then. */
   onChange: (models: string[]) => boolean | Promise<boolean>;
 }) {
   const inputId = useId();
+  const listId = useId();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -558,7 +640,7 @@ function ModelList({
         <input
           id={inputId}
           type="text"
-          list={providerId === "openrouter" ? "provider-models-openrouter" : undefined}
+          list={available.length > 0 ? listId : undefined}
           value={draft}
           disabled={disabled}
           onChange={(e) => {
@@ -583,6 +665,17 @@ function ModelList({
           Add
         </button>
       </div>
+      {available.length > 0 && (
+        <datalist id={listId}>
+          {available
+            .filter((m) => !models.includes(m.id))
+            .map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name === m.id ? undefined : m.name}
+              </option>
+            ))}
+        </datalist>
+      )}
       {error && (
         <p className="text-xs mt-1.5" style={{ color: "var(--status-danger)" }}>
           {error}

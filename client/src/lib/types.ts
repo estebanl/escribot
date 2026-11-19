@@ -50,7 +50,24 @@ export interface ProviderInfo {
   hasEnvKey: boolean;
   /** The models listed for this provider; its suggested ones until the user edits the list. */
   models: string[];
+  /** Fallback starting list for when the provider's live model list cannot be loaded. */
   suggestedModels: string[];
+}
+
+/** One model a provider offers now, newest first. */
+export interface ProviderModel {
+  id: string;
+  name: string;
+}
+
+/**
+ * POST /api/settings/providers/{id}/models: what a provider offers now, the models a new
+ * provider starts with, and the model each role would use on it (picked by the server).
+ */
+export interface ProviderModelList {
+  models: ProviderModel[];
+  starting: string[];
+  roles: Record<ModelRole, string>;
 }
 
 export type NativeLanguageCode =

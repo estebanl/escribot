@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Escribot.Api.Ai;
 using Escribot.Api.Data.Models;
 
 namespace Escribot.Api.Api;
@@ -22,6 +23,29 @@ internal static class Wire
     private static JsonNode? Text(JsonElement? value) => value?.GetRawText();
 
     private static JsonNode Text(JsonElement? value, string whenMissing) => value?.GetRawText() ?? whenMissing;
+
+    /// <summary>One model a provider offers, for the Settings model picker.</summary>
+    public static JsonObject ProviderModel(ProviderModel m) => new()
+    {
+        ["id"] = m.Id,
+        ["name"] = m.Name,
+    };
+
+    /// <summary>
+    /// What a provider offers now (newest first), the models a new provider of this kind
+    /// starts with, and the model each role would use on it.
+    /// </summary>
+    public static JsonObject ProviderModels(IEnumerable<ProviderModel> models, ProviderPicks picks) => new()
+    {
+        ["models"] = new JsonArray([.. models.Select(m => (JsonNode)ProviderModel(m))]),
+        ["starting"] = new JsonArray([.. picks.Starting.Select(m => (JsonNode)m)]),
+        ["roles"] = new JsonObject
+        {
+            ["grader"] = picks.Grader,
+            ["fast"] = picks.Fast,
+            ["vision"] = picks.Vision,
+        },
+    };
 
     public static JsonObject Prompt(Prompt p) => new()
     {
