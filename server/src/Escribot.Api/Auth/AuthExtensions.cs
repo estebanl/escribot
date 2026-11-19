@@ -56,7 +56,8 @@ internal static class AuthExtensions
 
     public static WebApplication UseAuth(this WebApplication app)
     {
-        if (app.Services.GetRequiredService<IOptions<AppOptions>>().Value.TrustForwardedHeaders)
+        var options = app.Services.GetRequiredService<IOptions<AppOptions>>().Value;
+        if (options.TrustForwardedHeaders)
         {
             // The proxy appends the address it saw to X-Forwarded-For. Only that last
             // entry is used (ForwardLimit is 1), so a value sent by the client is ignored.
@@ -68,6 +69,14 @@ internal static class AuthExtensions
             forwarded.KnownIPNetworks.Clear();
             forwarded.KnownProxies.Clear();
             app.UseForwardedHeaders(forwarded);
+
+            // Behind Cloudflare, that last entry is a Cloudflare edge address; the visitor's
+            // own address is in CF-Connecting-IP.
+            var cloudflare = options.CloudflareNetworks();
+            if (cloudflare.Count > 0)
+            {
+                app.UseMiddleware<CloudflareClientAddress>(cloudflare);
+            }
         }
 
         // Outermost, so a failure anywhere below is recorded and answered as JSON.

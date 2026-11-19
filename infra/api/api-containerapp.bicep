@@ -11,8 +11,13 @@ param storage_outputs_blobendpoint string
 param vault_outputs_vaultUri string
 
 param customDomain string = ''
-param enableCustomDomainCert bool = false
-param managedCertificateId string = ''
+param customDomainCertificateId string = ''
+
+@description('CIDR ranges allowed to reach the ingress. Empty allows everyone.')
+param allowedIngressIpRanges array = []
+
+@description('Comma-separated CIDR ranges of Cloudflare\'s edge, passed to the API as App__CloudflareIpRanges.')
+param cloudflareIpRanges string = ''
 param publicUrl string = ''
 
 param hasStripeSecretKey bool = false
@@ -168,6 +173,7 @@ var containerEnv = concat(
   hasOpenAiApiKey ? [{ name: 'OPENAI_API_KEY', secretRef: 'openai-api-key' }] : [],
   hasAnthropicApiKey ? [{ name: 'ANTHROPIC_API_KEY', secretRef: 'anthropic-api-key' }] : [],
   hasAcsConnectionString ? [{ name: 'AZURE_COMMUNICATION_CONNECTION_STRING', secretRef: 'acs-connection-string' }] : [],
+  !empty(cloudflareIpRanges) ? [{ name: 'App__CloudflareIpRanges', value: cloudflareIpRanges }] : [],
   !empty(googleClientId) ? [{ name: 'GOOGLE_CLIENT_ID', value: googleClientId }] : [],
   !empty(stripePriceProMonthly) ? [{ name: 'STRIPE_PRICE_PRO_MONTHLY', value: stripePriceProMonthly }] : [],
   !empty(stripePriceProYearly) ? [{ name: 'STRIPE_PRICE_PRO_YEARLY', value: stripePriceProYearly }] : [],
@@ -192,15 +198,22 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
         external: true
         targetPort: 8080
         transport: 'http'
-        customDomains: (enableCustomDomainCert && !empty(customDomain) && !empty(managedCertificateId))
+        customDomains: (!empty(customDomain) && !empty(customDomainCertificateId))
           ? [
               {
                 name: customDomain
                 bindingType: 'SniEnabled'
-                certificateId: managedCertificateId
+                certificateId: customDomainCertificateId
               }
             ]
           : []
+        // Behind Cloudflare, only its edge may connect, so the proxy can't be skipped by
+        // calling the azurecontainerapps.io address directly. Other callers get a 403.
+        ipSecurityRestrictions: [for (range, i) in allowedIngressIpRanges: {
+          name: 'cloudflare-${i}'
+          ipAddressRange: range
+          action: 'Allow'
+        }]
       }
       // Public GHCR image: no pull credentials or Azure Container Registry needed.
       registries: []
