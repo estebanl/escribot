@@ -110,9 +110,9 @@ public class AiUnitTests
         });
         var platformCfg = await resolver.ResolveAsync(user);
         Assert.Equal("platform", platformCfg.KeySource);
-        Assert.Equal("openrouter", platformCfg.Provider);
-        Assert.Equal("or-platform", platformCfg.ApiKey);
-        Assert.Equal(AiProviders.Defaults["openrouter"].GraderModel, platformCfg.GraderModel);
+        Assert.Equal("openrouter", platformCfg.Grader.Provider);
+        Assert.Equal("or-platform", platformCfg.Grader.ApiKey);
+        Assert.Equal(AiProviders.Defaults["openrouter"].GraderModel, platformCfg.Grader.Model);
 
         // 2. Pro plan honours model choice when platform key exists for preferred provider
         await ((ISettingsRepository)data).UpdateAsync("u1", s => s with
@@ -123,9 +123,9 @@ public class AiUnitTests
         });
         var proPlatformCfg = await resolver.ResolveAsync(user);
         Assert.Equal("platform", proPlatformCfg.KeySource);
-        Assert.Equal("deepseek", proPlatformCfg.Provider);
-        Assert.Equal("ds-platform", proPlatformCfg.ApiKey);
-        Assert.Equal("deepseek-custom-pro", proPlatformCfg.GraderModel);
+        Assert.Equal("deepseek", proPlatformCfg.Grader.Provider);
+        Assert.Equal("ds-platform", proPlatformCfg.Grader.ApiKey);
+        Assert.Equal("deepseek-custom-pro", proPlatformCfg.Grader.Model);
 
         // 3. User's own key for another provider beats platform key
         await ((ISettingsRepository)data).UpdateAsync("u1", s => s with
@@ -139,8 +139,8 @@ public class AiUnitTests
         });
         var otherUserCfg = await resolver.ResolveAsync(user);
         Assert.Equal("user", otherUserCfg.KeySource);
-        Assert.Equal("openai", otherUserCfg.Provider);
-        Assert.Equal("sk-user-openai", otherUserCfg.ApiKey);
+        Assert.Equal("openai", otherUserCfg.Grader.Provider);
+        Assert.Equal("sk-user-openai", otherUserCfg.Grader.ApiKey);
 
         // 4. User's own key for preferred provider wins and honours model choice
         await ((ISettingsRepository)data).UpdateAsync("u1", s => s with
@@ -155,9 +155,70 @@ public class AiUnitTests
         });
         var preferredUserCfg = await resolver.ResolveAsync(user);
         Assert.Equal("user", preferredUserCfg.KeySource);
-        Assert.Equal("deepseek", preferredUserCfg.Provider);
-        Assert.Equal("sk-user-deepseek", preferredUserCfg.ApiKey);
-        Assert.Equal("deepseek-v4-custom", preferredUserCfg.GraderModel);
+        Assert.Equal("deepseek", preferredUserCfg.Grader.Provider);
+        Assert.Equal("sk-user-deepseek", preferredUserCfg.Grader.ApiKey);
+        Assert.Equal("deepseek-v4-custom", preferredUserCfg.Grader.Model);
+    }
+
+    [Fact]
+    public async Task ConfigResolver_resolves_each_role_on_its_own_provider()
+    {
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var data = new InMemoryData(clock);
+        var protector = CreateProtector();
+        var user = new UserAccount { Id = "u1", Email = "u1@example.test", EmailVerified = true };
+        await data.CreateAsync(user);
+
+        var config = CreateConfig(new Dictionary<string, string?> { ["OPENROUTER_API_KEY"] = "or-platform" });
+        var planResolver = new PlanResolver(data, data, new AuthSettings(config));
+        var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
+
+        // Mixed providers: each role keeps its own provider, model and key.
+        await ((ISettingsRepository)data).UpdateAsync("u1", s => s with
+        {
+            ActiveProvider = "openai",
+            GraderProvider = "deepseek",
+            GraderModel = "deepseek-v4-pro",
+            FastProvider = "openrouter",
+            FastModel = "anthropic/claude-haiku-5.5",
+            EncryptedApiKeys = new Dictionary<string, string>
+            {
+                ["deepseek"] = protector.Encrypt("sk-ds"),
+                ["openrouter"] = protector.Encrypt("sk-or"),
+            },
+        });
+        var mixed = await resolver.ResolveAsync(user);
+        Assert.Equal(new ModelTarget("deepseek", "deepseek-v4-pro", "sk-ds", "user"), mixed.Grader);
+        Assert.Equal(new ModelTarget("openrouter", "anthropic/claude-haiku-5.5", "sk-or", "user"), mixed.Fast);
+        // Vision has no provider of its own, so it uses the legacy one (openai). There is no
+        // key for that, so it moves to the first own key with that provider's default.
+        Assert.Equal(new ModelTarget("openrouter", AiProviders.Defaults["openrouter"].VisionModel, "sk-or", "user"), mixed.Vision);
+        Assert.Equal("user", mixed.KeySource);
+
+        // A legacy document (no role providers) behaves as before: one provider for all roles.
+        await ((ISettingsRepository)data).UpdateAsync("u1", s => s with
+        {
+            ActiveProvider = "deepseek",
+            GraderProvider = null,
+            FastProvider = null,
+            VisionProvider = null,
+            GraderModel = "deepseek-v4-pro",
+            FastModel = "deepseek-flash",
+            VisionModel = "deepseek-flash",
+            EncryptedApiKeys = new Dictionary<string, string> { ["deepseek"] = protector.Encrypt("sk-ds") },
+        });
+        var legacy = await resolver.ResolveAsync(user);
+        Assert.All([legacy.Grader, legacy.Fast, legacy.Vision], t => Assert.Equal(("deepseek", "sk-ds"), (t.Provider, t.ApiKey)));
+
+        // No own keys on the Free plan: every role uses the platform default, so quotas apply.
+        await ((ISettingsRepository)data).UpdateAsync("u1", s => s with
+        {
+            GraderProvider = "deepseek",
+            EncryptedApiKeys = new Dictionary<string, string>(),
+        });
+        var platform = await resolver.ResolveAsync(user);
+        Assert.Equal(new ModelTarget("openrouter", AiProviders.Defaults["openrouter"].GraderModel, "or-platform", "platform"), platform.Grader);
+        Assert.Equal("platform", platform.KeySource);
     }
 
     // ---- Access & Quota Guard ----

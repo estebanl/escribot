@@ -93,6 +93,10 @@ erDiagram
         double currentBand
         double targetBand
         string activeProvider
+        string graderProvider
+        string fastProvider
+        string visionProvider
+        map providerModels
         map encryptedApiKeys
         string plan
     }
@@ -186,7 +190,7 @@ Each document has three storage fields next to its own data:
 | `type` | `id` | Replaces table | Notes |
 |---|---|---|---|
 | `account` | `account` | `user`, `account` | Email, name, verified flag, password hash, external logins. Sign-in (issue 10) builds its user store on it. |
-| `settings` | `settings` | `user_settings` | Created with defaults on first read. Encrypted API keys are a map, not JSON text. |
+| `settings` | `settings` | `user_settings` | Created with defaults on first read. Encrypted API keys are a map, not JSON text. `providerModels` maps a provider to the models the user listed for it. Each role (`grader`, `fast`, `vision`) has its own provider and model; a role whose provider is missing (documents saved before roles had one) uses the legacy `activeProvider`, so old documents need no migration. |
 | `subscription` | `subscription` | `subscriptions` | One Stripe customer per user. `lastEventAt` guards against stale webhook events. |
 | `prompt` | `prompt:{id}` | `prompts` (own rows) | The user's custom and AI-generated prompts. |
 | `session` | `session:{id}` | `writing_sessions` | |

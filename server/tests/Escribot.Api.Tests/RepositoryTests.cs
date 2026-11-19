@@ -210,8 +210,34 @@ public class RepositoryTests(AppHostFixture fixture)
             Assert.Equal("free", s.Plan);
             Assert.Null(s.OnboardedAt);
             Assert.Empty(s.EncryptedApiKeys);
+            Assert.Empty(s.ProviderModels);
+            Assert.Null(s.GraderProvider);
+            Assert.Null(s.FastProvider);
+            Assert.Null(s.VisionProvider);
         });
         Assert.Single(all.Select(s => s.UpdatedAt).Distinct());
+    }
+
+    [Fact]
+    public async Task Settings_keep_each_roles_provider_and_each_providers_models()
+    {
+        var settings = fixture.Get<ISettingsRepository>();
+
+        await settings.UpdateAsync(_userId, s => s with
+        {
+            GraderProvider = "deepseek",
+            FastProvider = "openrouter",
+            ProviderModels = new Dictionary<string, IReadOnlyList<string>>
+            {
+                ["deepseek"] = ["deepseek-v4-pro", "deepseek-flash"],
+                ["openrouter"] = ["anthropic/claude-haiku-5.5"],
+            },
+        });
+
+        var stored = await settings.GetOrCreateAsync(_userId);
+        Assert.Equal(("deepseek", "openrouter", (string?)null), (stored.GraderProvider, stored.FastProvider, stored.VisionProvider));
+        Assert.Equal(["deepseek-v4-pro", "deepseek-flash"], stored.ProviderModels["deepseek"]);
+        Assert.Equal(["anthropic/claude-haiku-5.5"], stored.ProviderModels["openrouter"]);
     }
 
     [Fact]

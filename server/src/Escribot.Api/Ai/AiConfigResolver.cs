@@ -7,7 +7,7 @@ using Escribot.Api.Data.Models;
 namespace Escribot.Api.Ai;
 
 /// <summary>
-/// Resolves which AI provider, models, key and plan apply to a user.
+/// Resolves which provider, model and key each AI role uses for a user, and their plan.
 /// </summary>
 public sealed class AiConfigResolver(
     ISettingsRepository settingsRepo,
@@ -57,63 +57,51 @@ public sealed class AiConfigResolver(
         var plan = account is not null
             ? await planResolver.GetPlanAsync(account, cancellationToken)
             : Plans.Free;
+        var canChooseModels = Plans.Limits[plan].CanChooseModels;
 
-        var preferred = AiProviders.IsKnown(settings.ActiveProvider) ? settings.ActiveProvider : AiProviders.OpenRouter;
-        var provider = preferred;
-        var keySource = "none";
-        string? apiKey = null;
-        var honourModelChoice = true;
-
+        // Any own key beats spending the platform's budget.
         var ownFallback = AiProviders.Ids.FirstOrDefault(storedKeys.ContainsKey);
+        var platformDefault = AiProviders.Ids.FirstOrDefault(platformKeys.ContainsKey);
 
-        if (storedKeys.TryGetValue(preferred, out var preferredUserKey))
+        ModelTarget Resolve(ModelRole role)
         {
-            // 1. The user's own key for their chosen provider.
-            apiKey = preferredUserKey;
-            keySource = "user";
-        }
-        else if (ownFallback is not null)
-        {
-            // 2. Any own key beats spending the platform's budget.
-            provider = ownFallback;
-            apiKey = storedKeys[ownFallback];
-            keySource = "user";
-        }
-        else
-        {
-            // 3. Platform keys, metered by the plan's monthly quota.
-            var platformDefault = AiProviders.Ids.FirstOrDefault(platformKeys.ContainsKey);
-            honourModelChoice = Plans.Limits[plan].CanChooseModels;
-            var platformProvider = honourModelChoice && platformKeys.ContainsKey(preferred)
-                ? preferred
-                : platformDefault;
-            if (platformProvider is not null)
+            var (preferred, chosenModel) = AiProviders.Chosen(settings, role);
+
+            // 1. The user's own key for the provider picked for this role.
+            if (storedKeys.TryGetValue(preferred, out var ownKey))
             {
-                provider = platformProvider;
-                apiKey = platformKeys[platformProvider];
-                keySource = "platform";
+                return new ModelTarget(preferred, chosenModel, ownKey, "user");
             }
+
+            // 2. Another provider the user has a key for, with its default model for the role.
+            // Once a user has a key of their own, platform keys are never used, even for a
+            // provider only the platform covers. Settings shows such providers as not
+            // configured and moves roles off them when providers change, so this step is
+            // only a safety net for settings saved before that or through PUT /api/settings.
+            if (ownFallback is not null)
+            {
+                return new ModelTarget(ownFallback, AiProviders.DefaultModel(ownFallback, role), storedKeys[ownFallback], "user");
+            }
+
+            // 3. Platform keys, metered by the plan's monthly quota. Only plans that may
+            // choose models get the picked provider and model.
+            var platformProvider = canChooseModels && platformKeys.ContainsKey(preferred) ? preferred : platformDefault;
+            if (platformProvider is null)
+            {
+                return new ModelTarget(preferred, chosenModel, null, "none");
+            }
+
+            var model = platformProvider == preferred && canChooseModels
+                ? chosenModel
+                : AiProviders.DefaultModel(platformProvider, role);
+            return new ModelTarget(platformProvider, model, platformKeys[platformProvider], "platform");
         }
-
-        if (provider != preferred)
-        {
-            honourModelChoice = false;
-        }
-
-        var defaults = AiProviders.Defaults.TryGetValue(provider, out var d) ? d : AiProviders.Defaults[AiProviders.OpenRouter];
-
-        var graderModel = AiProviders.ModelFor(provider, honourModelChoice ? settings.GraderModel : null, defaults.GraderModel);
-        var fastModel = AiProviders.ModelFor(provider, honourModelChoice ? settings.FastModel : null, defaults.FastModel);
-        var visionModel = AiProviders.ModelFor(provider, honourModelChoice ? settings.VisionModel : null, defaults.VisionModel);
 
         return new ResolvedAiConfig(
             UserId: userId,
-            Provider: provider,
-            GraderModel: graderModel,
-            FastModel: fastModel,
-            VisionModel: visionModel,
-            ApiKey: apiKey,
-            KeySource: keySource,
+            Grader: Resolve(ModelRole.Grader),
+            Fast: Resolve(ModelRole.Fast),
+            Vision: Resolve(ModelRole.Vision),
             Plan: plan,
             CurrentBand: settings.CurrentBand,
             TargetBand: settings.TargetBand,

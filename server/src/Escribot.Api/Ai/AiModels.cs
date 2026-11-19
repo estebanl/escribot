@@ -4,19 +4,32 @@ using System.Text.Json.Serialization;
 
 namespace Escribot.Api.Ai;
 
+/// <summary>Where one role's requests go: the provider, the model and the key to use.</summary>
+/// <param name="KeySource">"user", "platform", or "none" when no key is available.</param>
+public sealed record ModelTarget(string Provider, string Model, string? ApiKey, string KeySource);
+
 public sealed record ResolvedAiConfig(
     string UserId,
-    string Provider,
-    string GraderModel,
-    string FastModel,
-    string VisionModel,
-    string? ApiKey,
-    string KeySource,
+    ModelTarget Grader,
+    ModelTarget Fast,
+    ModelTarget Vision,
     string Plan,
     double CurrentBand,
     double TargetBand,
     string NativeLanguage,
-    bool L1CoachingEnabled);
+    bool L1CoachingEnabled)
+{
+    /// <summary>
+    /// "platform" when any role spends the platform's keys (so quotas apply), "user" when
+    /// every role uses the user's own keys, and "none" when there is no key at all.
+    /// </summary>
+    public string KeySource =>
+        Roles.Any(r => r.KeySource == "platform") ? "platform"
+        : Roles.Any(r => r.KeySource == "user") ? "user"
+        : "none";
+
+    private IEnumerable<ModelTarget> Roles => [Grader, Fast, Vision];
+}
 
 public sealed record LlmCompletionRequest
 {

@@ -25,6 +25,51 @@ export type AIProviderId =
   | "openai"
   | "anthropic";
 
+/** The three jobs a model does: deep rubric scoring, fast coaching, and reading Task 1 screenshots. */
+export type ModelRole = "grader" | "fast" | "vision";
+
+/** A model of one provider, as a role is set to it in Settings. */
+export interface ModelRef {
+  provider: AIProviderId;
+  model: string;
+}
+
+/** One provider as GET /api/settings describes it. Saved keys only ever arrive masked. */
+export interface ProviderInfo {
+  id: AIProviderId;
+  name: string;
+  description: string;
+  /**
+   * Usable for AI requests: the user saved a key for it, or the platform has its own key
+   * and the user has no key of their own (own keys always take over from platform keys).
+   */
+  configured: boolean;
+  hasStoredKey: boolean;
+  maskedStoredKey: string | null;
+  /** The platform has its own key for this provider. */
+  hasEnvKey: boolean;
+  /** The models listed for this provider; its suggested ones until the user edits the list. */
+  models: string[];
+  /** Fallback starting list for when the provider's live model list cannot be loaded. */
+  suggestedModels: string[];
+}
+
+/** One model a provider offers now, newest first. */
+export interface ProviderModel {
+  id: string;
+  name: string;
+}
+
+/**
+ * POST /api/settings/providers/{id}/models: what a provider offers now, the models a new
+ * provider starts with, and the model each role would use on it (picked by the server).
+ */
+export interface ProviderModelList {
+  models: ProviderModel[];
+  starting: string[];
+  roles: Record<ModelRole, string>;
+}
+
 export type NativeLanguageCode =
   | "es"
   | "pt"

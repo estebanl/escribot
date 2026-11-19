@@ -2,24 +2,107 @@ import { useEffect, useState } from "react";
 import {
   Check,
   Download,
-  KeyRound,
   Loader2,
   Save,
-  ShieldCheck,
+  SlidersHorizontal,
   Upload,
 } from "lucide-react";
+import { ModelProvidersDialog } from "@/components/ModelProvidersDialog";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { L1_LANGUAGE_PROFILES } from "@/lib/ielts-utils";
 import { PLANS } from "@/lib/plans";
-import type { AIProviderId, NativeLanguageCode } from "@/lib/types";
+import type {
+  AIProviderId,
+  ModelRef,
+  ModelRole,
+  NativeLanguageCode,
+  ProviderInfo,
+} from "@/lib/types";
 
 const BAND_OPTIONS = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0];
 
-interface ProviderStatusMap {
-  [key: string]: {
-    hasStoredKey: boolean;
-    maskedStoredKey: string | null;
-    hasEnvKey: boolean;
-  };
+const ROLES: Array<{ role: ModelRole; label: string; help: string }> = [
+  {
+    role: "grader",
+    label: "Deep rubric examiner",
+    help: "Scores the four IELTS criteria. Pick your strongest model.",
+  },
+  {
+    role: "fast",
+    label: "Fast coach",
+    help: "Outlines, toolkit, drills and inline upgrades. A quick, cheap model works well.",
+  },
+  {
+    role: "vision",
+    label: "Task 1 screenshot vision",
+    help: "Reads data from pasted chart screenshots. Needs a model that accepts images.",
+  },
+];
+
+const DEFAULT_MODELS: Record<ModelRole, ModelRef> = {
+  grader: { provider: "openrouter", model: "anthropic/claude-sonnet-5.5" },
+  fast: { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash-1017" },
+  vision: { provider: "openrouter", model: "deepseek/deepseek-v4.1-flash-1017" },
+};
+
+const refKey = (r: ModelRef) => `${r.provider}::${r.model}`;
+
+function parseRefKey(key: string): ModelRef {
+  const at = key.indexOf("::");
+  return { provider: key.slice(0, at) as AIProviderId, model: key.slice(at + 2) };
+}
+
+/** One role's model, chosen from the models of every configured provider. */
+function RoleSelect({
+  role,
+  label,
+  help,
+  value,
+  providers,
+  disabled,
+  onChange,
+}: {
+  role: ModelRole;
+  label: string;
+  help: string;
+  value: ModelRef;
+  providers: ProviderInfo[];
+  disabled: boolean;
+  onChange: (value: ModelRef) => void;
+}) {
+  const id = `role-${role}-select`;
+  const listed = providers.some((p) => p.id === value.provider && p.models.includes(value.model));
+  const current = providers.find((p) => p.id === value.provider);
+  return (
+    <div>
+      <label htmlFor={id} className="block text-xs font-medium text-ink-secondary mb-1">
+        {label}
+      </label>
+      <select
+        id={id}
+        value={refKey(value)}
+        disabled={disabled}
+        onChange={(e) => onChange(parseRefKey(e.target.value))}
+        className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm font-mono text-ink disabled:opacity-60"
+      >
+        {!listed && (
+          <option value={refKey(value)}>
+            {current?.name ?? value.provider} · {value.model}
+          </option>
+        )}
+        {providers.map((p) => (
+          <optgroup key={p.id} label={p.name}>
+            {p.models.map((m) => (
+              <option key={m} value={refKey({ provider: p.id, model: m })}>
+                {m}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <p className="text-[11px] text-ink-muted mt-1">{help}</p>
+    </div>
+  );
 }
 
 interface UsageSummary {
@@ -125,60 +208,9 @@ export function SettingsClient({
   const [nativeLanguage, setNativeLanguage] = useState<NativeLanguageCode>("es");
   const [l1CoachingEnabled, setL1CoachingEnabled] = useState(true);
 
-  const [activeProvider, setActiveProvider] = useState<AIProviderId>("openrouter");
-  const [graderModel, setGraderModel] = useState("anthropic/claude-sonnet-5.5");
-  const [fastModel, setFastModel] = useState("deepseek/deepseek-v4.1-flash-1017");
-  const [visionModel, setVisionModel] = useState("deepseek/deepseek-v4.1-flash-1017");
-  const [openRouterModels, setOpenRouterModels] = useState<
-    Array<{ id: string; name: string; hasVision: boolean }>
-  >([]);
-
-  const [providerDefaults, setProviderDefaults] = useState<
-    Record<
-      AIProviderId,
-      { label: string; graderModel: string; fastModel: string; visionModel?: string }
-    >
-  >({
-    openrouter: {
-      label: "OpenRouter (Sonnet 5.5 + DS Flash Vision)",
-      graderModel: "anthropic/claude-sonnet-5.5",
-      fastModel: "deepseek/deepseek-v4.1-flash-1017",
-      visionModel: "deepseek/deepseek-v4.1-flash-1017",
-    },
-    deepseek: {
-      label: "DeepSeek (V4 Pro + V4.1 Flash Vision)",
-      graderModel: "deepseek-v4-pro",
-      fastModel: "deepseek-flash",
-      visionModel: "deepseek-flash",
-    },
-    gemini: {
-      label: "Google Gemini (2.5 Pro + 2.5 Flash)",
-      graderModel: "gemini-2.5-pro",
-      fastModel: "gemini-2.5-flash",
-      visionModel: "gemini-2.5-flash",
-    },
-    openai: {
-      label: "OpenAI (GPT-4.1 + GPT-4.1 Mini)",
-      graderModel: "gpt-4.1",
-      fastModel: "gpt-4.1-mini",
-      visionModel: "gpt-4.1",
-    },
-    anthropic: {
-      label: "Anthropic Claude (Sonnet 4.5 + Haiku 4.5)",
-      graderModel: "claude-sonnet-4-5",
-      fastModel: "claude-haiku-4-5",
-      visionModel: "claude-sonnet-4-5",
-    },
-  });
-
-  const [keyStatus, setKeyStatus] = useState<ProviderStatusMap>({});
-  const [newKeyInputs, setNewKeyInputs] = useState<Record<AIProviderId, string>>({
-    openrouter: "",
-    deepseek: "",
-    gemini: "",
-    openai: "",
-    anthropic: "",
-  });
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [models, setModels] = useState<Record<ModelRole, ModelRef>>(DEFAULT_MODELS);
+  const [providersOpen, setProvidersOpen] = useState(false);
 
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
@@ -196,12 +228,8 @@ export function SettingsClient({
         setExamDate(data.settings.examDate || "");
         setNativeLanguage(data.settings.nativeLanguage);
         setL1CoachingEnabled(data.settings.l1CoachingEnabled);
-        setActiveProvider(data.settings.activeProvider);
-        setGraderModel(data.settings.graderModel);
-        setFastModel(data.settings.fastModel);
-        if (data.settings.visionModel) setVisionModel(data.settings.visionModel);
-        setKeyStatus(data.keyStatus || {});
-        if (data.providerDefaults) setProviderDefaults(data.providerDefaults);
+        setModels(data.settings.models ?? DEFAULT_MODELS);
+        setProviders(data.providers ?? []);
         if (data.usage) setUsage(data.usage);
         if (data.billing) setBilling(data.billing);
       }
@@ -221,12 +249,8 @@ export function SettingsClient({
         setExamDate(data.settings.examDate || "");
         setNativeLanguage(data.settings.nativeLanguage);
         setL1CoachingEnabled(data.settings.l1CoachingEnabled);
-        setActiveProvider(data.settings.activeProvider);
-        setGraderModel(data.settings.graderModel);
-        setFastModel(data.settings.fastModel);
-        if (data.settings.visionModel) setVisionModel(data.settings.visionModel);
-        setKeyStatus(data.keyStatus || {});
-        if (data.providerDefaults) setProviderDefaults(data.providerDefaults);
+        setModels(data.settings.models ?? DEFAULT_MODELS);
+        setProviders(data.providers ?? []);
         if (data.usage) setUsage(data.usage);
         if (data.billing) setBilling(data.billing);
       })
@@ -234,47 +258,40 @@ export function SettingsClient({
         if (active) setLoading(false);
       });
 
-    // Prefetch OpenRouter models list for datalist autocomplete
-    fetch("/api/ai/models")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!active || !Array.isArray(data?.models)) return;
-        setOpenRouterModels(data.models);
-      })
-      .catch(() => {});
-
     return () => {
       active = false;
     };
   }, []);
 
-  function handleProviderSwitch(nextProv: AIProviderId) {
-    setActiveProvider(nextProv);
-    const defs = providerDefaults[nextProv];
-    if (defs) {
-      setGraderModel(defs.graderModel);
-      setFastModel(defs.fastModel);
-      if (defs.visionModel) setVisionModel(defs.visionModel);
+  /**
+   * After the providers dialog saves a change: reload providers, usage and roles (removing
+   * a provider can move a role to another one) without touching the rest of the form.
+   */
+  async function refreshProviders() {
+    const res = await fetch("/api/settings");
+    if (!res.ok) return;
+    const data = await res.json();
+    const fresh: ProviderInfo[] = data.providers ?? [];
+    setProviders(fresh);
+    const saved: Record<ModelRole, ModelRef> | undefined = data.settings?.models;
+    if (saved) {
+      // Keep unsaved role choices that are still on a usable provider's list; take the
+      // saved choice for the rest (for example a role moved off a removed provider).
+      const stillListed = (r: ModelRef) =>
+        fresh.some((p) => p.configured && p.id === r.provider && p.models.includes(r.model));
+      setModels((local) => ({
+        grader: stillListed(local.grader) ? local.grader : saved.grader,
+        fast: stillListed(local.fast) ? local.fast : saved.fast,
+        vision: stillListed(local.vision) ? local.vision : saved.vision,
+      }));
     }
+    if (data.usage) setUsage(data.usage);
   }
 
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setSavedBanner(false);
-
-    const apiKeysToUpdate: Partial<Record<AIProviderId, string>> = {};
-    for (const p of [
-      "openrouter",
-      "deepseek",
-      "gemini",
-      "openai",
-      "anthropic",
-    ] as AIProviderId[]) {
-      if (newKeyInputs[p].trim()) {
-        apiKeysToUpdate[p] = newKeyInputs[p].trim();
-      }
-    }
 
     await fetch("/api/settings", {
       method: "PUT",
@@ -285,34 +302,14 @@ export function SettingsClient({
         examDate: examDate || null,
         nativeLanguage,
         l1CoachingEnabled,
-        activeProvider,
-        graderModel,
-        fastModel,
-        visionModel,
-        apiKeysToUpdate,
+        models,
       }),
     });
 
-    setNewKeyInputs({
-      openrouter: "",
-      deepseek: "",
-      gemini: "",
-      openai: "",
-      anthropic: "",
-    });
     await fetchSettings();
     setSaving(false);
     setSavedBanner(true);
     setTimeout(() => setSavedBanner(false), 3000);
-  }
-
-  async function handleClearKey(prov: AIProviderId) {
-    await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKeysToUpdate: { [prov]: "__CLEAR__" } }),
-    });
-    await fetchSettings();
   }
 
   async function handleManageBilling() {
@@ -366,6 +363,8 @@ export function SettingsClient({
     }
   }
 
+  const configuredProviders = providers.filter((p) => p.configured);
+
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-16 flex items-center justify-center">
@@ -384,8 +383,8 @@ export function SettingsClient({
           Settings &amp; AI Engine
         </h1>
         <p className="text-sm text-ink-secondary">
-          Tune your target IELTS band, L1 interference coaching lens, and DeepSeek /
-          multi-provider routing.
+          Tune your target IELTS band, L1 interference coaching lens, and the AI models
+          that grade and coach you.
         </p>
       </header>
 
@@ -405,7 +404,7 @@ export function SettingsClient({
             </p>
           ) : usage.keySource === "none" ? (
             <p className="text-sm text-ink-secondary">
-              No AI key is available yet. Add your own key below to enable examiner
+              No AI key is available yet. Add a model provider below to enable examiner
               feedback.
             </p>
           ) : usage.evaluations.limit === null && usage.assists.limit === null ? (
@@ -420,7 +419,7 @@ export function SettingsClient({
                 day: "numeric",
                 timeZone: "UTC",
               })}
-              . Add your own API key below to remove these limits.
+              . Add a model provider with your own API key below to remove these limits.
             </p>
           )}
 
@@ -600,175 +599,68 @@ export function SettingsClient({
           </div>
         </section>
 
-        {/* 2. Multi-Provider AI Routing (OpenRouter Unified Default) */}
-        <section className="editorial-surface rounded-2xl p-6 space-y-4">
-          <div className="flex items-start justify-between gap-2">
+        {/* 2. Model providers and the model each role uses */}
+        <section id="ai-models-card" className="editorial-surface rounded-2xl p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
             <div>
-              <h2 className="font-serif text-lg font-semibold text-ink">
-                2. Multi-Provider AI Engine (OpenRouter Default)
-              </h2>
+              <h2 className="font-serif text-lg font-semibold text-ink">2. AI Models</h2>
               <p className="text-xs text-ink-secondary mt-0.5">
-                Keys entered below are encrypted with <code className="font-mono">AES-256-GCM</code>. Requests made with your own key do not count toward your plan&apos;s monthly limits.
+                Connect providers with your own API keys, then pick which model does each job.
+                Requests made with your own key do not count toward your plan&apos;s monthly limits.
               </p>
               {usage && usage.keySource !== "user" && !usage.canChooseModels && (
                 <p id="model-choice-locked-note" className="text-xs text-ink-secondary mt-1.5">
                   On the {usage.planLabel} plan the examiner uses the standard models. The
-                  provider and model choices below take effect once you add your own key.
+                  model choices below take effect once you add your own key.
                 </p>
               )}
             </div>
-            <ShieldCheck className="w-5 h-5 text-accent shrink-0" />
+            <button
+              id="manage-providers-button"
+              type="button"
+              onClick={() => setProvidersOpen(true)}
+              className="shrink-0 inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-line-strong bg-canvas hover:bg-subtle text-sm font-medium text-ink cursor-pointer"
+            >
+              <SlidersHorizontal className="w-4 h-4 text-accent" />
+              Manage providers
+            </button>
           </div>
 
-          <datalist id="openrouter-models">
-            {openRouterModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </datalist>
-          <datalist id="openrouter-vision-models">
-            {openRouterModels
-              .filter((m) => m.hasVision)
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-          </datalist>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-ink-secondary mb-1">
-                Active Provider
-              </label>
-              <select
-                id="active-provider-select"
-                value={activeProvider}
-                onChange={(e) =>
-                  handleProviderSwitch(e.target.value as AIProviderId)
-                }
-                className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm text-ink"
-              >
-                <option value="openrouter">OpenRouter (Recommended Gateway)</option>
-                <option value="deepseek">DeepSeek Direct</option>
-                <option value="gemini">Google Gemini Direct</option>
-                <option value="openai">OpenAI Direct</option>
-                <option value="anthropic">Anthropic Claude Direct</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-ink-secondary mb-1">
-                Deep Rubric Examiner Model
-              </label>
-              <input
-                type="text"
-                list={activeProvider === "openrouter" ? "openrouter-models" : undefined}
-                value={graderModel}
-                onChange={(e) => setGraderModel(e.target.value)}
-                placeholder="e.g. anthropic/claude-sonnet-5.5"
-                className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm font-mono text-ink"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-ink-secondary mb-1">
-                Fast Coach Model
-              </label>
-              <input
-                type="text"
-                list={activeProvider === "openrouter" ? "openrouter-models" : undefined}
-                value={fastModel}
-                onChange={(e) => setFastModel(e.target.value)}
-                placeholder="e.g. deepseek/deepseek-v4.1-flash-1017"
-                className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm font-mono text-ink"
-              />
-            </div>
-
-            {activeProvider === "openrouter" && (
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-xs font-medium text-ink-secondary mb-1">
-                  Task 1 Screenshot Vision Model
-                </label>
-                <input
-                  type="text"
-                  list="openrouter-vision-models"
-                  value={visionModel}
-                  onChange={(e) => setVisionModel(e.target.value)}
-                  placeholder="e.g. deepseek/deepseek-v4.1-flash-1017"
-                  className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm font-mono text-ink"
-                />
-                <p className="text-[11px] text-ink-muted mt-1">
-                  Model used to extract data tables and trends from pasted Task 1 chart screenshots.
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-3 pt-2">
-            {(
-              [
-                "openrouter",
-                "deepseek",
-                "gemini",
-                "openai",
-                "anthropic",
-              ] as AIProviderId[]
-            ).map((prov) => {
-              const st = keyStatus[prov];
-              return (
-                <div
-                  key={prov}
-                  className="p-3.5 rounded-xl bg-canvas border border-line space-y-2"
+          {configuredProviders.length > 0 ? (
+            <ul className="flex flex-wrap gap-2" aria-label="Configured providers">
+              {configuredProviders.map((p) => (
+                <li
+                  key={p.id}
+                  className="inline-flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full border border-line bg-canvas text-sm text-ink"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className="font-semibold uppercase font-mono text-ink flex items-center gap-1.5">
-                      <KeyRound className="w-3.5 h-3.5 text-accent" />
-                      {providerDefaults[prov]?.label || prov}
-                    </span>
+                  <ProviderIcon id={p.id} size={20} />
+                  {p.name}
+                  <span className="text-xs text-ink-muted">
+                    {p.hasStoredKey ? `${p.models.length} model${p.models.length === 1 ? "" : "s"}` : "plan key"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-ink-secondary p-3 rounded-lg border border-dashed border-line-strong">
+              No providers are connected yet. Choose <span className="font-medium text-ink">Manage providers</span> to
+              add one with your API key.
+            </p>
+          )}
 
-                    <div className="flex items-center gap-2">
-                      {st?.hasEnvKey && (
-                        <span className="px-2 py-0.5 rounded bg-accent-soft text-accent font-mono text-[11px]">
-                          Env Key Active
-                        </span>
-                      )}
-                      {st?.hasStoredKey && (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-subtle text-ink font-mono text-[11px]">
-                          <span>Saved: {st.maskedStoredKey}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleClearKey(prov)}
-                            className="text-red-500 hover:underline ml-1 cursor-pointer"
-                          >
-                            Clear
-                          </button>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <input
-                    id={`apikey-input-${prov}`}
-                    type="password"
-                    value={newKeyInputs[prov]}
-                    onChange={(e) =>
-                      setNewKeyInputs((prev) => ({
-                        ...prev,
-                        [prov]: e.target.value,
-                      }))
-                    }
-                    placeholder={
-                      st?.hasStoredKey || st?.hasEnvKey
-                        ? "Leave blank to keep existing key, or paste new key to override..."
-                        : `Paste ${prov.toUpperCase()}_API_KEY...`
-                    }
-                    className="w-full px-3 py-2 rounded-lg bg-surface border border-line text-xs font-mono text-ink"
-                  />
-                </div>
-              );
-            })}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {ROLES.map(({ role, label, help }) => (
+              <RoleSelect
+                key={role}
+                role={role}
+                label={label}
+                help={help}
+                value={models[role]}
+                providers={configuredProviders}
+                disabled={configuredProviders.length === 0}
+                onChange={(value) => setModels((prev) => ({ ...prev, [role]: value }))}
+              />
+            ))}
           </div>
         </section>
 
@@ -831,6 +723,14 @@ export function SettingsClient({
           <p className="text-xs font-medium text-accent pt-1">{backupMessage}</p>
         )}
       </section>
+
+      {providersOpen && (
+        <ModelProvidersDialog
+          providers={providers}
+          onClose={() => setProvidersOpen(false)}
+          onChanged={refreshProviders}
+        />
+      )}
     </div>
   );
 }
