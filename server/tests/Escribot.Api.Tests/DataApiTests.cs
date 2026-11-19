@@ -345,17 +345,16 @@ public class DataApiTests(AppHostFixture fixture)
 
         var response = await GetJsonAsync(browser, "/api/settings");
 
-        Assert.Equal(["settings", "keyStatus", "activeProviderReady", "providerDefaults", "usage", "billing"], Names(response));
+        Assert.Equal(["settings", "providers", "usage", "billing"], Names(response));
         Assert.Equal(
-            """{"currentBand":6.5,"targetBand":7.5,"examDate":"","nativeLanguage":"es","l1CoachingEnabled":true,"activeProvider":"openrouter","graderModel":"anthropic/claude-sonnet-5.5","fastModel":"deepseek/deepseek-v4.1-flash-1017","visionModel":"deepseek/deepseek-v4.1-flash-1017"}""",
+            """{"currentBand":6.5,"targetBand":7.5,"examDate":"","nativeLanguage":"es","l1CoachingEnabled":true,"models":{"grader":{"provider":"openrouter","model":"anthropic/claude-sonnet-5.5"},"fast":{"provider":"openrouter","model":"deepseek/deepseek-v4.1-flash-1017"},"vision":{"provider":"openrouter","model":"deepseek/deepseek-v4.1-flash-1017"}}}""",
             response.GetProperty("settings").GetRawText());
-        Assert.Equal(["openrouter", "deepseek", "gemini", "openai", "anthropic"], Names(response.GetProperty("keyStatus")));
-        Assert.Equal("""{"hasStoredKey":false,"maskedStoredKey":null,"hasEnvKey":false}""", response.GetProperty("keyStatus").GetProperty("openai").GetRawText());
-        Assert.False(response.GetProperty("activeProviderReady").GetBoolean());
+        var providers = response.GetProperty("providers").EnumerateArray().ToList();
+        Assert.Equal(["openrouter", "deepseek", "gemini", "openai", "anthropic"], providers.Select(p => p.GetProperty("id").GetString()));
         Assert.Equal(
-            """{"label":"OpenAI (GPT-4.1 + GPT-4.1 Mini)","graderModel":"gpt-4.1","fastModel":"gpt-4.1-mini","visionModel":"gpt-4.1"}""",
-            response.GetProperty("providerDefaults").GetProperty("openai").GetRawText());
-        Assert.Equal(3, response.GetProperty("providerDefaults").GetProperty("openrouter").GetProperty("graderFallbacks").GetArrayLength());
+            """{"id":"openai","name":"OpenAI","description":"GPT models over the OpenAI API.","configured":false,"hasStoredKey":false,"maskedStoredKey":null,"hasEnvKey":false,"models":["gpt-4.1","gpt-4.1-mini"],"suggestedModels":["gpt-4.1","gpt-4.1-mini"]}""",
+            providers[3].GetRawText());
+        Assert.Equal(6, providers[0].GetProperty("suggestedModels").GetArrayLength());
 
         var usage = response.GetProperty("usage");
         Assert.Equal(["plan", "planLabel", "keySource", "canChooseModels", "evaluations", "assists", "verificationRequired", "resetsAt"], Names(usage));
@@ -403,13 +402,14 @@ public class DataApiTests(AppHostFixture fixture)
         Assert.DoesNotContain(key, text);
         Assert.DoesNotContain(encrypted.Value, text);
         var response = JsonDocument.Parse(text).RootElement;
+        // A legacy save (one provider, three model names) sets every role to that provider.
         Assert.Equal(
-            """{"currentBand":6,"targetBand":8,"examDate":"2027-01-15","nativeLanguage":"pt","l1CoachingEnabled":false,"activeProvider":"openai","graderModel":"gpt-custom","fastModel":"gpt-4.1-mini","visionModel":"gpt-4.1"}""",
+            """{"currentBand":6,"targetBand":8,"examDate":"2027-01-15","nativeLanguage":"pt","l1CoachingEnabled":false,"models":{"grader":{"provider":"openai","model":"gpt-custom"},"fast":{"provider":"openai","model":"gpt-4.1-mini"},"vision":{"provider":"openai","model":"gpt-4.1"}}}""",
             response.GetProperty("settings").GetRawText());
-        var status = response.GetProperty("keyStatus").GetProperty("openai");
+        var status = response.GetProperty("providers").EnumerateArray().Single(p => p.GetProperty("id").GetString() == "openai");
+        Assert.True(status.GetProperty("configured").GetBoolean());
         Assert.True(status.GetProperty("hasStoredKey").GetBoolean());
         Assert.Equal($"{key[..5]}••••••{key[^4..]}", status.GetProperty("maskedStoredKey").GetString());
-        Assert.True(response.GetProperty("activeProviderReady").GetBoolean());
         Assert.Equal("user", response.GetProperty("usage").GetProperty("keySource").GetString());
 
         // The export names the provider and nothing more.
@@ -435,6 +435,9 @@ public class DataApiTests(AppHostFixture fixture)
     [InlineData("""{ "nativeLanguage": "tlh" }""")]
     [InlineData("""{ "activeProvider": "someone-elses-server" }""")]
     [InlineData("""{ "apiKeysToUpdate": { "not-a-provider": "sk-test" } }""")]
+    [InlineData("""{ "models": { "grader": { "provider": "someone-elses-server", "model": "m" } } }""")]
+    [InlineData("""{ "models": { "fast": { "provider": "openai", "model": "anthropic/wrong-kind" } } }""")]
+    [InlineData("""{ "models": { "vision": { "provider": "openrouter" } } }""")]
     public async Task Settings_that_make_no_sense_are_refused(string body)
     {
         var (browser, _, _) = await SignUpAsync();
@@ -442,6 +445,80 @@ public class DataApiTests(AppHostFixture fixture)
         using var response = await browser.PutAsync("/api/settings", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Providers_are_added_edited_and_removed_and_roles_follow_them()
+    {
+        var (browser, userId, _) = await SignUpAsync();
+        var (other, otherId, _) = await SignUpAsync();
+        var key = $"sk-test-{TestSecrets.NewSecret()}";
+
+        // Adding a provider needs a key; without a model list it starts with its suggested models.
+        using var noKey = await browser.PutAsJsonAsync("/api/settings/providers/deepseek", new { });
+        Assert.Equal(HttpStatusCode.BadRequest, noKey.StatusCode);
+
+        using var added = await browser.PutAsJsonAsync("/api/settings/providers/deepseek", new { apiKey = key });
+        Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+        var addedText = await added.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(key, addedText);
+        var provider = JsonDocument.Parse(addedText).RootElement;
+        Assert.True(provider.GetProperty("configured").GetBoolean());
+        Assert.Equal(["deepseek-v4-pro", "deepseek-flash"], provider.GetProperty("models").EnumerateArray().Select(m => m.GetString()));
+
+        // Each role can point at a different provider.
+        using var roles = await browser.PutAsJsonAsync("/api/settings", new
+        {
+            models = new
+            {
+                grader = new { provider = "deepseek", model = "deepseek-v4-pro" },
+                fast = new { provider = "openrouter", model = "anthropic/claude-haiku-5.5" },
+            },
+        });
+        Assert.Equal(HttpStatusCode.OK, roles.StatusCode);
+        var stored = await Service<ISettingsRepository>().GetOrCreateAsync(userId);
+        Assert.Equal(("deepseek", "deepseek-v4-pro"), (stored.GraderProvider, stored.GraderModel));
+        Assert.Equal(("openrouter", "anthropic/claude-haiku-5.5"), (stored.FastProvider, stored.FastModel));
+
+        // Taking the examiner's model off the list moves the examiner to the first model left.
+        using var edited = await browser.PutAsJsonAsync("/api/settings/providers/deepseek", new { models = new[] { "deepseek-flash", "deepseek-v4-lite", "deepseek-flash" } });
+        Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+        stored = await Service<ISettingsRepository>().GetOrCreateAsync(userId);
+        Assert.Equal(["deepseek-flash", "deepseek-v4-lite"], stored.ProviderModels["deepseek"]);
+        Assert.Equal(("deepseek", "deepseek-flash"), (stored.GraderProvider, stored.GraderModel));
+        Assert.Single(stored.EncryptedApiKeys);
+
+        // Another user never sees it.
+        var otherSettings = await GetJsonAsync(other, "/api/settings");
+        Assert.All(otherSettings.GetProperty("providers").EnumerateArray(), p => Assert.False(p.GetProperty("hasStoredKey").GetBoolean()));
+        Assert.Empty((await Service<ISettingsRepository>().GetOrCreateAsync(otherId)).ProviderModels);
+
+        // Removing a provider moves its roles to one the user still has, onto a model that provider lists.
+        using var openAi = await browser.PutAsJsonAsync("/api/settings/providers/openai", new { apiKey = key, models = new[] { "gpt-4.1-mini" } });
+        Assert.Equal(HttpStatusCode.OK, openAi.StatusCode);
+        using var removed = await browser.DeleteAsync("/api/settings/providers/deepseek");
+        Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
+        stored = await Service<ISettingsRepository>().GetOrCreateAsync(userId);
+        Assert.Equal(["openai"], stored.EncryptedApiKeys.Keys);
+        Assert.False(stored.ProviderModels.ContainsKey("deepseek"));
+        // The examiner's default (gpt-4.1) is not on the list, so it gets the first listed model.
+        Assert.Equal(("openai", "gpt-4.1-mini"), (stored.GraderProvider, stored.GraderModel));
+    }
+
+    [Theory]
+    [InlineData("deepseek", """{ "apiKey": "" }""", HttpStatusCode.BadRequest)]
+    [InlineData("deepseek", """{ "apiKey": "sk", "models": [] }""", HttpStatusCode.BadRequest)]
+    [InlineData("deepseek", """{ "apiKey": "sk", "models": [42] }""", HttpStatusCode.BadRequest)]
+    [InlineData("deepseek", """{ "apiKey": "sk", "models": ["vendor/slashed"] }""", HttpStatusCode.BadRequest)]
+    [InlineData("openrouter", """{ "apiKey": "sk", "models": ["no-slash"] }""", HttpStatusCode.BadRequest)]
+    [InlineData("someone-elses-server", """{ "apiKey": "sk" }""", HttpStatusCode.NotFound)]
+    public async Task Provider_settings_that_make_no_sense_are_refused(string id, string body, HttpStatusCode expected)
+    {
+        var (browser, _, _) = await SignUpAsync();
+
+        using var response = await browser.PutAsync($"/api/settings/providers/{id}", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(expected, response.StatusCode);
     }
 
     // ---- Backup and export ----
@@ -558,7 +635,7 @@ public class DataApiTests(AppHostFixture fixture)
         Assert.Equal(email, account.GetProperty("email").GetString());
         Assert.Equal("credential", account.GetProperty("signInMethods")[0].GetProperty("provider").GetString());
         Assert.Equal(
-            ["currentBand", "targetBand", "examDate", "nativeLanguage", "l1CoachingEnabled", "activeProvider", "graderModel", "fastModel", "visionModel", "plan", "onboardedAt", "updatedAt", "savedApiKeyProviders"],
+            ["currentBand", "targetBand", "examDate", "nativeLanguage", "l1CoachingEnabled", "activeProvider", "graderProvider", "graderModel", "fastProvider", "fastModel", "visionProvider", "visionModel", "providerModels", "plan", "onboardedAt", "updatedAt", "savedApiKeyProviders"],
             Names(export.GetProperty("settings")));
         Assert.Equal(JsonValueKind.Null, export.GetProperty("subscription").ValueKind);
         Assert.Equal(["prompts", "sessions", "drafts", "evaluations", "vaultItems", "microDrills", "aiUsage"], Names(export.GetProperty("data")));
@@ -684,6 +761,7 @@ public class DataApiTests(AppHostFixture fixture)
             ("GET", "/api/sessions"), ("POST", "/api/sessions"), ("GET", $"/api/sessions/{sessionId}"),
             ("GET", "/api/prompts"), ("POST", "/api/prompts"), ("GET", "/api/vault"), ("POST", "/api/vault"), ("PATCH", "/api/vault"),
             ("DELETE", $"/api/vault?id={vaultItemId}"), ("GET", "/api/drills"), ("GET", "/api/settings"), ("PUT", "/api/settings"),
+            ("PUT", "/api/settings/providers/openai"), ("DELETE", "/api/settings/providers/openai"),
             ("GET", "/api/backup"), ("POST", "/api/backup"), ("GET", "/api/account/export"), ("GET", imagePath),
         })
         {

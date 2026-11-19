@@ -182,4 +182,12 @@ internal readonly struct Body(JsonElement root)
     public Body? Object(string name) => Field(name) is { ValueKind: JsonValueKind.Object } value ? new Body(value) : null;
 
     public IEnumerable<JsonProperty> Properties() => IsObject ? root.EnumerateObject() : [];
+
+    /// <summary>
+    /// The items of an array field, each trimmed, with null for an item that is not text;
+    /// null when the field is missing or not an array.
+    /// </summary>
+    public IReadOnlyList<string?>? Strings(string name) => Field(name) is { ValueKind: JsonValueKind.Array } value
+        ? [.. value.EnumerateArray().Select(item => item.ValueKind == JsonValueKind.String ? item.GetString()!.Trim() : null)]
+        : null;
 }

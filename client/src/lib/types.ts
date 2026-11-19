@@ -25,6 +25,31 @@ export type AIProviderId =
   | "openai"
   | "anthropic";
 
+/** The three jobs a model does: deep rubric scoring, fast coaching, and reading Task 1 screenshots. */
+export type ModelRole = "grader" | "fast" | "vision";
+
+/** A model of one provider, as a role is set to it in Settings. */
+export interface ModelRef {
+  provider: AIProviderId;
+  model: string;
+}
+
+/** One provider as GET /api/settings describes it. Saved keys only ever arrive masked. */
+export interface ProviderInfo {
+  id: AIProviderId;
+  name: string;
+  description: string;
+  /** Usable: the user saved a key, or the platform has its own key for it. */
+  configured: boolean;
+  hasStoredKey: boolean;
+  maskedStoredKey: string | null;
+  /** The platform has its own key for this provider. */
+  hasEnvKey: boolean;
+  /** The models listed for this provider; its suggested ones until the user edits the list. */
+  models: string[];
+  suggestedModels: string[];
+}
+
 export type NativeLanguageCode =
   | "es"
   | "pt"

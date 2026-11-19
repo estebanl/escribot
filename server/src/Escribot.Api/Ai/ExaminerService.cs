@@ -27,26 +27,24 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         CancellationToken cancellationToken = default)
     {
         var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
-        if (string.IsNullOrEmpty(cfg.ApiKey))
+        var vision = cfg.Vision;
+        if (string.IsNullOrEmpty(vision.ApiKey))
         {
             return null;
         }
 
-        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
-        var visionModel = !string.IsNullOrEmpty(cfg.VisionModel) ? cfg.VisionModel
-            : !string.IsNullOrEmpty(defaults?.VisionModel) ? defaults.VisionModel
-            : cfg.FastModel;
+        var defaults = AiProviders.Defaults.GetValueOrDefault(vision.Provider);
 
         try
         {
             return await ai.CallLlmAsync(new LlmCompletionRequest
             {
                 UserId = cfg.UserId,
-                KeySource = cfg.KeySource,
+                KeySource = vision.KeySource,
                 Plan = cfg.Plan,
-                Provider = cfg.Provider,
-                ApiKey = cfg.ApiKey,
-                Model = visionModel,
+                Provider = vision.Provider,
+                ApiKey = vision.ApiKey,
+                Model = vision.Model,
                 FallbackModels = defaults?.FastFallbacks,
                 Feature = "vision_extract",
                 ImageDataUrl = imageDataUrl,
@@ -76,7 +74,9 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         var wordCount = Ielts.CountWords(input.EssayText);
         var minWords = Ielts.MinimumWords(input.TaskType);
 
-        if (string.IsNullOrEmpty(cfg.ApiKey))
+        var grader = cfg.Grader;
+        var fast = cfg.Fast;
+        if (string.IsNullOrEmpty(grader.ApiKey) || string.IsNullOrEmpty(fast.ApiKey))
         {
             input.OnProgress?.Invoke("Running local diagnostic analysis...");
             return new EvaluateEssayResult(
@@ -86,8 +86,8 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                 null);
         }
 
-        var apiKey = cfg.ApiKey;
-        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
+        var graderDefaults = AiProviders.Defaults.GetValueOrDefault(grader.Provider);
+        var fastDefaults = AiProviders.Defaults.GetValueOrDefault(fast.Provider);
         var l1Profile = cfg.L1CoachingEnabled ? L1Profiles.Get(cfg.NativeLanguage) : L1Profiles.Get("neutral");
 
         var criterion1Name = input.TaskType == Ielts.Task1
@@ -137,7 +137,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
 
         input.OnProgress?.Invoke("Scoring 4 IELTS criteria & generating Band 8+ rewrite...");
 
-        async Task<(RubricScoreOutput Data, double? Cost, string Model)> RunScoreAsync()
+        async Task<(RubricScoreOutput Data, double? Cost, string Provider, string Model)> RunScoreAsync()
         {
             try
             {
@@ -145,12 +145,12 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                     new LlmCompletionRequest
                     {
                         UserId = cfg.UserId,
-                        KeySource = cfg.KeySource,
+                        KeySource = grader.KeySource,
                         Plan = cfg.Plan,
-                        Provider = cfg.Provider,
-                        ApiKey = apiKey,
-                        Model = cfg.GraderModel,
-                        FallbackModels = defaults?.GraderFallbacks,
+                        Provider = grader.Provider,
+                        ApiKey = grader.ApiKey,
+                        Model = grader.Model,
+                        FallbackModels = graderDefaults?.GraderFallbacks,
                         Feature = "rubric_score",
                         SystemPrompt = rubricSystemPrompt,
                         UserPrompt = rubricUserPrompt,
@@ -163,22 +163,22 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                     cancellationToken);
 
                 input.OnProgress?.Invoke("4-criterion band scores ready — finalising inline upgrades...");
-                var actualModel = !string.IsNullOrEmpty(resRubric.ModelUsed) ? resRubric.ModelUsed : cfg.GraderModel;
-                return (parsedRubric, resRubric.CostUsd, actualModel);
+                var actualModel = !string.IsNullOrEmpty(resRubric.ModelUsed) ? resRubric.ModelUsed : grader.Model;
+                return (parsedRubric, resRubric.CostUsd, grader.Provider, actualModel);
             }
-            catch when (!string.IsNullOrEmpty(cfg.FastModel) && cfg.FastModel != cfg.GraderModel && !cancellationToken.IsCancellationRequested)
+            catch when ((fast.Provider, fast.Model) != (grader.Provider, grader.Model) && !cancellationToken.IsCancellationRequested)
             {
                 input.OnProgress?.Invoke("Switching to fast examiner model to complete band scoring...");
                 var (parsedFallback, resFallback) = await ai.CallLlmAndParseAsync(
                     new LlmCompletionRequest
                     {
                         UserId = cfg.UserId,
-                        KeySource = cfg.KeySource,
+                        KeySource = fast.KeySource,
                         Plan = cfg.Plan,
-                        Provider = cfg.Provider,
-                        ApiKey = apiKey,
-                        Model = cfg.FastModel,
-                        FallbackModels = defaults?.FastFallbacks,
+                        Provider = fast.Provider,
+                        ApiKey = fast.ApiKey,
+                        Model = fast.Model,
+                        FallbackModels = fastDefaults?.FastFallbacks,
                         Feature = "rubric_score_fallback",
                         SystemPrompt = rubricSystemPrompt,
                         UserPrompt = rubricUserPrompt,
@@ -190,9 +190,9 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                     JsonExtractor.ExtractJsonObject<RubricScoreOutput>,
                     cancellationToken);
 
-                var actualModel = !string.IsNullOrEmpty(resFallback.ModelUsed) ? resFallback.ModelUsed : cfg.FastModel;
+                var actualModel = !string.IsNullOrEmpty(resFallback.ModelUsed) ? resFallback.ModelUsed : fast.Model;
                 input.OnProgress?.Invoke("4-criterion band scores ready — finalising inline upgrades...");
-                return (parsedFallback, resFallback.CostUsd, actualModel);
+                return (parsedFallback, resFallback.CostUsd, fast.Provider, actualModel);
             }
         }
 
@@ -203,12 +203,12 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                 var resCoach = await ai.CallLlmWithMetaAsync(new LlmCompletionRequest
                 {
                     UserId = cfg.UserId,
-                    KeySource = cfg.KeySource,
+                    KeySource = fast.KeySource,
                     Plan = cfg.Plan,
-                    Provider = cfg.Provider,
-                    ApiKey = apiKey,
-                    Model = cfg.FastModel,
-                    FallbackModels = defaults?.FastFallbacks,
+                    Provider = fast.Provider,
+                    ApiKey = fast.ApiKey,
+                    Model = fast.Model,
+                    FallbackModels = fastDefaults?.FastFallbacks,
                     Feature = "annotations_rewrite",
                     SystemPrompt = coachSystemPrompt,
                     UserPrompt = coachUserPrompt,
@@ -239,7 +239,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         var annotationsTask = RunAnnotationsAsync();
         await Task.WhenAll(scoreTask, annotationsTask);
 
-        var (rubricData, rubricCost, modelUsed) = scoreTask.Result;
+        var (rubricData, rubricCost, providerUsed, modelUsed) = scoreTask.Result;
         var (coachData, coachCost) = annotationsTask.Result;
 
         double? totalCost = rubricCost is not null || coachCost is not null
@@ -370,7 +370,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             VaultItems = vaultItems,
         };
 
-        return new EvaluateEssayResult(payload, cfg.Provider, modelUsed, totalCost);
+        return new EvaluateEssayResult(payload, providerUsed, modelUsed, totalCost);
     }
 
     /* ============================================================================
@@ -391,7 +391,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         var body1 = (outline.Body1Plan ?? string.Empty).Trim();
         var body2 = (outline.Body2Plan ?? string.Empty).Trim();
 
-        if (string.IsNullOrEmpty(cfg.ApiKey))
+        if (string.IsNullOrEmpty(cfg.Fast.ApiKey))
         {
             var hasOverviewOrThesis = Ielts.CountWords(thesis) >= 8;
             var hasBodies = body1.Length > 12 && body2.Length > 12;
@@ -431,18 +431,18 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             };
         }
 
-        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
+        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Fast.Provider);
         var visualBlock = !string.IsNullOrEmpty(visualContext) ? $"\nVISUAL DATA SUMMARY:\n{visualContext}\n" : string.Empty;
         var termsLine = !string.IsNullOrEmpty(outline.TargetKeyTerms) ? $"- Planned Vocabulary: {outline.TargetKeyTerms}" : string.Empty;
 
         var raw = await ai.CallLlmAsync(new LlmCompletionRequest
         {
             UserId = cfg.UserId,
-            KeySource = cfg.KeySource,
+            KeySource = cfg.Fast.KeySource,
             Plan = cfg.Plan,
-            Provider = cfg.Provider,
-            ApiKey = cfg.ApiKey,
-            Model = cfg.FastModel,
+            Provider = cfg.Fast.Provider,
+            ApiKey = cfg.Fast.ApiKey,
+            Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "outline_check",
             JsonMode = true,
@@ -464,7 +464,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
         var l1Profile = cfg.L1CoachingEnabled ? L1Profiles.Get(cfg.NativeLanguage) : L1Profiles.Get("neutral");
 
-        if (string.IsNullOrEmpty(cfg.ApiKey))
+        if (string.IsNullOrEmpty(cfg.Fast.ApiKey))
         {
             return new ToolkitResponse
             {
@@ -501,15 +501,15 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             _ => $"Evaluate this single paragraph for IELTS Coherence & Cohesion, Task {(req.TaskType == Ielts.Task1 ? "Achievement" : "Response")}, and Academic Register: Does it have a clear topic sentence or overview signpost? (If it is a Task 1 Overview paragraph, ensure it contains NO raw numbers/percentages; if it is a Body paragraph, ensure it groups and compares specific figures.) Are ideas extended logically without mechanical linkers or journalistic verbs like \"collapsed\"? Give concise diagnosis + 2 surgical improvements that align strictly with our examiner grading standards (do not rewrite the entire essay).",
         };
 
-        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
+        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Fast.Provider);
         var raw = await ai.CallLlmAsync(new LlmCompletionRequest
         {
             UserId = cfg.UserId,
-            KeySource = cfg.KeySource,
+            KeySource = cfg.Fast.KeySource,
             Plan = cfg.Plan,
-            Provider = cfg.Provider,
-            ApiKey = cfg.ApiKey,
-            Model = cfg.FastModel,
+            Provider = cfg.Fast.Provider,
+            ApiKey = cfg.Fast.ApiKey,
+            Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "toolkit",
             JsonMode = true,
@@ -537,7 +537,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
         var chosenTopic = string.IsNullOrWhiteSpace(topic) ? "Public Policy, Technology & Sustainability" : topic.Trim();
 
-        if (string.IsNullOrEmpty(cfg.ApiKey))
+        if (string.IsNullOrEmpty(cfg.Fast.ApiKey))
         {
             if (taskType == Ielts.Task2)
             {
@@ -577,15 +577,15 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             ? GetChartSchemaPromptForCategory(category)
             : "Omit chartSpec (set to null) because Task 2 is a discursive essay.";
 
-        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
+        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Fast.Provider);
         var raw = await ai.CallLlmAsync(new LlmCompletionRequest
         {
             UserId = cfg.UserId,
-            KeySource = cfg.KeySource,
+            KeySource = cfg.Fast.KeySource,
             Plan = cfg.Plan,
-            Provider = cfg.Provider,
-            ApiKey = cfg.ApiKey,
-            Model = cfg.FastModel,
+            Provider = cfg.Fast.Provider,
+            ApiKey = cfg.Fast.ApiKey,
+            Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "prompt_generation",
             JsonMode = true,
@@ -651,7 +651,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             Steps = baseTemplate.Steps ?? (level == "intermediate" && DrillTemplates.IntermediateSteps.TryGetValue(drillType, out var intSteps) ? intSteps : null),
         };
 
-        if (string.IsNullOrEmpty(cfg.ApiKey))
+        if (string.IsNullOrEmpty(cfg.Fast.ApiKey))
         {
             return fallback;
         }
@@ -666,15 +666,15 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             ? $"Include a \"chartSpec\" with {(level == "beginner" ? 2 : 3)} series and 5 data points using this EXACT shape (all data values must be plain numbers, and \"yAxisUnit\" must be a short suffix like \"%\", \"k\", \"M\", or \"\" — put longer unit notes in \"subtitle\"):\n{{ \"kind\": \"line\" | \"bar\", \"title\": \"...\", \"subtitle\": \"...\", \"xAxisKey\": \"year\", \"yAxisUnit\": \"%\", \"series\": [{{ \"key\": \"s1\", \"label\": \"Series 1\", \"color\": \"#16656e\" }}, {{ \"key\": \"s2\", \"label\": \"Series 2\", \"color\": \"#c55e1b\" }}], \"data\": [{{ \"year\": \"2015\", \"s1\": 20, \"s2\": 45 }}, ... (5 points)] }}\nSet \"flawedText\" to null. Ask the student to write ONLY a 2-sentence Task 1 Overview without raw statistics."
             : $"Set \"chartSpec\" to null and provide a {(level == "beginner" ? "1-3 short sentence" : "2-3 sentence")} \"flawedText\" paragraph exhibiting realistic Band {(level == "beginner" ? "4.5–5.5" : "6.0–6.5")} weaknesses for \"{drillType}\" ({(drillType == "l1_surgeon" ? l1Profile.CoachingFocus : "mechanical linkers or informal unhedged claims")}).";
 
-        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
+        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Fast.Provider);
         var raw = await ai.CallLlmAsync(new LlmCompletionRequest
         {
             UserId = cfg.UserId,
-            KeySource = cfg.KeySource,
+            KeySource = cfg.Fast.KeySource,
             Plan = cfg.Plan,
-            Provider = cfg.Provider,
-            ApiKey = cfg.ApiKey,
-            Model = cfg.FastModel,
+            Provider = cfg.Fast.Provider,
+            ApiKey = cfg.Fast.ApiKey,
+            Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "drill_generate",
             JsonMode = true,
@@ -728,7 +728,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             : Ielts.IsDrillLevel(challenge.Level) ? challenge.Level!
             : "advanced";
 
-        if (string.IsNullOrEmpty(cfg.ApiKey) && level != "advanced")
+        if (string.IsNullOrEmpty(cfg.Fast.ApiKey) && level != "advanced")
         {
             return ScoreScaffoldedDrillLocally(challenge, userResponse, level);
         }
@@ -738,7 +738,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             return await ScoreScaffoldedDrillWithAiAsync(cfg, challenge, userResponse, level, cancellationToken);
         }
 
-        if (string.IsNullOrEmpty(cfg.ApiKey))
+        if (string.IsNullOrEmpty(cfg.Fast.ApiKey))
         {
             var words = Ielts.CountWords(userResponse);
             var hasMechanical = MechanicalAdvancedRegex().IsMatch(userResponse);
@@ -757,18 +757,18 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             };
         }
 
-        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
+        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Fast.Provider);
         var flawedBlock = !string.IsNullOrEmpty(challenge.FlawedText) ? $"ORIGINAL FLAWED PASSAGE:\n{challenge.FlawedText}\n" : string.Empty;
         var chartBlock = challenge.ChartSpec is not null ? $"CHART DATA:\n{challenge.ChartSpec.ToJsonString()}\n" : string.Empty;
 
         var raw = await ai.CallLlmAsync(new LlmCompletionRequest
         {
             UserId = cfg.UserId,
-            KeySource = cfg.KeySource,
+            KeySource = cfg.Fast.KeySource,
             Plan = cfg.Plan,
-            Provider = cfg.Provider,
-            ApiKey = cfg.ApiKey,
-            Model = cfg.FastModel,
+            Provider = cfg.Fast.Provider,
+            ApiKey = cfg.Fast.ApiKey,
+            Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "drill_score",
             JsonMode = true,
@@ -795,16 +795,16 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
         var flawedBlock = !string.IsNullOrEmpty(challenge.FlawedText) ? $"ORIGINAL PASSAGE:\n{challenge.FlawedText}\n" : string.Empty;
         var chartBlock = challenge.ChartSpec is not null ? $"CHART DATA:\n{challenge.ChartSpec.ToJsonString()}\n" : string.Empty;
         var bandLabel = guidance.Band.ToString("F1", CultureInfo.InvariantCulture);
-        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Provider);
+        var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Fast.Provider);
 
         var raw = await ai.CallLlmAsync(new LlmCompletionRequest
         {
             UserId = cfg.UserId,
-            KeySource = cfg.KeySource,
+            KeySource = cfg.Fast.KeySource,
             Plan = cfg.Plan,
-            Provider = cfg.Provider,
-            ApiKey = cfg.ApiKey!,
-            Model = cfg.FastModel,
+            Provider = cfg.Fast.Provider,
+            ApiKey = cfg.Fast.ApiKey!,
+            Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "drill_score",
             JsonMode = true,

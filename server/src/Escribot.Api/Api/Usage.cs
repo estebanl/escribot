@@ -12,12 +12,34 @@ public sealed record ProviderDefaults(
     string FastModel,
     string VisionModel,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? GraderFallbacks = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? FastFallbacks = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? FastFallbacks = null)
+{
+    /// <summary>The provider's name in the Settings picker, such as "Anthropic".</summary>
+    public string Name { get; init; } = Label;
+
+    /// <summary>One line under the name in the Settings picker.</summary>
+    public string Description { get; init; } = string.Empty;
+
+    /// <summary>The models a newly added provider starts with, and the picker's suggestions.</summary>
+    public IReadOnlyList<string> SuggestedModels =>
+        [.. new[] { GraderModel, FastModel, VisionModel }.Concat(GraderFallbacks ?? []).Concat(FastFallbacks ?? []).Distinct()];
+}
+
+/// <summary>Which model the examiner, the fast coach and the Task 1 vision step each use.</summary>
+public enum ModelRole
+{
+    Grader,
+    Fast,
+    Vision,
+}
 
 /// <summary>The AI providers a user can choose in Settings, with the models each starts with.</summary>
 public static class AiProviders
 {
     public const string OpenRouter = "openrouter";
+
+    /// <summary>The most models one provider can list in Settings.</summary>
+    public const int MaxModelsPerProvider = 20;
 
     /// <summary>Also the order in which a platform key is picked when the plan does not allow choosing.</summary>
     public static readonly IReadOnlyList<string> Ids = [OpenRouter, "deepseek", "gemini", "openai", "anthropic"];
@@ -30,11 +52,31 @@ public static class AiProviders
             "deepseek/deepseek-v4.1-flash-1017",
             "deepseek/deepseek-v4.1-flash-1017",
             ["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-4-argon"],
-            ["deepseek/deepseek-v4.1-flash-1017", "anthropic/claude-haiku-5.5", "openai/gpt-6-luna"]),
-        ["deepseek"] = new("DeepSeek (V4 Pro + V4.1 Flash Vision)", "deepseek-v4-pro", "deepseek-flash", "deepseek-flash"),
-        ["gemini"] = new("Google Gemini (2.5 Pro + 2.5 Flash)", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash"),
-        ["openai"] = new("OpenAI (GPT-4.1 + GPT-4.1 Mini)", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1"),
-        ["anthropic"] = new("Anthropic Claude (Sonnet 4.5 + Haiku 4.5)", "claude-sonnet-4-5", "claude-haiku-4-5", "claude-sonnet-4-5"),
+            ["deepseek/deepseek-v4.1-flash-1017", "anthropic/claude-haiku-5.5", "openai/gpt-6-luna"])
+        {
+            Name = "OpenRouter",
+            Description = "One key for hundreds of models from every major lab.",
+        },
+        ["deepseek"] = new("DeepSeek (V4 Pro + V4.1 Flash Vision)", "deepseek-v4-pro", "deepseek-flash", "deepseek-flash")
+        {
+            Name = "DeepSeek",
+            Description = "DeepSeek's own API: V4 Pro and the fast Flash models.",
+        },
+        ["gemini"] = new("Google Gemini (2.5 Pro + 2.5 Flash)", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash")
+        {
+            Name = "Google Gemini",
+            Description = "Gemini models through Google AI Studio.",
+        },
+        ["openai"] = new("OpenAI (GPT-4.1 + GPT-4.1 Mini)", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1")
+        {
+            Name = "OpenAI",
+            Description = "GPT models over the OpenAI API.",
+        },
+        ["anthropic"] = new("Anthropic Claude (Sonnet 4.5 + Haiku 4.5)", "claude-sonnet-4-5", "claude-haiku-4-5", "claude-sonnet-4-5")
+        {
+            Name = "Anthropic",
+            Description = "Hosted Claude models over the Messages API.",
+        },
     };
 
     public static bool IsKnown(string? id) => id is not null && Defaults.ContainsKey(id);
@@ -47,7 +89,41 @@ public static class AiProviders
     /// wrong kind for the provider is replaced by that provider's default.
     /// </summary>
     public static string ModelFor(string provider, string? model, string fallback) =>
-        string.IsNullOrEmpty(model) || model.Contains('/') != (provider == OpenRouter) ? fallback : model;
+        IsValidModel(provider, model) ? model! : fallback;
+
+    /// <summary>Whether a model name has the right shape for the provider.</summary>
+    public static bool IsValidModel(string provider, string? model) =>
+        !string.IsNullOrEmpty(model) && model.Contains('/') == (provider == OpenRouter);
+
+    /// <summary>
+    /// The provider and model a user picked for a role, before any key-based fallback.
+    /// A role with no provider of its own (documents saved before roles had one) uses
+    /// the legacy <see cref="UserSettings.ActiveProvider"/>.
+    /// </summary>
+    public static (string Provider, string Model) Chosen(UserSettings settings, ModelRole role)
+    {
+        var legacy = IsKnown(settings.ActiveProvider) ? settings.ActiveProvider : OpenRouter;
+        var (provider, model) = role switch
+        {
+            ModelRole.Grader => (settings.GraderProvider, settings.GraderModel),
+            ModelRole.Fast => (settings.FastProvider, settings.FastModel),
+            _ => (settings.VisionProvider, settings.VisionModel),
+        };
+        var resolved = IsKnown(provider) ? provider! : legacy;
+        return (resolved, ModelFor(resolved, model, DefaultModel(resolved, role)));
+    }
+
+    /// <summary>The provider's default model for a role.</summary>
+    public static string DefaultModel(string provider, ModelRole role)
+    {
+        var d = Defaults[provider];
+        return role switch
+        {
+            ModelRole.Grader => d.GraderModel,
+            ModelRole.Fast => d.FastModel,
+            _ => d.VisionModel,
+        };
+    }
 }
 
 public sealed record UsageCount(int Used, int? Limit);

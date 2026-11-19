@@ -15,7 +15,8 @@ stored documents in [data-model.md](data-model.md).
 | `POST /api/prompts` | A custom prompt; a Task 1 prompt may carry `imageDataUrl` |
 | `GET` `POST` `PATCH` `DELETE /api/vault` | As before; `DELETE` takes `?id=` |
 | `GET /api/drills` | The 20 most recent. Generating and scoring come with the AI endpoints |
-| `GET` `PUT /api/settings` | Includes key status, usage and billing status |
+| `GET` `PUT /api/settings` | `GET` lists every provider (`providers`: whether it is configured, its masked saved key, whether the platform has a key, its models and suggested models), the model each role uses (`settings.models.{grader,fast,vision}` as `{provider, model}`), usage and billing status. `PUT` takes `models` in the same shape; it still accepts the older `activeProvider`, `graderModel`/`fastModel`/`visionModel` and `apiKeysToUpdate` |
+| `PUT` `DELETE /api/settings/providers/{id}` | `PUT {apiKey?, models?}` adds a provider or changes its key or model list and answers the provider as `GET /api/settings` lists it. Adding one needs a key unless the platform has its own; without `models` a new provider starts with its suggested models. A role whose model leaves the list moves to the provider's first model. `DELETE` (204) removes the key and the list, and roles that used the provider move to another configured one. An unknown provider is a 404 |
 | `GET /api/images/{id}` | Served to the owner only |
 | `GET` `POST /api/backup` | Download and restore of the writing data |
 | `GET /api/account/export` | Everything stored about the user; 5 an hour |
@@ -43,7 +44,11 @@ the route then answers with its own message. On top of that:
 
 - A session `mode`, a prompt `taskType`, a settings `nativeLanguage` and `activeProvider`
   must be known values.
-- `apiKeysToUpdate` accepts only the five known providers.
+- `apiKeysToUpdate` and the provider routes accept only the five known providers. API keys
+  are at most 500 characters.
+- A model name is at most 200 characters, and an OpenRouter model has a slash
+  (`vendor/model`) while no other provider's does. A role's `{provider, model}` must pass
+  that check, and a provider lists 1 to 20 models (duplicates are dropped).
 - Bands are 0 to 9. Prompt and Vault texts are limited to 20,000 characters, titles and
   the like to 300.
 - A backup file is checked row by row. It must hold JSON in its `…Json` fields and dates

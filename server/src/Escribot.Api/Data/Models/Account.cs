@@ -58,6 +58,7 @@ public sealed record UserSettings
 
     public bool L1CoachingEnabled { get; init; } = true;
 
+    /// <summary>Legacy single choice: the provider of any role below that is not set.</summary>
     public string ActiveProvider { get; init; } = "openrouter";
 
     public string GraderModel { get; init; } = "anthropic/claude-sonnet-5.5";
@@ -65,6 +66,18 @@ public sealed record UserSettings
     public string FastModel { get; init; } = "deepseek/deepseek-v4.1-flash-1017";
 
     public string VisionModel { get; init; } = "deepseek/deepseek-v4.1-flash-1017";
+
+    /// <summary>The provider of <see cref="GraderModel"/>; null means <see cref="ActiveProvider"/>.</summary>
+    public string? GraderProvider { get; init; }
+
+    /// <summary>The provider of <see cref="FastModel"/>; null means <see cref="ActiveProvider"/>.</summary>
+    public string? FastProvider { get; init; }
+
+    /// <summary>The provider of <see cref="VisionModel"/>; null means <see cref="ActiveProvider"/>.</summary>
+    public string? VisionProvider { get; init; }
+
+    /// <summary>Provider name to the models the user listed for it in Settings.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> ProviderModels { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
 
     /// <summary>Provider name to the encrypted API key the user saved for it.</summary>
     public IReadOnlyDictionary<string, string> EncryptedApiKeys { get; init; } = new Dictionary<string, string>();

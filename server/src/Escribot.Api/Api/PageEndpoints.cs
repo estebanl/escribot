@@ -135,8 +135,8 @@ internal static class PageEndpoints
                 ["examDate"] = stored.ExamDate,
                 ["nativeLanguage"] = config.NativeLanguage,
                 ["l1CoachingEnabled"] = config.L1CoachingEnabled,
-                ["activeProvider"] = config.Provider,
-                ["activeProviderReady"] = !string.IsNullOrEmpty(config.ApiKey),
+                ["activeProvider"] = config.Grader.Provider,
+                ["activeProviderReady"] = !string.IsNullOrEmpty(config.Grader.ApiKey),
             },
         });
     }
