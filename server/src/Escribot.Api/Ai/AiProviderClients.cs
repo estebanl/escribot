@@ -59,6 +59,9 @@ internal static partial class AiHttpHelpers
 
 public sealed class OpenRouterClient(HttpClient http, IConfiguration configuration) : IAiProviderClient
 {
+    /// <summary>The most models OpenRouter accepts in a request's <c>models</c> list.</summary>
+    public const int MaxRoutedModels = 3;
+
     public string ProviderId => AiProviders.OpenRouter;
 
     public async Task<LlmResultWithMeta> CompleteAsync(LlmProviderRequest request, CancellationToken cancellationToken)
@@ -78,10 +81,17 @@ public sealed class OpenRouterClient(HttpClient http, IConfiguration configurati
             modelList.Add(request.Model);
         }
 
+        // OpenRouter refuses a request whose "models" list has more than three entries, so
+        // the chosen model keeps its place and only the first fallbacks that fit are sent.
         if (request.FallbackModels is not null)
         {
             foreach (var fallback in request.FallbackModels)
             {
+                if (modelList.Count >= MaxRoutedModels)
+                {
+                    break;
+                }
+
                 if (!string.IsNullOrWhiteSpace(fallback) && seen.Add(fallback))
                 {
                     modelList.Add(fallback);
