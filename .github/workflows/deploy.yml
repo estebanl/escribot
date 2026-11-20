@@ -133,7 +133,9 @@ jobs:
             echo "::warning::BEHIND_CLOUDFLARE is true without ORIGIN_CERT_PFX. The free managed certificate cannot renew behind Cloudflare's proxy; add a Cloudflare Origin certificate (see README)."
           fi
           params_file="$RUNNER_TEMP/deploy-params.json"
-          trap 'rm -f "$params_file"' EXIT
+          headers_file="$RUNNER_TEMP/health-headers.txt"
+          body_file="$RUNNER_TEMP/health-body.txt"
+          trap 'rm -f "$params_file" "$headers_file" "$body_file"' EXIT
 
           jq -n \
             --arg rg "$RESOURCE_GROUP_NAME" \
@@ -220,10 +222,62 @@ jobs:
           fqdn=$(jq -r '.apiFqdn' "$RUNNER_TEMP/outputs.json")
           echo "Deployed Container App FQDN: https://${fqdn}"
           if [ "$BEHIND_CLOUDFLARE" = "true" ]; then
-            # The ingress only admits Cloudflare, so check through the proxy, then check
-            # that the direct address is refused.
-            curl -sf --retry 10 --retry-delay 3 --retry-all-errors "https://${CUSTOM_DOMAIN}/health"
-            echo ""
+            # Cloudflare Bot Fight Mode challenges datacenter IPs (including GitHub Actions
+            # runners), so verify revision readiness via Azure first (ACA already probes
+            # /alive and /health internally before marking a revision Healthy).
+            rev_ok=false
+            rev_json=""
+            for _ in $(seq 1 10); do
+              latest=$(az containerapp show -g "$RESOURCE_GROUP_NAME" -n api \
+                --query "properties.latestRevisionName" -o tsv)
+              ready=$(az containerapp show -g "$RESOURCE_GROUP_NAME" -n api \
+                --query "properties.latestReadyRevisionName" -o tsv)
+              if [ -n "$latest" ] && [ "$latest" = "$ready" ]; then
+                rev_json=$(az containerapp revision show -g "$RESOURCE_GROUP_NAME" -n api --revision "$latest" \
+                  --query "{name:name,active:properties.active,healthState:properties.healthState,provisioningState:properties.provisioningState,trafficWeight:properties.trafficWeight,image:properties.template.containers[0].image}" \
+                  -o json)
+                if jq -e --arg img "$API_CONTAINER_IMAGE" \
+                  '.active == true and .provisioningState == "Provisioned" and .healthState == "Healthy" and .trafficWeight == 100 and .image == $img' \
+                  <<< "$rev_json" >/dev/null; then
+                  rev_ok=true
+                  break
+                fi
+              fi
+              sleep 3
+            done
+            if [ "$rev_ok" != "true" ]; then
+              echo "::error::Container App revision did not become ready and healthy for ${API_CONTAINER_IMAGE}: ${rev_json}"
+              exit 1
+            fi
+            echo "Revision verified via Azure: $(jq -c . <<< "$rev_json")"
+
+            # Smoke-check the custom domain through Cloudflare. Accept HTTP 200 or a
+            # Cloudflare Bot Fight Mode challenge (HTTP 403 + cf-mitigated: challenge),
+            # but still fail on 5xx origin/TLS errors or unexpected responses.
+            cf_ok=false
+            http_code=""
+            for _ in $(seq 1 5); do
+              http_code=$(curl -sS --max-time 30 -D "$headers_file" -o "$body_file" -w '%{http_code}' "https://${CUSTOM_DOMAIN}/health" || true)
+              if [ "$http_code" = "200" ]; then
+                cat "$body_file"
+                echo ""
+                cf_ok=true
+                break
+              fi
+              if [ "$http_code" = "403" ] && grep -qi '^cf-mitigated:[[:space:]]*challenge' "$headers_file"; then
+                echo "Cloudflare challenged the runner (HTTP 403, cf-mitigated: challenge); edge routing is active and revision health was verified via Azure."
+                cf_ok=true
+                break
+              fi
+              sleep 3
+            done
+            if [ "$cf_ok" != "true" ]; then
+              echo "::error::https://${CUSTOM_DOMAIN}/health returned unexpected HTTP ${http_code}."
+              cat "$headers_file" || true
+              exit 1
+            fi
+
+            # The ingress only admits Cloudflare, so check that the direct address is refused.
             direct=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://${fqdn}/health" || true)
             if [ "$direct" = "200" ]; then
               echo "::error::https://${fqdn} answered directly; the Cloudflare-only ingress restriction is not in effect."
@@ -231,7 +285,7 @@ jobs:
             fi
             echo "Direct address refused (HTTP ${direct})."
           else
-            curl -sf --retry 10 --retry-delay 3 --retry-all-errors "https://${fqdn}/health"
+            curl -sfS --retry 10 --retry-delay 3 --retry-all-errors "https://${fqdn}/health"
             echo ""
           fi
           echo "Health check passed."
