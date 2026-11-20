@@ -205,6 +205,15 @@ public class GoogleSignInTests
         Assert.Empty(factory.Data.Sessions);
         Assert.Equal(2, factory.Emails.Sent.Count);
 
+        // Resends stop after three in an hour, however many times the person comes back through Google.
+        for (var i = 0; i < 3; i++)
+        {
+            using var repeat = await SignInWithGoogleAsync(factory.CreateBrowser(), "/vault");
+            Assert.Equal("/login?verify=1", repeat.Headers.Location!.OriginalString);
+        }
+
+        Assert.Equal(3, factory.Emails.Sent.Count);
+
         // Opening the verification link verifies the address and signs in.
         using var verify = await browser.GetAsync(AuthEndpointTests.Link(email.Text));
         Assert.Equal("/vault", verify.Headers.Location!.OriginalString);
