@@ -16,7 +16,18 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,100..900,0..100;1,9..144,100..900,0..100&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@100..900&display=swap"
     />
-    <script src="/theme-init.js"></script>
+    <!-- The API's Content-Security-Policy allows this script by its SHA-256 hash
+         (SecurityHeaders.ThemeScriptHash): change one byte inside it and update the hash. -->
+    <script>
+      try {
+        const stored = localStorage.getItem("fe-theme");
+        if (stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+          document.documentElement.classList.add("dark");
+        }
+      } catch {
+        // Storage can be unavailable in restricted browsing contexts.
+      }
+    </script>
   </head>
   <body class="min-h-full flex flex-col bg-canvas text-ink selection:bg-accent-soft selection:text-ink">
     <div id="root" class="contents"></div>

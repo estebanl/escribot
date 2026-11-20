@@ -54,7 +54,12 @@ internal static class AuthExtensions
         return builder;
     }
 
-    public static WebApplication UseAuth(this WebApplication app)
+    /// <summary>
+    /// Takes the client address and scheme from the proxy in front of the app, when it is
+    /// trusted. Call first, so that everything after it, HSTS included, sees the scheme and
+    /// address the visitor actually used.
+    /// </summary>
+    public static WebApplication UseProxyHeaders(this WebApplication app)
     {
         var options = app.Services.GetRequiredService<IOptions<AppOptions>>().Value;
         if (options.TrustForwardedHeaders)
@@ -79,6 +84,11 @@ internal static class AuthExtensions
             }
         }
 
+        return app;
+    }
+
+    public static WebApplication UseAuth(this WebApplication app)
+    {
         // Outermost, so a failure anywhere below is recorded and answered as JSON.
         app.UseMiddleware<ApiErrorHandler>();
         app.UseAuthentication();

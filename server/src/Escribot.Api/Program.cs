@@ -18,6 +18,7 @@ var app = builder.Build();
 
 app.EnsureStorageConfigured();
 app.EnsureEmailConfigured();
+app.UseProxyHeaders();
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();

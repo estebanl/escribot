@@ -6,9 +6,16 @@ namespace Escribot.Api.Hosting;
 /// </summary>
 internal static class SecurityHeaders
 {
+    /// <summary>
+    /// The SHA-256 of the inline script in <c>client/index.html</c> that sets the theme before
+    /// the first paint. It stays inline so that no page waits on a separate request for it.
+    /// A test checks it against the file.
+    /// </summary>
+    internal const string ThemeScriptHash = "sha256-upih6A+uXQ5dbL9oYIK3nBm7LbAXckEBPcHNxPZHV68=";
+
     internal const string ContentSecurityPolicy =
         "default-src 'self'; " +
-        "script-src 'self'; " +
+        $"script-src 'self' '{ThemeScriptHash}'; " +
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
         "font-src 'self' https://fonts.gstatic.com; " +
         "img-src 'self' data: blob:; " +

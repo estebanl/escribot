@@ -27,7 +27,7 @@ All under `/api/auth`. Errors are `{ "error": "...", "code": "..." }`.
 | `GET /me` | | `{ user }`, or 401 |
 | `GET /verify-email` | `token`, `callbackURL?` | Redirect to `callbackURL`, signed in; `?error=invalid_token` on failure |
 | `POST /send-verification-email` | `email`, `callbackURL?` | `{ success }` always |
-| `POST /request-password-reset` | `email`, `redirectTo?` | `{ success }` always |
+| `POST /request-password-reset` | `email` | `{ success }` always; the emailed link always opens `/reset-password` |
 | `POST /reset-password` | `token`, `newPassword` | `{ success }`; 400 `INVALID_TOKEN` |
 | `POST /delete-user` | `password` | `{ success }`; 400 `INVALID_PASSWORD` |
 | `GET /config` | | `{ googleEnabled, passwordResetAvailable, emailVerificationRequired }` |
@@ -95,8 +95,9 @@ straight to the `/reset-password?token=...` page.
   its sessions are removed when a Google sign-in that does prove it takes the account over.
 - **Cross-site requests:** a `POST`, `PUT`, `PATCH` or `DELETE` to `/api` with an `Origin`
   header must come from the app's own address (`App:PublicUrl` or the address requested).
-- **Redirect targets** taken from a request (`callbackURL`, `redirectTo`) are used only if
-  they are a path on this site.
+- **Redirect targets** taken from a request (`callbackURL`) are used only if they are a
+  path on this site. The password-reset link is never taken from the request: it always
+  opens `/reset-password`, which is served with `Referrer-Policy: no-referrer`.
 
 ## Email
 

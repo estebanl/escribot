@@ -1,4 +1,7 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using Escribot.Api.Hosting;
 
 namespace Escribot.Api.Tests;
@@ -16,7 +19,6 @@ public sealed class SecurityHeadersTests : IDisposable
     public SecurityHeadersTests()
     {
         File.WriteAllText(Path.Combine(_webRoot, "index.html"), IndexHtml);
-        File.WriteAllText(Path.Combine(_webRoot, "theme-init.js"), "// theme init");
         Directory.CreateDirectory(Path.Combine(_webRoot, "assets"));
         File.WriteAllText(Path.Combine(_webRoot, "assets", "index-abc123.js"), "console.log('synthetic');");
         File.WriteAllText(Path.Combine(_webRoot, "icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
@@ -55,7 +57,6 @@ public sealed class SecurityHeadersTests : IDisposable
     [Theory]
     [InlineData("/assets/index-abc123.js", "public, max-age=31536000, immutable")]
     [InlineData("/icon.svg", "no-cache")]
-    [InlineData("/theme-init.js", "no-cache")]
     public async Task Static_files_include_security_headers_and_expected_caching(string path, string expectedCacheControl)
     {
         await using var factory = CreateFactory();
@@ -89,6 +90,55 @@ public sealed class SecurityHeadersTests : IDisposable
         using var signedIn = await browser.GetAsync("/api/auth/me");
         Assert.Equal(HttpStatusCode.OK, signedIn.StatusCode);
         AssertSecurityHeaders(signedIn, "strict-origin-when-cross-origin");
+    }
+
+    [Fact]
+    public void Csp_allows_the_inline_theme_script_in_index_html_by_its_hash()
+    {
+        var html = File.ReadAllText(Path.Combine(RepositoryRoot(), "client", "index.html"));
+        var scripts = Regex.Matches(html, "<script>(.*?)</script>", RegexOptions.Singleline);
+
+        var script = Assert.Single(scripts).Groups[1].Value;
+        var hash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(script)));
+        Assert.Equal(SecurityHeaders.ThemeScriptHash, $"sha256-{hash}");
+    }
+
+    [Fact]
+    public async Task Hsts_is_sent_when_the_proxy_reports_https()
+    {
+        // Container Apps ends TLS and passes the request on as plain HTTP, with the scheme the
+        // visitor used in X-Forwarded-Proto.
+        var settings = ApiFactory.EmailConfigured();
+        settings["App:TrustForwardedHeaders"] = "true";
+        await using var factory = new ApiFactory
+        {
+            EnvironmentName = "Production",
+            WebRoot = _webRoot,
+            PublicUrl = "https://escribot.example.test",
+            Settings = settings,
+        };
+        using var client = factory.CreateClient(new() { BaseAddress = new Uri("http://escribot.example.test"), AllowAutoRedirect = false });
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+        request.Headers.Add("X-Forwarded-Proto", "https");
+        request.Headers.Add("X-Forwarded-For", "203.0.113.7");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(string.IsNullOrEmpty(Header(response, "Strict-Transport-Security")));
+    }
+
+    private static string RepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "client", "index.html")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new InvalidOperationException("client/index.html was not found above the test's output directory.");
     }
 
     [Theory]
