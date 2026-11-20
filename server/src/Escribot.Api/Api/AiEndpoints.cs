@@ -12,6 +12,18 @@ namespace Escribot.Api.Api;
 
 internal static class AiEndpoints
 {
+    private const int MaxSubmissionsPerEvaluate = 2;
+    private const int MaxEssayTextLength = 20_000;
+    private const int MaxPromptTextLength = 20_000;
+    private const int MaxFullEssayContextLength = 20_000;
+    private const int MaxScratchNotesLength = 10_000;
+    private const int MaxSelectedTextLength = 10_000;
+    private const int MaxOutlineFieldLength = 5_000;
+    private const int MaxTopicLength = 300;
+    private const int MaxCategoryLength = 100;
+    private const int MaxDrillTypeLength = 100;
+    private const int MaxDrillResponseLength = 20_000;
+
     public static IEndpointRouteBuilder MapAiEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapPost("/ai/evaluate", EvaluateAsync);
@@ -50,6 +62,13 @@ internal static class AiEndpoints
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Session ID and at least one draft submission are required.");
         }
 
+        if (submissionsEl.GetArrayLength() > MaxSubmissionsPerEvaluate)
+        {
+            return ApiResults.Error(
+                StatusCodes.Status400BadRequest,
+                $"At most {MaxSubmissionsPerEvaluate} submissions are allowed per evaluation.");
+        }
+
         var bundle = await writing.GetSessionBundleAsync(userId, sessionId, cancellationToken);
         if (bundle is null)
         {
@@ -69,6 +88,26 @@ internal static class AiEndpoints
                     $"Please write at least a short draft for {taskType.ToUpperInvariant()} before submitting.");
             }
 
+            if (essayText.Length > MaxEssayTextLength)
+            {
+                return ApiResults.Error(StatusCodes.Status400BadRequest, "Essay text exceeds the maximum allowed length.");
+            }
+
+            var scratchNotes = subBody.String("scratchNotes");
+            if (scratchNotes?.Length > MaxScratchNotesLength)
+            {
+                return ApiResults.Error(StatusCodes.Status400BadRequest, "Scratch notes exceed the maximum allowed length.");
+            }
+
+            var outline = item.TryGetProperty("outline", out var outlineEl) && outlineEl.ValueKind == JsonValueKind.Object
+                ? outlineEl.Deserialize<OutlineInput>(JsonExtractor.WebOptions)
+                : null;
+            if ((outlineEl.ValueKind == JsonValueKind.Object && !IsOutlineJsonWithinLimits(outlineEl))
+                || !IsOutlineWithinLimits(outline))
+            {
+                return ApiResults.Error(StatusCodes.Status400BadRequest, "Outline fields exceed the maximum allowed length.");
+            }
+
             var promptId = subBody.Trimmed("promptId") ?? string.Empty;
             var prompt = await prompts.GetVisibleAsync(userId, promptId, cancellationToken);
             if (prompt is null)
@@ -76,9 +115,6 @@ internal static class AiEndpoints
                 return ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
             }
 
-            var outline = item.TryGetProperty("outline", out var outlineEl) && outlineEl.ValueKind == JsonValueKind.Object
-                ? outlineEl.Deserialize<OutlineInput>(JsonExtractor.WebOptions)
-                : null;
             var outlineFeedback = item.TryGetProperty("outlineFeedback", out var ofEl) && ofEl.ValueKind == JsonValueKind.Object
                 ? ofEl.Deserialize<OutlineFeedback>(JsonExtractor.WebOptions)
                 : null;
@@ -100,12 +136,13 @@ internal static class AiEndpoints
                 OutlineFeedback: outlineFeedback,
                 CoachingHistory: coachingHistory,
                 PromptHighlightsJson: promptHighlights,
-                ScratchNotes: subBody.String("scratchNotes")), prompt));
+                ScratchNotes: scratchNotes), prompt));
         }
 
         var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Evaluation, validated.Count, cancellationToken);
         if (guard.Blocked is { } blocked)
         {
+            guard.Dispose();
             return blocked;
         }
 
@@ -113,6 +150,7 @@ internal static class AiEndpoints
         var totalSecondsSpent = body.Number("totalSecondsSpent") is { } tss ? (int?)tss : null;
 
         return new NdjsonEvaluateResult(
+            guard,
             async (sendEvent, ct) =>
             {
                 sendEvent(new JsonObject
@@ -400,13 +438,23 @@ internal static class AiEndpoints
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Outline fields and prompt text are required.");
         }
 
-        var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+        if (promptText.Length > MaxPromptTextLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Prompt text exceeds the maximum allowed length.");
+        }
+
+        var outline = outlineEl.Deserialize<OutlineInput>(JsonExtractor.WebOptions) ?? new OutlineInput();
+        if (!IsOutlineJsonWithinLimits(outlineEl) || !IsOutlineWithinLimits(outline))
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Outline fields exceed the maximum allowed length.");
+        }
+
+        using var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
         if (guard.Blocked is { } blocked)
         {
             return blocked;
         }
 
-        var outline = outlineEl.Deserialize<OutlineInput>(JsonExtractor.WebOptions) ?? new OutlineInput();
         var taskType = body.String("taskType") == Ielts.Task1 ? Ielts.Task1 : Ielts.Task2;
         var promptId = body.Trimmed("promptId");
 
@@ -462,7 +510,23 @@ internal static class AiEndpoints
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Select a phrase, sentence, or paragraph to inspect first.");
         }
 
-        var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+        var fullEssayContext = body.String("fullEssayContext");
+        if (selectedText.Length > MaxSelectedTextLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Selected text exceeds the maximum allowed length.");
+        }
+
+        if (promptText.Length > MaxPromptTextLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Prompt text exceeds the maximum allowed length.");
+        }
+
+        if (fullEssayContext?.Length > MaxFullEssayContextLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Essay context exceeds the maximum allowed length.");
+        }
+
+        using var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
         if (guard.Blocked is { } blocked)
         {
             return blocked;
@@ -471,7 +535,7 @@ internal static class AiEndpoints
         var taskType = body.String("taskType") == Ielts.Task1 ? Ielts.Task1 : Ielts.Task2;
         var result = await examiner.RunToolkitWithAiAsync(
             account.Id,
-            new ToolkitRequest(tool, taskType, promptText, selectedText, body.String("fullEssayContext")),
+            new ToolkitRequest(tool, taskType, promptText, selectedText, fullEssayContext),
             guard.Config,
             cancellationToken);
 
@@ -494,7 +558,17 @@ internal static class AiEndpoints
         var category = body.Trimmed("category") ?? (taskType == Ielts.Task1 ? "line" : "opinion");
         var topic = body.String("topic");
 
-        var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+        if (category.Length > MaxCategoryLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Category exceeds the maximum allowed length.");
+        }
+
+        if (topic?.Length > MaxTopicLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Topic exceeds the maximum allowed length.");
+        }
+
+        using var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
         if (guard.Blocked is { } blocked)
         {
             return blocked;
@@ -553,7 +627,13 @@ internal static class AiEndpoints
 
         if (action == "generate")
         {
-            var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+            var drillType = body.Trimmed("drillType") ?? "cohesion";
+            if (drillType.Length > MaxDrillTypeLength)
+            {
+                return ApiResults.Error(StatusCodes.Status400BadRequest, "Drill type exceeds the maximum allowed length.");
+            }
+
+            using var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
             if (guard.Blocked is { } blocked)
             {
                 return blocked;
@@ -564,7 +644,6 @@ internal static class AiEndpoints
                 ? []
                 : vaultRows.Select(v => $"{v.OriginalText} -> {v.UpgradedText}").ToList();
 
-            var drillType = body.Trimmed("drillType") ?? "cohesion";
             var challenge = await examiner.GenerateMicroDrillWithAiAsync(account.Id, drillType, level, vaultHighlights, guard.Config, cancellationToken);
 
             var id = $"drill-{Guid.NewGuid().ToString("N")[..9]}";
@@ -593,7 +672,12 @@ internal static class AiEndpoints
                 return ApiResults.Error(StatusCodes.Status400BadRequest, "Write your drill response before checking.");
             }
 
-            var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+            if (userResponse.Length > MaxDrillResponseLength)
+            {
+                return ApiResults.Error(StatusCodes.Status400BadRequest, "Drill response exceeds the maximum allowed length.");
+            }
+
+            using var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
             if (guard.Blocked is { } blocked)
             {
                 return blocked;
@@ -639,10 +723,32 @@ internal static class AiEndpoints
         JsonElement? PromptHighlightsJson,
         string? ScratchNotes);
 
-    private sealed class NdjsonEvaluateResult(Func<Action<JsonObject>, CancellationToken, Task> streamBody) : IResult
+    private static bool IsOutlineWithinLimits(OutlineInput? outline) =>
+        outline is null
+        || ((outline.ThesisOrOverview?.Length ?? 0) <= MaxOutlineFieldLength
+            && (outline.Body1Plan?.Length ?? 0) <= MaxOutlineFieldLength
+            && (outline.Body2Plan?.Length ?? 0) <= MaxOutlineFieldLength
+            && (outline.TargetKeyTerms?.Length ?? 0) <= MaxOutlineFieldLength);
+
+    private static bool IsOutlineJsonWithinLimits(JsonElement outlineEl)
+    {
+        foreach (var prop in outlineEl.EnumerateObject())
+        {
+            if (prop.Value.ValueKind == JsonValueKind.String
+                && prop.Value.GetString() is { Length: > MaxOutlineFieldLength })
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private sealed class NdjsonEvaluateResult(IDisposable reservation, Func<Action<JsonObject>, CancellationToken, Task> streamBody) : IResult
     {
         public async Task ExecuteAsync(HttpContext httpContext)
         {
+            using var _ = reservation;
             var response = httpContext.Response;
             response.StatusCode = StatusCodes.Status200OK;
             response.ContentType = "application/x-ndjson; charset=utf-8";

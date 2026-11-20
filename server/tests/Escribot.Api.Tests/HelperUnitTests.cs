@@ -365,4 +365,17 @@ public class DataApiUnitTests
         Assert.NotNull(BackupFile.Parse(Json($$"""{ "data": { "sessions": [{{sessions}}] } }"""), 6));
         Assert.Null(BackupFile.Parse(Json($$"""{ "data": { "sessions": [{{sessions}}] } }"""), 5));
     }
+
+    [Fact]
+    public void A_backup_file_with_oversized_fields_is_refused()
+    {
+        var longShort = new string('x', 301);
+        var longMedium = new string('x', 10_001);
+        var longText = new string('x', 50_001);
+
+        Assert.Null(BackupFile.Parse(Json($$"""{ "data": { "prompts": [{ "id": "p1", "taskType": "task2", "category": "c", "topic": "t", "title": "{{longShort}}", "promptText": "ok", "createdAt": "2026-03-01T09:00:00Z" }] } }"""), 100));
+        Assert.Null(BackupFile.Parse(Json($$"""{ "data": { "prompts": [{ "id": "p1", "taskType": "task2", "category": "c", "topic": "t", "title": "T", "promptText": "{{longText}}", "createdAt": "2026-03-01T09:00:00Z" }] } }"""), 100));
+        Assert.Null(BackupFile.Parse(Json($$"""{ "data": { "drafts": [{ "id": "d1", "sessionId": "s1", "promptId": "p1", "taskType": "task2", "essayText": "{{longText}}", "createdAt": "2026-03-01T09:00:00Z" }] } }"""), 100));
+        Assert.Null(BackupFile.Parse(Json($$"""{ "data": { "vaultItems": [{ "id": "v1", "itemType": "error", "criterion": "LR", "originalText": "{{longMedium}}", "upgradedText": "b", "explanation": "c", "exampleSentence": "d", "createdAt": "2026-03-01T09:00:00Z" }] } }"""), 100));
+    }
 }

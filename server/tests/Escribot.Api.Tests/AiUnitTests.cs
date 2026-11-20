@@ -301,6 +301,52 @@ public class AiUnitTests
         Assert.NotNull(rateBlocked);
     }
 
+    [Fact]
+    public async Task AccessGuard_tracks_in_flight_reservations_and_releases_on_dispose()
+    {
+        var clock = new ManualTimeProvider(new DateTimeOffset(2026, 11, 17, 12, 0, 0, TimeSpan.Zero));
+        var data = new InMemoryData(clock);
+        var protector = CreateProtector();
+        var config = CreateConfig(new Dictionary<string, string?>
+        {
+            ["OPENROUTER_API_KEY"] = "or-platform",
+            ["FREE_PLAN_DAILY_AI_CAP"] = "2",
+        });
+
+        var authSettings = new AuthSettings(config);
+        var planResolver = new PlanResolver(data, data, authSettings);
+        var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
+        var env = new FakeEnvironment("Production");
+        var tracker = new AiQuotaTracker();
+        var guard1 = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, tracker);
+        var guard2 = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, tracker);
+
+        var user = new UserAccount { Id = "u-inflight", Email = "inflight@example.test", EmailVerified = true };
+        await data.CreateAsync(user);
+
+        // Two in-flight reservations fill the daily cap of 2; a third is blocked until one is released.
+        var res1 = await guard1.GuardWithConfigAsync(user, AiRequestKind.Evaluation);
+        var res2 = await guard2.GuardWithConfigAsync(user, AiRequestKind.Evaluation);
+        Assert.Null(res1.Blocked);
+        Assert.Null(res2.Blocked);
+
+        using (var blocked = await guard1.GuardWithConfigAsync(user, AiRequestKind.Evaluation))
+        {
+            Assert.NotNull(blocked.Blocked);
+        }
+
+        // Disposing res1 (e.g. after a failed LLM call) releases the slot immediately without leaking quota.
+        res1.Dispose();
+        res1.Dispose(); // idempotent
+
+        using (var allowedAgain = await guard2.GuardWithConfigAsync(user, AiRequestKind.Evaluation))
+        {
+            Assert.Null(allowedAgain.Blocked);
+        }
+
+        res2.Dispose();
+    }
+
     // ---- Examiner & Usage Tracking with Fake Provider ----
 
     [Fact]

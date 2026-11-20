@@ -14,6 +14,8 @@ internal static class BackupEndpoints
     /// <summary>More rows than anyone's real backup holds; a larger file is refused outright.</summary>
     private const int MaxRows = 20_000;
 
+    private const int MaxImportsPerHour = 5;
+
     public static IEndpointRouteBuilder MapBackupEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapGet("/backup", ExportAsync).OnFailure("Export failed.");
@@ -67,11 +69,19 @@ internal static class BackupEndpoints
         JsonElement json,
         HttpContext context,
         IUserDataRepository userData,
+        IRateLimiter limiter,
         ImageStore images,
         PlanResolver plans,
         CancellationToken cancellationToken)
     {
         var account = context.GetSession()!.Account;
+        var rate = await limiter.CheckAsync($"backup-import:{account.Id}", MaxImportsPerHour, TimeSpan.FromHours(1), cancellationToken);
+        if (!rate.Allowed)
+        {
+            context.Response.Headers.RetryAfter = rate.RetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+            return ApiResults.Error(StatusCodes.Status429TooManyRequests, "Too many backup imports. Please try again later.");
+        }
+
         if (BackupFile.Parse(json, MaxRows) is not { } file)
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Invalid backup JSON format.");
@@ -155,6 +165,12 @@ internal sealed record BackupFile(
     List<VaultItem> VaultItems,
     List<MicroDrill> MicroDrills)
 {
+    private const int MaxShortText = 300;
+    private const int MaxMediumText = 10_000;
+    private const int MaxLongText = 50_000;
+    private const int MaxJsonText = 100_000;
+    private const int MaxImageDataUrl = 3_000_000;
+
     /// <summary>Returns null if the file is not a valid backup.</summary>
     public static BackupFile? Parse(JsonElement root, int maxRows)
     {
@@ -169,26 +185,26 @@ internal sealed record BackupFile(
             return new BackupFile(
                 Rows(data, "prompts", ref remaining, r => new Prompt
                 {
-                    Id = r.Text("id"),
-                    TaskType = r.Text("taskType") is Ielts.Task1 or Ielts.Task2 ? r.Text("taskType") : throw new FormatException(),
-                    Category = r.Text("category"),
-                    Topic = r.Text("topic"),
-                    Title = r.Text("title"),
-                    PromptText = r.Text("promptText"),
-                    ChartSpec = r.OptionalJson("chartSpecJson"),
-                    ImageUrl = r.OptionalText("imageDataUrl"),
-                    ExtractedVisualSpec = r.OptionalText("extractedVisualSpec"),
+                    Id = r.Text("id", MaxShortText),
+                    TaskType = r.Text("taskType", MaxShortText) is Ielts.Task1 or Ielts.Task2 ? r.Text("taskType", MaxShortText) : throw new FormatException(),
+                    Category = r.Text("category", MaxShortText),
+                    Topic = r.Text("topic", MaxShortText),
+                    Title = r.Text("title", MaxShortText),
+                    PromptText = r.Text("promptText", MaxLongText),
+                    ChartSpec = r.OptionalJson("chartSpecJson", MaxJsonText),
+                    ImageUrl = r.OptionalText("imageDataUrl", MaxImageDataUrl),
+                    ExtractedVisualSpec = r.OptionalText("extractedVisualSpec", MaxLongText),
                     // Anything else, "curated" included, becomes the user's own custom prompt.
-                    Source = r.OptionalText("source") == "ai_generated" ? "ai_generated" : "custom",
+                    Source = r.OptionalText("source", MaxShortText) == "ai_generated" ? "ai_generated" : "custom",
                     CreatedAt = r.Time("createdAt"),
                 }),
                 Rows(data, "sessions", ref remaining, r => new WritingSession
                 {
-                    Id = r.Text("id"),
-                    Mode = r.Text("mode"),
-                    Status = r.TextOr("status", "in_progress"),
-                    Task1PromptId = r.OptionalText("task1PromptId"),
-                    Task2PromptId = r.OptionalText("task2PromptId"),
+                    Id = r.Text("id", MaxShortText),
+                    Mode = r.Text("mode", MaxShortText),
+                    Status = r.TextOr("status", "in_progress", MaxShortText),
+                    Task1PromptId = r.OptionalText("task1PromptId", MaxShortText),
+                    Task2PromptId = r.OptionalText("task2PromptId", MaxShortText),
                     StartedAt = r.Time("startedAt"),
                     CompletedAt = r.OptionalTime("completedAt"),
                     TotalSecondsSpent = r.IntegerOr("totalSecondsSpent", 0),
@@ -196,51 +212,51 @@ internal sealed record BackupFile(
                 }),
                 Rows(data, "drafts", ref remaining, r => new Draft
                 {
-                    Id = r.Text("id"),
-                    SessionId = r.Text("sessionId"),
-                    PromptId = r.Text("promptId"),
-                    TaskType = r.Text("taskType"),
+                    Id = r.Text("id", MaxShortText),
+                    SessionId = r.Text("sessionId", MaxShortText),
+                    PromptId = r.Text("promptId", MaxShortText),
+                    TaskType = r.Text("taskType", MaxShortText),
                     Version = r.IntegerOr("version", 1),
-                    Outline = r.OptionalJson("outlineJson"),
-                    OutlineFeedback = r.OptionalJson("outlineFeedbackJson"),
-                    EssayText = r.Text("essayText"),
+                    Outline = r.OptionalJson("outlineJson", MaxJsonText),
+                    OutlineFeedback = r.OptionalJson("outlineFeedbackJson", MaxJsonText),
+                    EssayText = r.Text("essayText", MaxLongText),
                     WordCount = r.IntegerOr("wordCount", 0),
                     SecondsSpent = r.IntegerOr("secondsSpent", 0),
-                    PromptHighlights = r.OptionalJson("promptHighlightsJson"),
-                    ScratchNotes = r.OptionalText("scratchNotes"),
+                    PromptHighlights = r.OptionalJson("promptHighlightsJson", MaxJsonText),
+                    ScratchNotes = r.OptionalText("scratchNotes", MaxLongText),
                     CreatedAt = r.Time("createdAt"),
                 }),
                 Rows(data, "evaluations", ref remaining, r => new Evaluation
                 {
-                    Id = r.Text("id"),
+                    Id = r.Text("id", MaxShortText),
                     SessionId = string.Empty,
-                    DraftId = r.Text("draftId"),
+                    DraftId = r.Text("draftId", MaxShortText),
                     OverallBand = r.Number("overallBand"),
                     TaTrBand = r.Number("taTrBand"),
                     CcBand = r.Number("ccBand"),
                     LrBand = r.Number("lrBand"),
                     GraBand = r.Number("graBand"),
-                    ExaminerSummary = r.Text("examinerSummary"),
-                    CriterionFeedback = r.Json("criterionFeedbackJson"),
-                    InlineAnnotations = r.Json("inlineAnnotationsJson"),
-                    TargetBandRewrite = r.Text("targetBandRewrite"),
-                    RewriteKeyChanges = r.Has("rewriteKeyChangesJson") ? r.Json("rewriteKeyChangesJson") : JsonSerializer.SerializeToElement(Array.Empty<string>()),
-                    TopPriorities = r.Json("topPrioritiesJson"),
-                    ProviderUsed = r.Text("providerUsed"),
-                    ModelUsed = r.Text("modelUsed"),
+                    ExaminerSummary = r.Text("examinerSummary", MaxLongText),
+                    CriterionFeedback = r.Json("criterionFeedbackJson", MaxJsonText),
+                    InlineAnnotations = r.Json("inlineAnnotationsJson", MaxJsonText),
+                    TargetBandRewrite = r.Text("targetBandRewrite", MaxLongText),
+                    RewriteKeyChanges = r.Has("rewriteKeyChangesJson") ? r.Json("rewriteKeyChangesJson", MaxJsonText) : JsonSerializer.SerializeToElement(Array.Empty<string>()),
+                    TopPriorities = r.Json("topPrioritiesJson", MaxJsonText),
+                    ProviderUsed = r.Text("providerUsed", MaxShortText),
+                    ModelUsed = r.Text("modelUsed", MaxShortText),
                     CostUsd = r.OptionalNumber("costUsd"),
                     CreatedAt = r.Time("createdAt"),
                 }),
                 Rows(data, "vaultItems", ref remaining, r => new VaultItem
                 {
-                    Id = r.Text("id"),
-                    SourceDraftId = r.OptionalText("sourceDraftId"),
-                    ItemType = r.Text("itemType"),
-                    Criterion = r.Text("criterion"),
-                    OriginalText = r.Text("originalText"),
-                    UpgradedText = r.Text("upgradedText"),
-                    Explanation = r.Text("explanation"),
-                    ExampleSentence = r.Text("exampleSentence"),
+                    Id = r.Text("id", MaxShortText),
+                    SourceDraftId = r.OptionalText("sourceDraftId", MaxShortText),
+                    ItemType = r.Text("itemType", MaxShortText),
+                    Criterion = r.Text("criterion", MaxShortText),
+                    OriginalText = r.Text("originalText", MaxMediumText),
+                    UpgradedText = r.Text("upgradedText", MaxMediumText),
+                    Explanation = r.Text("explanation", MaxMediumText),
+                    ExampleSentence = r.Text("exampleSentence", MaxMediumText),
                     MasteryLevel = Math.Clamp(r.IntegerOr("masteryLevel", 0), 0, 3),
                     ReviewCount = r.IntegerOr("reviewCount", 0),
                     NextReviewAt = r.OptionalTime("nextReviewAt"),
@@ -248,12 +264,12 @@ internal sealed record BackupFile(
                 }),
                 Rows(data, "microDrills", ref remaining, r => new MicroDrill
                 {
-                    Id = r.Text("id"),
-                    DrillType = r.Text("drillType"),
-                    TargetCriterion = r.Text("targetCriterion"),
-                    PromptPayload = r.Json("promptPayloadJson"),
-                    UserResponse = r.OptionalText("userResponse"),
-                    Score = r.OptionalJson("scoreJson"),
+                    Id = r.Text("id", MaxShortText),
+                    DrillType = r.Text("drillType", MaxShortText),
+                    TargetCriterion = r.Text("targetCriterion", MaxShortText),
+                    PromptPayload = r.Json("promptPayloadJson", MaxJsonText),
+                    UserResponse = r.OptionalText("userResponse", MaxLongText),
+                    Score = r.OptionalJson("scoreJson", MaxJsonText),
                     CreatedAt = r.Time("createdAt"),
                     CompletedAt = r.OptionalTime("completedAt"),
                 }));
@@ -301,14 +317,16 @@ internal sealed record BackupFile(
         private JsonElement? Field(string name) =>
             _row.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null ? value : null;
 
-        public string Text(string name) => OptionalText(name) ?? throw new FormatException();
+        public string Text(string name, int maxLength) => OptionalText(name, maxLength) ?? throw new FormatException();
 
-        public string TextOr(string name, string whenMissing) => OptionalText(name) ?? whenMissing;
+        public string TextOr(string name, string whenMissing, int maxLength) => OptionalText(name, maxLength) ?? whenMissing;
 
-        public string? OptionalText(string name) => Field(name) switch
+        public string? OptionalText(string name, int maxLength) => Field(name) switch
         {
             null => null,
-            { ValueKind: JsonValueKind.String } value => value.GetString(),
+            { ValueKind: JsonValueKind.String } value => value.GetString() is { } text && text.Length <= maxLength
+                ? text
+                : throw new FormatException(),
             _ => throw new FormatException(),
         };
 
@@ -330,7 +348,7 @@ internal sealed record BackupFile(
 
         public DateTimeOffset Time(string name) => OptionalTime(name) ?? throw new FormatException();
 
-        public DateTimeOffset? OptionalTime(string name) => OptionalText(name) switch
+        public DateTimeOffset? OptionalTime(string name) => OptionalText(name, MaxShortText) switch
         {
             null => null,
             var text when DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var time) => time,
@@ -338,11 +356,11 @@ internal sealed record BackupFile(
         };
 
         /// <summary>A field that holds JSON as text, as the relational columns did.</summary>
-        public JsonElement Json(string name) => OptionalJson(name) ?? throw new FormatException();
+        public JsonElement Json(string name, int maxLength) => OptionalJson(name, maxLength) ?? throw new FormatException();
 
-        public JsonElement? OptionalJson(string name)
+        public JsonElement? OptionalJson(string name, int maxLength)
         {
-            if (OptionalText(name) is not { } text)
+            if (OptionalText(name, maxLength) is not { } text)
             {
                 return null;
             }
