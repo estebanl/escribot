@@ -157,10 +157,7 @@ export function AuthForm({
       }
 
       if (mode === "forgot") {
-        const res = await auth.requestPasswordReset({
-          email,
-          redirectTo: "/reset-password",
-        });
+        const res = await auth.requestPasswordReset({ email });
         if (res.error) {
           setError(res.error.message || "Could not send the reset link.");
           return;

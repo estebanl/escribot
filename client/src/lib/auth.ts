@@ -50,7 +50,7 @@ export const auth = {
   sendVerificationEmail: (input: { email: string; callbackURL: string }) =>
     post<{ success: boolean }>("send-verification-email", input),
 
-  requestPasswordReset: (input: { email: string; redirectTo: string }) =>
+  requestPasswordReset: (input: { email: string }) =>
     post<{ success: boolean }>("request-password-reset", input),
 
   resetPassword: (input: { newPassword: string; token: string }) =>

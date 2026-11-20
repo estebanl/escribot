@@ -57,7 +57,12 @@ internal static class AuthExtensions
     /// <summary>The configuration key ASPNETCORE_FORWARDEDHEADERS_ENABLED becomes.</summary>
     internal const string BuiltInForwardedHeadersKey = "ForwardedHeaders_Enabled";
 
-    public static WebApplication UseAuth(this WebApplication app)
+    /// <summary>
+    /// Takes the client address and scheme from the proxy in front of the app, when it is
+    /// trusted. Call first, so that everything after it, HSTS included, sees the scheme and
+    /// address the visitor actually used.
+    /// </summary>
+    public static WebApplication UseProxyHeaders(this WebApplication app)
     {
         // ASPNETCORE_FORWARDEDHEADERS_ENABLED adds ASP.NET Core's own forwarded-headers pass
         // ahead of the one below. That pass takes the last X-Forwarded-For entry, leaving
@@ -92,6 +97,11 @@ internal static class AuthExtensions
             }
         }
 
+        return app;
+    }
+
+    public static WebApplication UseAuth(this WebApplication app)
+    {
         // Outermost, so a failure anywhere below is recorded and answered as JSON.
         app.UseMiddleware<ApiErrorHandler>();
         app.UseAuthentication();
