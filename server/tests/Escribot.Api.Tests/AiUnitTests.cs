@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text;
 using System.Text.Json.Nodes;
 using Escribot.Api.Ai;
 using Escribot.Api.Api;
@@ -487,5 +489,56 @@ public class AiUnitTests
             new MicroDrillChallenge { DrillType = "cohesion", Level = "beginner", Hints = null!, ReferenceModelAnswer = "Model." },
             "My short answer here for testing.");
         Assert.InRange(drillScore.ScoreOutOf10, 3, 9);
+    }
+
+    private sealed class RecordingHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        public HttpRequestMessage? LastRequest { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastRequest = request;
+            return Task.FromResult(responder(request));
+        }
+    }
+
+    [Fact]
+    public async Task GeminiClient_sends_api_key_in_header_and_not_in_query_string()
+    {
+        var apiKey = $"AIza{Guid.NewGuid():N}xyz";
+        using var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"candidates":[{"content":{"parts":[{"text":"{\"ok\":true}"}]}}]}""",
+                Encoding.UTF8,
+                "application/json"),
+        });
+        using var http = new HttpClient(handler);
+        var client = new GeminiClient(http);
+
+        var result = await client.CompleteAsync(
+            new LlmProviderRequest(
+                ApiKey: apiKey,
+                Model: "gemini-2.5-flash",
+                FallbackModels: null,
+                SystemPrompt: "System.",
+                UserPrompt: "User.",
+                ImageDataUrl: null,
+                JsonMode: true,
+                ThinkingMode: "disabled",
+                ReasoningEffort: "low",
+                MaxTokens: null),
+            CancellationToken.None);
+
+        Assert.Equal("""{"ok":true}""", result.Content);
+        Assert.Equal("gemini-2.5-flash", result.ModelUsed);
+
+        Assert.NotNull(handler.LastRequest);
+        var sent = handler.LastRequest!;
+        Assert.Equal("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", sent.RequestUri!.AbsoluteUri);
+        Assert.DoesNotContain("key=", sent.RequestUri.Query, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(apiKey, sent.RequestUri.AbsoluteUri, StringComparison.Ordinal);
+        Assert.True(sent.Headers.TryGetValues("x-goog-api-key", out var headerValues));
+        Assert.Equal(apiKey, Assert.Single(headerValues));
     }
 }

@@ -351,8 +351,14 @@ public sealed class GeminiClient(HttpClient http) : IAiProviderClient
             ["generationConfig"] = generationConfig,
         };
 
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(request.Model)}:generateContent?key={Uri.EscapeDataString(request.ApiKey)}";
-        var data = await AiHttpHelpers.PostJsonAsync(http, url, body, null, "Gemini", cancellationToken);
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(request.Model)}:generateContent";
+        var data = await AiHttpHelpers.PostJsonAsync(
+            http,
+            url,
+            body,
+            headers => headers.TryAddWithoutValidation("x-goog-api-key", request.ApiKey),
+            "Gemini",
+            cancellationToken);
 
         var resultParts = data["candidates"]?[0]?["content"]?["parts"] as JsonArray;
         var text = resultParts is null

@@ -349,7 +349,7 @@ internal static class AiEndpoints
                         ["isTimeout"] = isTimeout,
                         ["error"] = isTimeout
                             ? "Grading took too long, please try again. Your essay is safely preserved in the editor."
-                            : ex.Message,
+                            : "Grading failed. Your essay is safely preserved in the editor. Please try again.",
                     });
                 }
                 finally

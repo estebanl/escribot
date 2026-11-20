@@ -94,9 +94,11 @@ internal static partial class ErrorSanitizer
         }
 
         text = NamedSecret().Replace(text, m => $"{m.Groups[1].Value}{m.Groups[2].Value}{Redacted}");
+        text = QueryKey().Replace(text, m => $"{m.Groups[1].Value}{Redacted}");
         text = BearerToken().Replace(text, $"Bearer {Redacted}");
         text = JsonWebToken().Replace(text, Redacted);
         text = PrefixedKey().Replace(text, Redacted);
+        text = GoogleApiKey().Replace(text, Redacted);
         text = LongOpaqueValue().Replace(text, Redacted);
         return text.Length <= maxLength ? text : text[..maxLength];
     }
@@ -104,6 +106,10 @@ internal static partial class ErrorSanitizer
     // api_key=..., "password": "...", AccountKey=..., Authorization: ..., Cookie: ...
     [GeneratedRegex("""((?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password|passwd|authorization|accountkey|sharedaccesssignature|sig|cookie)["']?)(\s*[=:]\s*["']?)(?:Bearer\s+)?[^\s"'&;,]+""", RegexOptions.IgnoreCase)]
     private static partial Regex NamedSecret();
+
+    // Query-string key=... parameters (e.g. ?key=... or &key=...).
+    [GeneratedRegex("""([?&]key=)[^\s"'&;]+""", RegexOptions.IgnoreCase)]
+    private static partial Regex QueryKey();
 
     [GeneratedRegex(@"Bearer\s+[A-Za-z0-9._~+/=-]{8,}", RegexOptions.IgnoreCase)]
     private static partial Regex BearerToken();
@@ -114,6 +120,10 @@ internal static partial class ErrorSanitizer
     // Provider and Stripe keys: sk-..., sk_live_..., pk_test_..., rk_..., whsec_...
     [GeneratedRegex(@"\b(?:sk|pk|rk|whsec)[-_][A-Za-z0-9_-]{12,}")]
     private static partial Regex PrefixedKey();
+
+    // Google API keys (39 characters: AIza followed by 35 URL-safe characters).
+    [GeneratedRegex(@"\bAIza[0-9A-Za-z_-]{35}\b")]
+    private static partial Regex GoogleApiKey();
 
     // Any other unbroken run of 40 or more key-like characters.
     [GeneratedRegex(@"[A-Za-z0-9+/_=-]{40,}")]
