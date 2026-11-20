@@ -89,7 +89,10 @@ straight to the `/reset-password?token=...` page.
   the mailbox once, when the Google Account was made, so `email_verified` proves nothing
   now. Such a sign-in never enters or links an existing account (`/login?error=
   google_account_not_linked`), and a new account from it starts unverified and gets the
-  verification email like any other.
+  verification email like any other. When email verification is required, no session is
+  started and the callback redirects to `/login?verify=1` until the address is verified.
+  Each such Google sign-in also sends the verification email again, up to three times an
+  hour per account; past that it still redirects but sends nothing.
 - **Google and an unverified account.** If the matching account was never verified, its
   password was set by someone who never proved they own the address: that password and
   its sessions are removed when a Google sign-in that does prove it takes the account over.
