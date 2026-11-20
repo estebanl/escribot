@@ -18,6 +18,11 @@ var app = builder.Build();
 
 app.EnsureStorageConfigured();
 app.EnsureEmailConfigured();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+app.UseSecurityHeaders();
 app.UseClientAppFiles();
 app.UseAuth();
 app.MapDataApi();
