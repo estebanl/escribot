@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { AlertCircle, ArrowRight, CheckCircle2, Feather } from "lucide-react";
 import { auth } from "@/lib/auth";
@@ -90,8 +90,17 @@ export function AuthForm({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"));
-  const resetToken = searchParams.get("token");
+  const [resetToken] = useState(() => (mode === "reset" ? searchParams.get("token") : null));
   const linkError = searchParams.get("error");
+
+  useEffect(() => {
+    if (mode !== "reset" || !searchParams.has("token")) {
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("token");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [mode, searchParams]);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
