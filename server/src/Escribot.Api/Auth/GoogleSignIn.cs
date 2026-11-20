@@ -27,6 +27,11 @@ internal static class GoogleSignIn
             options.ClientId = settings.GoogleClientId;
             options.ClientSecret = settings.GoogleClientSecret;
             options.CallbackPath = CallbackPath;
+            // Google's OAuth callback is a top-level GET redirect, so Lax works over both
+            // HTTPS in production and http://localhost in local development. SameAsRequest
+            // keeps the cookie Secure on HTTPS without breaking Safari on http://localhost.
+            options.CorrelationCookie.SameSite = SameSiteMode.Lax;
+            options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
             options.ClaimActions.MapJsonKey(EmailVerifiedClaim, "email_verified");
             options.ClaimActions.MapJsonKey(PictureClaim, "picture");
             options.ClaimActions.MapJsonKey(HostedDomainClaim, "hd");

@@ -71,6 +71,8 @@ if (!builder.ExecutionContext.IsPublishMode && builder.Configuration["BrowserApp
         .WithNpm(install: true)
         .WithReference(api)
         .WaitFor(api)
+        // Pin the local port so OAuth redirect URIs (e.g. Google) stay stable across runs.
+        .WithEndpoint("http", endpoint => endpoint.Port = 5173)
         .WithExternalHttpEndpoints();
 
     // Links in emails and Stripe's return addresses point at the page people actually use.
@@ -131,10 +133,15 @@ void WithSecret(string variable, IResourceBuilder<ParameterResource> parameter)
 
 WithSecret("App__EncryptionSecret", encryptionSecret);
 
-// Billing stays off unless these are set, for example in this project's user secrets
-// (`dotnet user-secrets set STRIPE_SECRET_KEY sk_test_...`). The secrets go through
-// WithSecret; the price ids are not secret and are passed on as they are.
-foreach (var (name, parameterName) in new[] { ("STRIPE_SECRET_KEY", "stripe-secret-key"), ("STRIPE_WEBHOOK_SECRET", "stripe-webhook-secret") })
+// Optional integrations stay off unless configured, for example in this project's user secrets
+// (`dotnet user-secrets set GOOGLE_CLIENT_ID ...`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`).
+// Secrets go through WithSecret; non-secret values are passed on as they are.
+foreach (var (name, parameterName) in new[]
+{
+    ("STRIPE_SECRET_KEY", "stripe-secret-key"),
+    ("STRIPE_WEBHOOK_SECRET", "stripe-webhook-secret"),
+    ("GOOGLE_CLIENT_SECRET", "google-client-secret"),
+})
 {
     if (builder.Configuration[name] is { Length: > 0 })
     {
@@ -142,7 +149,7 @@ foreach (var (name, parameterName) in new[] { ("STRIPE_SECRET_KEY", "stripe-secr
     }
 }
 
-foreach (var name in new[] { "STRIPE_PRICE_PRO_MONTHLY", "STRIPE_PRICE_PRO_YEARLY" })
+foreach (var name in new[] { "GOOGLE_CLIENT_ID", "STRIPE_PRICE_PRO_MONTHLY", "STRIPE_PRICE_PRO_YEARLY" })
 {
     if (builder.Configuration[name] is { Length: > 0 } value)
     {
