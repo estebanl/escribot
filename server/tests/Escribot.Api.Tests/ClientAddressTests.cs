@@ -127,13 +127,23 @@ public class ClientAddressTests
     }
 
     [Fact]
-    public void Container_app_bicep_does_not_enable_duplicate_forwarded_headers_middleware()
+    public async Task The_app_will_not_start_with_aspnetcore_forwarded_headers_enabled()
     {
-        var path = Path.Combine(RepositoryRoot(), "infra", "api", "api-containerapp.bicep");
-        var bicep = File.ReadAllText(path);
+        // Set, ASP.NET Core's own forwarded-headers pass would run first and leave the
+        // spoofed entry for the app's pass to read.
+        await using var factory = new ApiFactory
+        {
+            Settings = new()
+            {
+                ["App:TrustForwardedHeaders"] = "true",
+                [Auth.AuthExtensions.BuiltInForwardedHeadersKey] = "true",
+            },
+        };
 
-        Assert.Contains("App__TrustForwardedHeaders", bicep, StringComparison.Ordinal);
-        Assert.DoesNotContain("ASPNETCORE_FORWARDEDHEADERS_ENABLED", bicep, StringComparison.OrdinalIgnoreCase);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => SignInFromAsync(factory, $"198.51.100.99, {Visitor}"));
+
+        Assert.Contains("ASPNETCORE_FORWARDEDHEADERS_ENABLED", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
