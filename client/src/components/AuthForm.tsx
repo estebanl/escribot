@@ -30,6 +30,40 @@ const COPY: Record<AuthMode, { intro: string; submit: string; busy: string }> = 
   },
 };
 
+/** Human-readable messages for `?error=...` redirects back to `/login`. */
+const LOGIN_LINK_ERRORS: Record<string, string> = {
+  google_sign_in_failed: "Google sign-in could not be completed. Please try again.",
+  google_email_not_verified:
+    "Your Google account email is not verified. Verify it with Google or sign in with email and password.",
+  signup_not_allowed: "This email address is not permitted to create an account.",
+  google_account_not_linked:
+    "An account with this email already exists. Sign in with your email and password.",
+  invalid_token: "This verification link is invalid or has expired.",
+};
+
+function GoogleIcon() {
+  return (
+    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.55-.2-2.27H12v4.3h6.44a5.51 5.51 0 0 1-2.39 3.61v3h3.87c2.26-2.08 3.57-5.15 3.57-8.64Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.07 7.93-2.91l-3.87-3c-1.07.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.95H1.28v3.09A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.28 14.29a7.21 7.21 0 0 1 0-4.58V6.62H1.28a12 12 0 0 0 0 10.76l4-3.09Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.76c1.76 0 3.34.61 4.58 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.62l4 3.09c.95-2.84 3.6-4.95 6.72-4.95Z"
+      />
+    </svg>
+  );
+}
+
 /** Only allow same-site relative redirects after sign-in. */
 function safeNextPath(raw: string | null): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
@@ -62,11 +96,15 @@ export function AuthForm({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(
-    mode === "reset" && (linkError || !resetToken)
-      ? "This reset link is invalid or has expired. Request a new one."
-      : null
-  );
+  const [error, setError] = useState<string | null>(() => {
+    if (mode === "reset" && (linkError || !resetToken)) {
+      return "This reset link is invalid or has expired. Request a new one.";
+    }
+    if (mode === "login" && linkError) {
+      return LOGIN_LINK_ERRORS[linkError] ?? "Sign-in could not be completed. Please try again.";
+    }
+    return null;
+  });
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -299,6 +337,28 @@ export function AuthForm({
           </form>
         )}
 
+        {googleEnabled && (mode === "login" || mode === "signup") && (
+          <div className="mt-5">
+            <div className="relative flex items-center justify-center mb-4">
+              <div className="w-full border-t border-line" />
+              <span className="bg-surface px-3 text-xs uppercase tracking-wider text-ink-muted shrink-0">
+                or
+              </span>
+              <div className="w-full border-t border-line" />
+            </div>
+            <button
+              id="auth-google-button"
+              type="button"
+              onClick={handleGoogle}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2.5 py-3 px-4 rounded-lg border border-line-strong bg-canvas hover:bg-subtle text-ink font-medium text-sm transition disabled:opacity-50 cursor-pointer"
+            >
+              <GoogleIcon />
+              <span>Continue with Google</span>
+            </button>
+          </div>
+        )}
+
         {mode === "signup" && (
           <p className="text-xs text-ink-muted mt-4 text-center">
             By creating an account you agree to the{" "}
@@ -311,18 +371,6 @@ export function AuthForm({
             </Link>
             .
           </p>
-        )}
-
-        {googleEnabled && (mode === "login" || mode === "signup") && (
-          <button
-            id="auth-google-button"
-            type="button"
-            onClick={handleGoogle}
-            disabled={loading}
-            className="mt-3 w-full py-3 px-4 rounded-lg border border-line-strong bg-canvas hover:bg-subtle text-ink font-medium text-sm transition disabled:opacity-50 cursor-pointer"
-          >
-            Continue with Google
-          </button>
         )}
 
         <p className="text-sm text-ink-secondary mt-6 text-center">

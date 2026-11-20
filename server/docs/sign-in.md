@@ -120,12 +120,15 @@ straight to the `/reset-password?token=...` page.
 ## Google
 
 On when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set. The redirect URI to
-register is `<public URL>/api/auth/callback/google`, the same as before.
+register is `<public URL>/api/auth/callback/google` (for local development through the
+AppHost, `http://localhost:5173/api/auth/callback/google`, with both values set in the
+AppHost's user secrets).
 
 The state of the round trip to Google is sealed with a key derived from
 `App:EncryptionSecret` (`SecretDataProtectionProvider`) instead of ASP.NET Core's data
 protection key ring. A key ring would have to be stored and shared between instances
-that start from nothing; every instance already has the secret.
+that start from nothing; every instance already has the secret. The correlation cookie
+uses `SameSite=Lax` so the top-level GET callback works over both HTTPS and local HTTP.
 
 ## Behind the Azure Container Apps ingress
 
