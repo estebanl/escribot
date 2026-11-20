@@ -103,12 +103,16 @@ internal static partial class ErrorSanitizer
         return text.Length <= maxLength ? text : text[..maxLength];
     }
 
-    // api_key=..., "password": "...", AccountKey=..., Authorization: ..., Cookie: ...
-    [GeneratedRegex("""((?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password|passwd|authorization|accountkey|sharedaccesssignature|sig|cookie)["']?)(\s*[=:]\s*["']?)(?:Bearer\s+)?[^\s"'&;,]+""", RegexOptions.IgnoreCase)]
+    // api_key=..., "password": "...", AccountKey=..., Authorization: ..., Cookie: ..., key=..., "key": "..."
+    // (a bare "key" counts only when no letter or digit precedes it, so "monkey=" is left alone;
+    // ?key= and &key= are left to QueryKey).
+    [GeneratedRegex("""((?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password|passwd|authorization|accountkey|sharedaccesssignature|sig|cookie|(?<![A-Za-z0-9?&])key)["']?)(\s*[=:]\s*["']?)(?:Bearer\s+)?[^\s"'&;,]+""", RegexOptions.IgnoreCase)]
     private static partial Regex NamedSecret();
 
-    // Query-string key=... parameters (e.g. ?key=... or &key=...).
-    [GeneratedRegex("""([?&]key=)[^\s"'&;]+""", RegexOptions.IgnoreCase)]
+    // Query-string key=... parameters (?key=..., &key=..., and their percent-encoded forms
+    // %3Fkey%3D... and %26key%3D...). The value stops at the characters that end a query value
+    // in prose, so text after it (", status 400", ")", "#fragment") is kept.
+    [GeneratedRegex("""((?:[?&]|%3F|%26)key(?:=|%3D))[^\s"'&;,)#]+""", RegexOptions.IgnoreCase)]
     private static partial Regex QueryKey();
 
     [GeneratedRegex(@"Bearer\s+[A-Za-z0-9._~+/=-]{8,}", RegexOptions.IgnoreCase)]
@@ -121,8 +125,11 @@ internal static partial class ErrorSanitizer
     [GeneratedRegex(@"\b(?:sk|pk|rk|whsec)[-_][A-Za-z0-9_-]{12,}")]
     private static partial Regex PrefixedKey();
 
-    // Google API keys (39 characters: AIza followed by 35 URL-safe characters).
-    [GeneratedRegex(@"\bAIza[0-9A-Za-z_-]{35}\b")]
+    // Google API keys (39 characters: AIza followed by 35 URL-safe characters). There are no
+    // boundary anchors: a key can end in "-" (no \b after it) or follow a word character
+    // (GEMINI_KEY_AIza...), and the 39 characters are too few for LongOpaqueValue to catch.
+    // The open-ended count takes any longer run whole, so no tail of it is left behind.
+    [GeneratedRegex(@"AIza[0-9A-Za-z_-]{35,}")]
     private static partial Regex GoogleApiKey();
 
     // Any other unbroken run of 40 or more key-like characters.

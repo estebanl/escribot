@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -342,14 +343,12 @@ internal static class AiEndpoints
                 catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
                     await errorReporter.ReportServerErrorAsync(ex, "/api/ai/evaluate", userId);
-                    var isTimeout = ex is TimeoutException || ex.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase);
+                    var (isTimeout, message) = DescribeEvaluateFailure(ex, UsesOwnKey(resolvedConfig));
                     sendEvent(new JsonObject
                     {
                         ["type"] = "error",
                         ["isTimeout"] = isTimeout,
-                        ["error"] = isTimeout
-                            ? "Grading took too long, please try again. Your essay is safely preserved in the editor."
-                            : "Grading failed. Your essay is safely preserved in the editor. Please try again.",
+                        ["error"] = message,
                     });
                 }
                 finally
@@ -365,6 +364,39 @@ internal static class AiEndpoints
                     }
                 }
             });
+    }
+
+    private const string EssayPreserved = "Your essay is safely preserved in the editor.";
+
+    private static bool UsesOwnKey(ResolvedAiConfig? config) =>
+        config is not null && new[] { config.Grader, config.Fast, config.Vision }.Any(r => r.KeySource == "user");
+
+    /// <summary>
+    /// The message a failed evaluation shows. The exception's own text never reaches the
+    /// browser (provider responses can echo request details), so known failures map to fixed
+    /// messages: those a user can fix with their own key say so, and the rest stay generic.
+    /// A timeout is judged by exception type only, since provider error text can say "timed out".
+    /// </summary>
+    internal static (bool IsTimeout, string Message) DescribeEvaluateFailure(Exception ex, bool usesOwnKey)
+    {
+        if (ex is TimeoutException or TaskCanceledException { InnerException: TimeoutException })
+        {
+            return (true, $"Grading took too long, please try again. {EssayPreserved}");
+        }
+
+        var message = ex switch
+        {
+            UnsupportedAiProviderException =>
+                $"The selected AI provider isn't supported. Choose another provider in your model settings. {EssayPreserved}",
+            HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } when usesOwnKey =>
+                $"The AI provider rejected your API key. Check the key in your model settings. {EssayPreserved}",
+            HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests } when usesOwnKey =>
+                $"The AI provider refused the request because your API key hit a rate limit or quota. Wait a moment or check your provider account. {EssayPreserved}",
+            HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests } =>
+                $"The AI service is busy right now. Please try again in a moment. {EssayPreserved}",
+            _ => $"Grading failed. {EssayPreserved} Please try again.",
+        };
+        return (false, message);
     }
 
     private static async Task RunKeepAlivePingsAsync(Action<JsonObject> sendEvent, CancellationToken ct)
