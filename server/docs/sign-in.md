@@ -138,6 +138,11 @@ scheme for Google's redirect URI then come from `X-Forwarded-For` and `X-Forward
 Only the last `X-Forwarded-For` entry, the one the ingress adds, is used. Do not set it
 when clients can reach the app directly.
 
+Do not set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`. It adds ASP.NET Core's own
+forwarded-headers pass ahead of the app's, which takes the ingress's entry and leaves the
+app reading the one before it, written by the client. The app refuses to start when it
+is set.
+
 ## Behind Cloudflare's proxy
 
 There, the last `X-Forwarded-For` entry is a Cloudflare edge server, shared by many

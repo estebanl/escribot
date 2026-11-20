@@ -54,6 +54,9 @@ internal static class AuthExtensions
         return builder;
     }
 
+    /// <summary>The configuration key ASPNETCORE_FORWARDEDHEADERS_ENABLED becomes.</summary>
+    internal const string BuiltInForwardedHeadersKey = "ForwardedHeaders_Enabled";
+
     /// <summary>
     /// Takes the client address and scheme from the proxy in front of the app, when it is
     /// trusted. Call first, so that everything after it, HSTS included, sees the scheme and
@@ -61,6 +64,16 @@ internal static class AuthExtensions
     /// </summary>
     public static WebApplication UseProxyHeaders(this WebApplication app)
     {
+        // ASPNETCORE_FORWARDEDHEADERS_ENABLED adds ASP.NET Core's own forwarded-headers pass
+        // ahead of the one below. That pass takes the last X-Forwarded-For entry, leaving
+        // the one below to read the entry before it, which the client wrote: a client could
+        // then pick the address its rate limits key on.
+        if (string.Equals(app.Configuration[BuiltInForwardedHeadersKey], "true", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "ASPNETCORE_FORWARDEDHEADERS_ENABLED must not be set; use App__TrustForwardedHeaders instead.");
+        }
+
         var options = app.Services.GetRequiredService<IOptions<AppOptions>>().Value;
         if (options.TrustForwardedHeaders)
         {

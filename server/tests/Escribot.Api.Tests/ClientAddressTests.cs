@@ -101,6 +101,52 @@ public class ClientAddressTests
     }
 
     [Fact]
+    public async Task Spoofed_leading_x_forwarded_for_entry_is_ignored()
+    {
+        await using var factory = new ApiFactory { Settings = new() { ["App:TrustForwardedHeaders"] = "true" } };
+        const string spoofed = "198.51.100.99";
+
+        await SignInFromAsync(factory, $"{spoofed}, {Visitor}");
+
+        Assert.NotEmpty(factory.Data.RateCounts.Keys);
+        Assert.All(factory.Data.RateCounts.Keys, key => Assert.Contains($":{Visitor}:", key));
+        Assert.DoesNotContain(factory.Data.RateCounts.Keys, key => key.Contains(spoofed, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Behind_cloudflare_a_spoofed_leading_x_forwarded_for_entry_still_uses_cf_connecting_ip()
+    {
+        await using var factory = new ApiFactory { Settings = BehindCloudflare() };
+        const string spoofed = "198.51.100.99";
+
+        await SignInFromAsync(factory, $"{spoofed}, {Visitor}, {CloudflareEdge}", cfConnectingIp: Visitor);
+
+        Assert.Contains(factory.Data.RateCounts.Keys, key => key.Contains($":{Visitor}:", StringComparison.Ordinal));
+        Assert.DoesNotContain(factory.Data.RateCounts.Keys, key => key.Contains(spoofed, StringComparison.Ordinal));
+        Assert.DoesNotContain(factory.Data.RateCounts.Keys, key => key.Contains(CloudflareEdge, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_app_will_not_start_with_aspnetcore_forwarded_headers_enabled()
+    {
+        // Set, ASP.NET Core's own forwarded-headers pass would run first and leave the
+        // spoofed entry for the app's pass to read.
+        await using var factory = new ApiFactory
+        {
+            Settings = new()
+            {
+                ["App:TrustForwardedHeaders"] = "true",
+                [Auth.AuthExtensions.BuiltInForwardedHeadersKey] = "true",
+            },
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => SignInFromAsync(factory, $"198.51.100.99, {Visitor}"));
+
+        Assert.Contains("ASPNETCORE_FORWARDEDHEADERS_ENABLED", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_deployed_cloudflare_ranges_parse()
     {
         var path = Path.Combine(RepositoryRoot(), "infra", "cloudflare-ips.json");
@@ -112,7 +158,7 @@ public class ClientAddressTests
         Assert.Contains(networks, n => n.Contains(System.Net.IPAddress.Parse(CloudflareEdge)));
     }
 
-    private static async Task<HttpResponseMessage> SignInFromAsync(ApiFactory factory, string forwardedFor, string cfConnectingIp)
+    private static async Task<HttpResponseMessage> SignInFromAsync(ApiFactory factory, string forwardedFor, string? cfConnectingIp = null)
     {
         using var browser = factory.CreateBrowser();
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/sign-in/email")
@@ -120,7 +166,11 @@ public class ClientAddressTests
             Content = JsonContent.Create(new { email = "nobody@example.test", password = "wrong-password" }),
         };
         request.Headers.Add("X-Forwarded-For", forwardedFor);
-        request.Headers.Add(Auth.CloudflareClientAddress.HeaderName, cfConnectingIp);
+        if (cfConnectingIp is not null)
+        {
+            request.Headers.Add(Auth.CloudflareClientAddress.HeaderName, cfConnectingIp);
+        }
+
         return await browser.SendAsync(request);
     }
 
