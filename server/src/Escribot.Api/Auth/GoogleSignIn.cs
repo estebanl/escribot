@@ -89,10 +89,20 @@ internal static class GoogleSignIn
             return;
         }
 
-        // A new account whose address Google could not vouch for verifies it by email, like any other.
-        if (result.IsNew && !result.User.EmailVerified && http.RequestServices.GetRequiredService<EmailSettings>().SendsVerificationLinks)
+        // An account whose address Google could not vouch for verifies it by email, like any other.
+        var emailSettings = http.RequestServices.GetRequiredService<EmailSettings>();
+        if (!result.User.EmailVerified)
         {
-            await http.RequestServices.GetRequiredService<AuthEmails>().TrySendVerificationAsync(http, result.User, context.ReturnUri, http.RequestAborted);
+            if ((result.IsNew || emailSettings.VerificationRequired) && emailSettings.SendsVerificationLinks)
+            {
+                await http.RequestServices.GetRequiredService<AuthEmails>().TrySendVerificationAsync(http, result.User, context.ReturnUri, http.RequestAborted);
+            }
+
+            if (emailSettings.VerificationRequired)
+            {
+                http.Response.Redirect("/login?verify=1");
+                return;
+            }
         }
 
         await http.RequestServices.GetRequiredService<SessionManager>().StartAsync(http, result.User.Id, http.RequestAborted);

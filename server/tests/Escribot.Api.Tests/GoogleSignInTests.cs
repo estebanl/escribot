@@ -178,6 +178,48 @@ public class GoogleSignInTests
         Assert.True((await AuthEndpointTests.Json(verified)).GetProperty("user").GetProperty("isOwner").GetBoolean());
     }
 
+    [Fact]
+    public async Task A_new_account_with_such_an_address_must_verify_before_signing_in_when_email_is_configured()
+    {
+        var settings = ApiFactory.EmailConfigured();
+        settings["OWNER_EMAIL"] = Email;
+        await using var factory = Factory(new FakeGoogle { Email = Email, HostedDomain = null }, settings);
+        using var browser = factory.CreateBrowser();
+
+        using var callback = await SignInWithGoogleAsync(browser, "/vault");
+
+        Assert.Equal("/login?verify=1", callback.Headers.Location!.OriginalString);
+        Assert.False(factory.Data.Accounts.Values.Single().EmailVerified);
+        Assert.Empty(factory.Data.Sessions);
+        using var me = await browser.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
+
+        var email = Assert.Single(factory.Emails.Sent);
+        Assert.Equal("Verify your Escribot email", email.Subject);
+
+        // Signing in with Google again while still unverified does not start a session and resends the link.
+        using var againBrowser = factory.CreateBrowser();
+        using var again = await SignInWithGoogleAsync(againBrowser, "/vault");
+        Assert.Equal("/login?verify=1", again.Headers.Location!.OriginalString);
+        Assert.Single(factory.Data.Accounts);
+        Assert.Empty(factory.Data.Sessions);
+        Assert.Equal(2, factory.Emails.Sent.Count);
+
+        // Opening the verification link verifies the address and signs in.
+        using var verify = await browser.GetAsync(AuthEndpointTests.Link(email.Text));
+        Assert.Equal("/vault", verify.Headers.Location!.OriginalString);
+        using var verified = await browser.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.OK, verified.StatusCode);
+        Assert.True((await AuthEndpointTests.Json(verified)).GetProperty("user").GetProperty("isOwner").GetBoolean());
+
+        // Subsequent Google sign-ins now open a session normally.
+        using var afterBrowser = factory.CreateBrowser();
+        using var after = await SignInWithGoogleAsync(afterBrowser, "/vault");
+        Assert.Equal("/vault", after.Headers.Location!.OriginalString);
+        using var afterMe = await afterBrowser.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.OK, afterMe.StatusCode);
+    }
+
     [Theory]
     [InlineData("ana@gmail.com", null, true)]
     [InlineData("Ana@GoogleMail.com", null, true)]

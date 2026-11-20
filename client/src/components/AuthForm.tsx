@@ -105,7 +105,12 @@ export function AuthForm({
     }
     return null;
   });
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(() => {
+    if (mode === "login" && searchParams.get("verify") === "1" && !linkError) {
+      return "Check your email for a link to verify your address before signing in.";
+    }
+    return null;
+  });
   const [loading, setLoading] = useState(false);
 
   const copy = COPY[mode];
