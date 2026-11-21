@@ -66,7 +66,7 @@ public sealed partial class AiCompletionService(
     {
         if (!_clients.TryGetValue(opts.Provider, out var client))
         {
-            throw new InvalidOperationException($"Unsupported AI provider: {opts.Provider}");
+            throw new UnsupportedAiProviderException(opts.Provider);
         }
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -144,3 +144,7 @@ public sealed partial class AiCompletionService(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to increment Free-plan daily AI counter.")]
     private static partial void LogDailyCounterFailed(ILogger logger, Exception exception);
 }
+
+/// <summary>A request named an AI provider the server has no client for.</summary>
+public sealed class UnsupportedAiProviderException(string provider)
+    : InvalidOperationException($"Unsupported AI provider: {provider}");

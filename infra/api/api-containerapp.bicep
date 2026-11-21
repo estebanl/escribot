@@ -128,10 +128,6 @@ var containerEnv = concat(
       value: 'in_memory'
     }
     {
-      name: 'ASPNETCORE_FORWARDEDHEADERS_ENABLED'
-      value: 'true'
-    }
-    {
       name: 'App__TrustForwardedHeaders'
       value: 'true'
     }

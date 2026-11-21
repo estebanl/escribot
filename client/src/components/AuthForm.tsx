@@ -140,7 +140,12 @@ export function AuthForm({
     }
     return null;
   });
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(() => {
+    if (mode === "login" && searchParams.get("verify") === "1" && !linkError) {
+      return "Check your email for a link to verify your address before signing in.";
+    }
+    return null;
+  });
   const [loading, setLoading] = useState(false);
 
   const copy = COPY[mode];
@@ -192,10 +197,7 @@ export function AuthForm({
       }
 
       if (mode === "forgot") {
-        const res = await auth.requestPasswordReset({
-          email,
-          redirectTo: "/reset-password",
-        });
+        const res = await auth.requestPasswordReset({ email });
         if (res.error) {
           setError(res.error.message || "Could not send the reset link.");
           return;

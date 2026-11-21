@@ -15,7 +15,7 @@ public sealed record SignUpRequest(string? Name, string? Email, string? Password
 
 public sealed record SignInRequest(string? Email, string? Password);
 
-public sealed record EmailRequest(string? Email, string? CallbackURL, string? RedirectTo);
+public sealed record EmailRequest(string? Email, string? CallbackURL);
 
 public sealed record ResetPasswordRequest(string? Token, string? NewPassword);
 
@@ -254,7 +254,7 @@ internal static partial class AuthEndpoints
         var email = request.Email?.Trim() ?? string.Empty;
         if (IsEmailAddress(email) && await users.FindByEmailAsync(email) is { } user)
         {
-            await emails.TrySendPasswordResetAsync(context, user, request.RedirectTo, cancellationToken);
+            await emails.TrySendPasswordResetAsync(context, user, cancellationToken);
         }
 
         // The same answer whether or not the address has an account.
@@ -402,11 +402,12 @@ internal sealed partial class AuthEmails(
                 $"Welcome to Escribot. Confirm your email address by opening this link:\n\n{link}");
         });
 
-    public Task TrySendPasswordResetAsync(HttpContext context, AppUser user, string? redirectTo, CancellationToken cancellationToken) =>
+    public Task TrySendPasswordResetAsync(HttpContext context, AppUser user, CancellationToken cancellationToken) =>
         TrySendAsync(OneTimeTokenPurpose.PasswordReset, user, cancellationToken, token =>
         {
-            var page = LocalPath.IsLocal(redirectTo) ? redirectTo! : "/reset-password";
-            var link = QueryHelpers.AddQueryString($"{BaseUrl(context)}{page}", "token", token);
+            // Always the reset page: it is the one page that reads the token, and the one
+            // the security headers serve with no-referrer.
+            var link = QueryHelpers.AddQueryString($"{BaseUrl(context)}/reset-password", "token", token);
             return new OutgoingEmail(
                 user.Email,
                 "Reset your Escribot password",
