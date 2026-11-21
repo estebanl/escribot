@@ -29,6 +29,7 @@ import type {
   TaskType,
 } from "@/lib/types";
 import type { PromptRecord } from "./PromptModals";
+import { TEXT_LIMITS } from "@/lib/limits";
 
 export interface HydratedDraft {
   id: string;
@@ -842,6 +843,7 @@ export function EvaluationWorkbench({
               id="redraft-editor-textarea"
               rows={16}
               value={redraftText}
+              maxLength={TEXT_LIMITS.essay}
               onChange={(e) => setRedraftText(e.target.value)}
               className="w-full bg-transparent editorial-prose text-ink focus:outline-none resize-y"
             />

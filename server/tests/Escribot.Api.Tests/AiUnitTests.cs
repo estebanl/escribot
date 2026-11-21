@@ -244,7 +244,7 @@ public class AiUnitTests
         var planResolver = new PlanResolver(data, data, authSettings);
         var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
         var env = new FakeEnvironment("Production");
-        var guard = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock);
+        var guard = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, new AiQuotaTracker());
 
         // Unverified Free user in Production -> 403 verification_required
         var unverified = new UserAccount { Id = "u-unver", Email = "unver@example.test", EmailVerified = false };
@@ -301,6 +301,78 @@ public class AiUnitTests
 
         var rateBlocked = await guard.GuardAsync(rateUser, AiRequestKind.Assist);
         Assert.NotNull(rateBlocked);
+    }
+
+    [Fact]
+    public async Task AccessGuard_tracks_in_flight_reservations_and_releases_on_dispose()
+    {
+        var clock = new ManualTimeProvider(new DateTimeOffset(2026, 11, 17, 12, 0, 0, TimeSpan.Zero));
+        var data = new InMemoryData(clock);
+        var protector = CreateProtector();
+        var config = CreateConfig(new Dictionary<string, string?>
+        {
+            ["OPENROUTER_API_KEY"] = "or-platform",
+            ["FREE_PLAN_DAILY_AI_CAP"] = "2",
+        });
+
+        var authSettings = new AuthSettings(config);
+        var planResolver = new PlanResolver(data, data, authSettings);
+        var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
+        var env = new FakeEnvironment("Production");
+        var tracker = new AiQuotaTracker();
+        var guard1 = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, tracker);
+        var guard2 = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, tracker);
+
+        var user = new UserAccount { Id = "u-inflight", Email = "inflight@example.test", EmailVerified = true };
+        await data.CreateAsync(user);
+
+        // Two in-flight reservations fill the daily cap of 2; a third is blocked until one is released.
+        var res1 = await guard1.GuardWithConfigAsync(user, AiRequestKind.Evaluation);
+        var res2 = await guard2.GuardWithConfigAsync(user, AiRequestKind.Evaluation);
+        Assert.Null(res1.Blocked);
+        Assert.Null(res2.Blocked);
+
+        using (var blocked = await guard1.GuardWithConfigAsync(user, AiRequestKind.Evaluation))
+        {
+            Assert.NotNull(blocked.Blocked);
+        }
+
+        // Disposing res1 (e.g. after a failed LLM call) releases the slot immediately without leaking quota.
+        res1.Dispose();
+        res1.Dispose(); // idempotent
+
+        using (var allowedAgain = await guard2.GuardWithConfigAsync(user, AiRequestKind.Evaluation))
+        {
+            Assert.Null(allowedAgain.Blocked);
+        }
+
+        res2.Dispose();
+    }
+
+    [Fact]
+    public void QuotaTracker_reports_units_already_in_flight_per_key_and_releases_once()
+    {
+        var tracker = new AiQuotaTracker();
+        var month = new AiQuotaTracker.MonthlyKey("u-1", AiRequestKind.Evaluation, "2026-11");
+        var otherUser = month with { UserId = "u-2" };
+
+        using var first = tracker.Reserve(month, "2026-11-20", 2);
+        Assert.Equal(0, first.MonthlyAhead);
+        Assert.Equal(0, first.DailyAhead);
+
+        var second = tracker.Reserve(month, "2026-11-20", 1);
+        Assert.Equal(2, second.MonthlyAhead);
+        Assert.Equal(2, second.DailyAhead);
+
+        // Another user's monthly quota is separate; the Free daily cap is shared.
+        using var other = tracker.Reserve(otherUser, "2026-11-20", 1);
+        Assert.Equal(0, other.MonthlyAhead);
+        Assert.Equal(3, other.DailyAhead);
+
+        second.Dispose();
+        second.Dispose(); // idempotent
+        using var third = tracker.Reserve(month, null, 1);
+        Assert.Equal(2, third.MonthlyAhead);
     }
 
     // ---- Examiner & Usage Tracking with Fake Provider ----

@@ -20,6 +20,7 @@ import {
 } from "@/lib/client-evaluate";
 import type { SessionMode } from "@/lib/types";
 import type { PromptRecord } from "./PromptModals";
+import { TEXT_LIMITS } from "@/lib/limits";
 
 export interface RestoredSimulatorPart {
   essayText: string;
@@ -400,6 +401,7 @@ export function InsperaSimulator({
                   <textarea
                     rows={4}
                     value={scratchNotes[activePart]}
+                    maxLength={TEXT_LIMITS.scratchNotes}
                     onChange={(e) =>
                       setScratchNotes((prev) => ({
                         ...prev,
@@ -433,6 +435,7 @@ export function InsperaSimulator({
             autoComplete="off"
             data-gramm="false"
             value={essays[activePart]}
+            maxLength={TEXT_LIMITS.essay}
             onChange={(e) =>
               setEssays((prev) => ({ ...prev, [activePart]: e.target.value }))
             }

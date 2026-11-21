@@ -304,8 +304,19 @@ public sealed class InMemoryData(TimeProvider time) :
     Task<UserDataExport> IUserDataRepository.ExportAsync(string userId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
-    Task IUserDataRepository.ImportAsync(string userId, UserDataImport import, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+    Task IUserDataRepository.ImportAsync(string userId, UserDataImport import, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            (Prompts.TryGetValue(userId, out var p) ? p : Prompts[userId] = []).AddRange(import.Prompts.Select(x => x with { UserId = userId }));
+            (SessionsByUser.TryGetValue(userId, out var s) ? s : SessionsByUser[userId] = []).AddRange(import.Sessions.Select(x => x with { UserId = userId }));
+            (Drafts.TryGetValue(userId, out var d) ? d : Drafts[userId] = []).AddRange(import.Drafts.Select(x => x with { UserId = userId }));
+            (Evaluations.TryGetValue(userId, out var e) ? e : Evaluations[userId] = []).AddRange(import.Evaluations.Select(x => x with { UserId = userId }));
+            (Vault.TryGetValue(userId, out var v) ? v : Vault[userId] = []).AddRange(import.VaultItems.Select(x => x with { UserId = userId }));
+            (Drills.TryGetValue(userId, out var m) ? m : Drills[userId] = []).AddRange(import.MicroDrills.Select(x => x with { UserId = userId }));
+            return Task.CompletedTask;
+        }
+    }
 
     // ---- Error events ----
 

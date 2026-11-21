@@ -11,22 +11,36 @@ namespace Escribot.Api.Tests;
 
 public class AiEndpointTests
 {
-    private sealed class FakeProvider(string providerId, Func<LlmProviderRequest, LlmResultWithMeta> handler) : IAiProviderClient
+    private sealed class FakeProvider(string providerId, Func<LlmProviderRequest, CancellationToken, Task<LlmResultWithMeta>> handler) : IAiProviderClient
     {
+        public FakeProvider(string providerId, Func<LlmProviderRequest, LlmResultWithMeta> syncHandler)
+            : this(providerId, (req, _) => Task.FromResult(syncHandler(req)))
+        {
+        }
+
         public string ProviderId { get; } = providerId;
 
         public Task<LlmResultWithMeta> CompleteAsync(LlmProviderRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult(handler(request));
+            handler(request, cancellationToken);
     }
 
-    private static ApiFactory CreateAiFactory(FakeProvider? provider = null)
+    private static ApiFactory CreateAiFactory(FakeProvider? provider = null, Dictionary<string, string?>? extraSettings = null)
     {
+        var settings = new Dictionary<string, string?>
+        {
+            ["OPENROUTER_API_KEY"] = provider is null ? null : "or-test-key",
+        };
+        if (extraSettings is not null)
+        {
+            foreach (var (k, v) in extraSettings)
+            {
+                settings[k] = v;
+            }
+        }
+
         return new ApiFactory
         {
-            Settings = new Dictionary<string, string?>
-            {
-                ["OPENROUTER_API_KEY"] = provider is null ? null : "or-test-key",
-            },
+            Settings = settings,
             ConfigureServices = services =>
             {
                 if (provider is not null)
@@ -240,6 +254,310 @@ public class AiEndpointTests
         using var modelsRes = await browser.GetAsync("/api/ai/models?type=vision");
         Assert.Equal(HttpStatusCode.OK, modelsRes.StatusCode);
         Assert.True((await AuthEndpointTests.Json(modelsRes)).GetProperty("models").GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task Oversized_ai_inputs_return_400()
+    {
+        await using var factory = CreateAiFactory();
+        var (browser, _) = await SignUpAsync(factory, "limits");
+
+        using var promptRes = await browser.PostAsJsonAsync("/api/prompts", new
+        {
+            taskType = "task2",
+            promptText = "Discuss urban growth.",
+            title = "Urban Growth",
+        });
+        Assert.Equal(HttpStatusCode.OK, promptRes.StatusCode);
+        var promptId = (await AuthEndpointTests.Json(promptRes)).GetProperty("prompt").GetProperty("id").GetString()!;
+
+        using var sessionRes = await browser.PostAsJsonAsync("/api/sessions", new
+        {
+            mode = "coach",
+            task2PromptId = promptId,
+        });
+        Assert.Equal(HttpStatusCode.OK, sessionRes.StatusCode);
+        var sessionId = (await AuthEndpointTests.Json(sessionRes)).GetProperty("session").GetProperty("id").GetString()!;
+
+        var validEssay = "Urbanization has reshaped modern societies in numerous ways.";
+
+        // Evaluate: > 2 submissions
+        using var tooManySubs = await browser.PostAsJsonAsync("/api/ai/evaluate", new
+        {
+            sessionId,
+            submissions = new[]
+            {
+                new { promptId, taskType = "task2", essayText = validEssay },
+                new { promptId, taskType = "task2", essayText = validEssay },
+                new { promptId, taskType = "task2", essayText = validEssay },
+            },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, tooManySubs.StatusCode);
+
+        // Evaluate: essayText > 20,000 chars
+        using var longEssay = await browser.PostAsJsonAsync("/api/ai/evaluate", new
+        {
+            sessionId,
+            submissions = new[]
+            {
+                new { promptId, taskType = "task2", essayText = new string('a', 20_001) },
+            },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longEssay.StatusCode);
+
+        // Evaluate: scratchNotes > 10,000 chars
+        using var longNotes = await browser.PostAsJsonAsync("/api/ai/evaluate", new
+        {
+            sessionId,
+            submissions = new[]
+            {
+                new { promptId, taskType = "task2", essayText = validEssay, scratchNotes = new string('n', 10_001) },
+            },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longNotes.StatusCode);
+
+        // Evaluate: outline field > 5,000 chars
+        using var longEvalOutline = await browser.PostAsJsonAsync("/api/ai/evaluate", new
+        {
+            sessionId,
+            submissions = new[]
+            {
+                new
+                {
+                    promptId,
+                    taskType = "task2",
+                    essayText = validEssay,
+                    outline = new { thesisOrOverview = new string('o', 5_001), body1Plan = "p1", body2Plan = "p2" },
+                },
+            },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longEvalOutline.StatusCode);
+
+        // Outline check: promptText > 20,000 chars
+        using var longOutlinePrompt = await browser.PostAsJsonAsync("/api/ai/outline-check", new
+        {
+            taskType = "task2",
+            promptText = new string('p', 20_001),
+            outline = new { thesisOrOverview = "t", body1Plan = "b1", body2Plan = "b2" },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longOutlinePrompt.StatusCode);
+
+        // Outline check: outline field > 5,000 chars
+        using var longOutlineField = await browser.PostAsJsonAsync("/api/ai/outline-check", new
+        {
+            taskType = "task2",
+            promptText = "Discuss urban growth.",
+            outline = new { thesisOrOverview = "t", body1Plan = new string('b', 5_001), body2Plan = "b2" },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longOutlineField.StatusCode);
+
+        // Toolkit: selectedText > 10,000, promptText > 20,000, fullEssayContext > 20,000
+        using var longSelected = await browser.PostAsJsonAsync("/api/ai/toolkit", new
+        {
+            tool = "collocations",
+            taskType = "task2",
+            promptText = "Discuss urban growth.",
+            selectedText = new string('s', 10_001),
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longSelected.StatusCode);
+
+        using var longToolkitPrompt = await browser.PostAsJsonAsync("/api/ai/toolkit", new
+        {
+            tool = "collocations",
+            taskType = "task2",
+            promptText = new string('p', 20_001),
+            selectedText = "urban growth",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longToolkitPrompt.StatusCode);
+
+        using var longContext = await browser.PostAsJsonAsync("/api/ai/toolkit", new
+        {
+            tool = "collocations",
+            taskType = "task2",
+            promptText = "Discuss urban growth.",
+            selectedText = "urban growth",
+            fullEssayContext = new string('c', 20_001),
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longContext.StatusCode);
+
+        // Generate prompt: topic > 300, category > 100
+        using var longTopic = await browser.PostAsJsonAsync("/api/ai/generate-prompt", new
+        {
+            taskType = "task2",
+            category = "opinion",
+            topic = new string('t', 301),
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longTopic.StatusCode);
+
+        using var longCategory = await browser.PostAsJsonAsync("/api/ai/generate-prompt", new
+        {
+            taskType = "task2",
+            category = new string('c', 101),
+            topic = "Tech",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longCategory.StatusCode);
+
+        // Drills: drillType > 100, userResponse > 20,000
+        using var longDrillType = await browser.PostAsJsonAsync("/api/drills", new
+        {
+            action = "generate",
+            drillType = new string('d', 101),
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longDrillType.StatusCode);
+
+        using var longDrillResponse = await browser.PostAsJsonAsync("/api/drills", new
+        {
+            action = "score",
+            userResponse = new string('r', 20_001),
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, longDrillResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Concurrent_requests_cannot_bypass_free_monthly_quota_or_daily_cap()
+    {
+        // 1. Concurrent evaluations cannot bypass the Free monthly evaluation quota (5).
+        var evalGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inFlightEvalCalls = 0;
+        var evalProvider = new FakeProvider("openrouter", async (req, _) =>
+        {
+            if (req.UserPrompt.Contains("taTrBand", StringComparison.Ordinal))
+            {
+                if (Interlocked.Increment(ref inFlightEvalCalls) >= 5)
+                {
+                    evalGate.TrySetResult();
+                }
+
+                await Task.WhenAny(evalGate.Task, Task.Delay(150));
+                return new LlmResultWithMeta(
+                    """{"taTrBand":7.0,"ccBand":7.0,"lrBand":7.0,"graBand":7.0,"examinerSummary":"Good.","criteria":{"TA_TR":{"band":7.0},"CC":{"band":7.0},"LR":{"band":7.0},"GRA":{"band":7.0}},"topPriorities":[]}""",
+                    "m");
+            }
+
+            return new LlmResultWithMeta(
+                """{"inlineAnnotations":[],"targetBandRewrite":"Improved.","rewriteKeyChanges":[],"vaultItems":[]}""",
+                "m");
+        });
+
+        await using (var factory = CreateAiFactory(evalProvider))
+        {
+            var (browser, userId) = await SignUpAsync(factory, "race-eval");
+            using var promptRes = await browser.PostAsJsonAsync("/api/prompts", new { taskType = "task2", promptText = "Discuss tech.", title = "Tech" });
+            var promptId = (await AuthEndpointTests.Json(promptRes)).GetProperty("prompt").GetProperty("id").GetString()!;
+            using var sessionRes = await browser.PostAsJsonAsync("/api/sessions", new { mode = "coach", task2PromptId = promptId });
+            var sessionId = (await AuthEndpointTests.Json(sessionRes)).GetProperty("session").GetProperty("id").GetString()!;
+
+            var tasks = Enumerable.Range(0, 10).Select(_ => browser.PostAsJsonAsync("/api/ai/evaluate", new
+            {
+                sessionId,
+                submissions = new[]
+                {
+                    new { promptId, taskType = "task2", essayText = "Technology has transformed education across the globe in recent decades." },
+                },
+            }));
+
+            var responses = await Task.WhenAll(tasks);
+            try
+            {
+                Assert.Equal(5, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
+                Assert.Equal(5, responses.Count(r => r.StatusCode == HttpStatusCode.TooManyRequests));
+                var monthStart = new DateTimeOffset(factory.Clock.GetUtcNow().Year, factory.Clock.GetUtcNow().Month, 1, 0, 0, 0, TimeSpan.Zero);
+                var recorded = await ((IAiUsageRepository)factory.Data).CountAsync(userId, monthStart, Api.UsageService.EvaluationFeatures, "platform");
+                Assert.Equal(5, recorded);
+            }
+            finally
+            {
+                foreach (var r in responses)
+                {
+                    r.Dispose();
+                }
+            }
+        }
+
+        // 2. Concurrent assist requests cannot bypass FREE_PLAN_DAILY_AI_CAP (3).
+        var dailyGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inFlightDailyCalls = 0;
+        var dailyProvider = new FakeProvider("openrouter", async (_, _) =>
+        {
+            if (Interlocked.Increment(ref inFlightDailyCalls) >= 3)
+            {
+                dailyGate.TrySetResult();
+            }
+
+            await Task.WhenAny(dailyGate.Task, Task.Delay(150));
+            return new LlmResultWithMeta(
+                """{"tool":"collocations","headline":"Upgraded","analysis":"Better.","suggestions":[{"label":"Option 1","rewrittenOrPhrase":"rose markedly","rationale":"Formal"}]}""",
+                "m");
+        });
+
+        await using (var factory = CreateAiFactory(dailyProvider, new Dictionary<string, string?> { ["FREE_PLAN_DAILY_AI_CAP"] = "3" }))
+        {
+            var (browser, _) = await SignUpAsync(factory, "race-daily");
+
+            var tasks = Enumerable.Range(0, 8).Select(_ => browser.PostAsJsonAsync("/api/ai/toolkit", new
+            {
+                tool = "collocations",
+                taskType = "task1",
+                promptText = "Describe the chart.",
+                selectedText = "went up a lot",
+            }));
+
+            var responses = await Task.WhenAll(tasks);
+            try
+            {
+                Assert.Equal(3, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
+                Assert.Equal(5, responses.Count(r => r.StatusCode == HttpStatusCode.TooManyRequests));
+                Assert.Equal(3, await ((IFreeAiDailyCounter)factory.Data).GetTodayAsync());
+            }
+            finally
+            {
+                foreach (var r in responses)
+                {
+                    r.Dispose();
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Backup_import_is_rate_limited_to_five_an_hour_and_rejects_oversized_fields()
+    {
+        await using var factory = CreateAiFactory();
+        var (browser, _) = await SignUpAsync(factory, "backup-limit");
+
+        var validBackup = new { data = new { sessions = Array.Empty<object>() } };
+        for (var i = 0; i < 5; i++)
+        {
+            using var ok = await browser.PostAsJsonAsync("/api/backup", validBackup);
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        }
+
+        using var limited = await browser.PostAsJsonAsync("/api/backup", validBackup);
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.NotNull(limited.Headers.RetryAfter);
+
+        // Next hour window resets the rate limit; oversized fields return 400.
+        factory.Clock.Now = factory.Clock.Now.AddHours(1);
+        using var oversized = await browser.PostAsJsonAsync("/api/backup", new
+        {
+            data = new
+            {
+                prompts = new[]
+                {
+                    new
+                    {
+                        id = "p1",
+                        taskType = "task2",
+                        category = "opinion",
+                        topic = "Tech",
+                        title = new string('t', 301),
+                        promptText = "Discuss.",
+                        createdAt = "2026-03-01T09:00:00.000Z",
+                    },
+                },
+            },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, oversized.StatusCode);
     }
 
     [Fact]
