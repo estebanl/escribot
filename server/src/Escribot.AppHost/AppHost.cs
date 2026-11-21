@@ -16,7 +16,11 @@ var encryptionSecret = builder.AddParameter(
     persist: true);
 
 // Both run as local containers: the Linux-based Cosmos DB emulator and Azurite.
-var cosmos = builder.AddAzureCosmosDB("cosmos").RunAsEmulator();
+// The emulator is pinned by digest: its only tag, vnext-latest, moves, and the build pushed on
+// 2026-11-21 (sha256:09dcd04e…) fails concurrent writes with a 500 from its Postgres backend.
+// Move the pin deliberately, after the Integration tests pass on the new image.
+var cosmos = builder.AddAzureCosmosDB("cosmos").RunAsEmulator(emulator =>
+    emulator.WithImageSHA256("db53613dae19d0a3d5ad50688d14aa6e957af082dafea56b52e1bd3a6b3f1406"));
 
 // The database and its containers come from DataModelSchema, the same definitions the API
 // uses. Aspire creates them in the emulator on start and emits them for Azure on publish.
