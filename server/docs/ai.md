@@ -166,5 +166,5 @@ sequenceDiagram
         C->>DB: aiUsage record
     end
     E->>DB: Draft, evaluation, Vault items, session
-    E-->>B: result line; reservation released
+    E-->>B: result line, reservation released
 ```
