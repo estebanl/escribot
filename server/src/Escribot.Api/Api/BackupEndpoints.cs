@@ -166,7 +166,11 @@ internal sealed record BackupFile(
     List<MicroDrill> MicroDrills)
 {
     private const int MaxShortText = 300;
-    private const int MaxMediumText = 10_000;
+    /// <summary>
+    /// Long texts, Vault texts among them: the Vault route takes up to 20,000 characters and
+    /// Vault items made from an evaluation have no limit of their own, so a lower cap here
+    /// would refuse a user's own backup.
+    /// </summary>
     private const int MaxLongText = 50_000;
     private const int MaxJsonText = 100_000;
     private const int MaxImageDataUrl = 3_000_000;
@@ -253,10 +257,10 @@ internal sealed record BackupFile(
                     SourceDraftId = r.OptionalText("sourceDraftId", MaxShortText),
                     ItemType = r.Text("itemType", MaxShortText),
                     Criterion = r.Text("criterion", MaxShortText),
-                    OriginalText = r.Text("originalText", MaxMediumText),
-                    UpgradedText = r.Text("upgradedText", MaxMediumText),
-                    Explanation = r.Text("explanation", MaxMediumText),
-                    ExampleSentence = r.Text("exampleSentence", MaxMediumText),
+                    OriginalText = r.Text("originalText", MaxLongText),
+                    UpgradedText = r.Text("upgradedText", MaxLongText),
+                    Explanation = r.Text("explanation", MaxLongText),
+                    ExampleSentence = r.Text("exampleSentence", MaxLongText),
                     MasteryLevel = Math.Clamp(r.IntegerOr("masteryLevel", 0), 0, 3),
                     ReviewCount = r.IntegerOr("reviewCount", 0),
                     NextReviewAt = r.OptionalTime("nextReviewAt"),

@@ -53,9 +53,10 @@ the route then answers with its own message. On top of that:
 - Bands are 0 to 9. Prompt and Vault texts are limited to 20,000 characters, titles and
   the like to 300.
 - A backup file is checked row by row. It must hold JSON in its `…Json` fields and dates
-  in its date fields, at most 20,000 rows, and per-field length limits (short metadata
-  fields up to 300 characters, Vault texts up to 10,000, long essay/feedback texts up to
-  50,000, embedded JSON fields up to 100,000).
+  in its date fields, and at most 20,000 rows. Ids, titles, dates and the like are at most
+  300 characters, texts (prompts, essays, feedback, Vault items) 50,000, `…Json` fields
+  100,000 and a prompt's `imageDataUrl` 3,000,000 (a 2 MB image as a data URL). The limits
+  are above what the other routes store, so a user's own backup always restores.
 - A body that is not JSON is a 400 `{"error":"The request could not be read."}`.
 
 ## Images
@@ -82,6 +83,26 @@ only whether one is saved and its first and last characters; exports name the pr
 is `active`, `trialing` or `past_due`, or `plan: "pro"` in settings), then Free.
 `UsageService` reports this month's use for the Settings page. Enforcing the allowance
 belongs to the AI endpoints.
+
+## Limits on AI requests
+
+The AI routes (`Api/AiEndpoints.cs`) are not listed here, but their limits sit next to
+the ones above. A request over a limit is a 400, answered before it counts against the
+rate limit or the allowance:
+
+- `POST /api/ai/evaluate`: at most 2 submissions. Each `essayText` is at most 20,000
+  characters, `scratchNotes` 10,000 and each `outline` field 5,000.
+- Outline check: `promptText` 20,000, each `outline` field 5,000.
+- Toolkit: `selectedText` 10,000, `promptText` and `fullEssayContext` 20,000.
+- Prompt generation: `topic` 300, `category` 100.
+- Drills: `drillType` 100, `userResponse` 20,000.
+
+On the platform key, a request reserves its units (one per submission for evaluate) in
+`AiQuotaTracker` before reading stored usage, and checks the stored count plus the units
+already in flight against the monthly allowance and `FREE_PLAN_DAILY_AI_CAP`. So concurrent
+requests cannot get past either limit. The reservation is released when the request ends,
+by which time a successful call has recorded its usage. The reservations are held in
+memory, which is enough while the API runs as one replica.
 
 ## Errors
 

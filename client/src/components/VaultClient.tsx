@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   X,
 } from "lucide-react";
+import { TEXT_LIMITS } from "@/lib/limits";
 
 export interface VaultItemRecord {
   id: string;
@@ -349,6 +350,7 @@ export function VaultClient({
                   required
                   type="text"
                   value={newOriginal}
+                  maxLength={TEXT_LIMITS.vaultText}
                   onChange={(e) => setNewOriginal(e.target.value)}
                   placeholder="e.g., Actually, governments spend a lot of money..."
                   className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm text-ink"
@@ -363,6 +365,7 @@ export function VaultClient({
                   required
                   type="text"
                   value={newUpgraded}
+                  maxLength={TEXT_LIMITS.vaultText}
                   onChange={(e) => setNewUpgraded(e.target.value)}
                   placeholder="e.g., Currently, municipal authorities allocate substantial capital..."
                   className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm text-ink"
@@ -376,6 +379,7 @@ export function VaultClient({
                 <input
                   type="text"
                   value={newExplanation}
+                  maxLength={TEXT_LIMITS.vaultText}
                   onChange={(e) => setNewExplanation(e.target.value)}
                   placeholder="Why this upgrade scores higher..."
                   className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm text-ink"

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X, Upload, Sparkles, Image as ImageIcon, Loader2 } from "lucide-react";
 import { safePostJson } from "@/lib/client-evaluate";
 import type { PromptCategory, TaskType } from "@/lib/types";
+import { TEXT_LIMITS } from "@/lib/limits";
 
 export interface PromptRecord {
   id: string;
@@ -235,6 +236,7 @@ export function CustomPromptModal({
               <input
                 type="text"
                 value={title}
+                maxLength={TEXT_LIMITS.shortText}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Cambridge 18 Test 2..."
                 className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm text-ink"
@@ -247,6 +249,7 @@ export function CustomPromptModal({
               <input
                 type="text"
                 value={topic}
+                maxLength={TEXT_LIMITS.shortText}
                 onChange={(e) => setTopic(e.target.value)}
                 placeholder="Economics, Energy..."
                 className="w-full px-3 py-2 rounded-lg bg-canvas border border-line-strong text-sm text-ink"
@@ -299,6 +302,7 @@ export function CustomPromptModal({
               required
               rows={4}
               value={promptText}
+              maxLength={TEXT_LIMITS.promptText}
               onChange={(e) => setPromptText(e.target.value)}
               placeholder={
                 taskType === "task1"
@@ -451,6 +455,7 @@ export function GeneratePromptModal({
             <input
               type="text"
               value={topic}
+              maxLength={TEXT_LIMITS.shortText}
               onChange={(e) => setTopic(e.target.value)}
               placeholder="e.g., Renewable Desalination, Urban Housing, Telemedicine..."
               className="w-full px-3 py-2.5 rounded-lg bg-canvas border border-line-strong text-sm text-ink"

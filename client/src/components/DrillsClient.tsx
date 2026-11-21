@@ -18,6 +18,7 @@ import type {
   MicroDrillChallenge,
   MicroDrillScore,
 } from "@/lib/types";
+import { TEXT_LIMITS } from "@/lib/limits";
 
 const DRILL_CARDS: Array<{
   type: DrillType;
@@ -489,6 +490,7 @@ export function DrillsClient({
               ref={textareaRef}
               rows={4}
               value={response}
+              maxLength={TEXT_LIMITS.drillResponse}
               onChange={(e) => setResponse(e.target.value)}
               placeholder={
                 isAdvanced

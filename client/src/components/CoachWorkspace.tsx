@@ -36,6 +36,7 @@ import type {
   ToolkitResponse,
 } from "@/lib/types";
 import type { PromptRecord } from "./PromptModals";
+import { TEXT_LIMITS } from "@/lib/limits";
 
 export interface RestoredCoachDraft {
   essayText: string;
@@ -863,6 +864,7 @@ export function CoachWorkspace({
                     id="outline-thesis-input"
                     rows={2}
                     value={outline.thesisOrOverview}
+                    maxLength={TEXT_LIMITS.outlineField}
                     onChange={(e) =>
                       setOutline({ ...outline, thesisOrOverview: e.target.value })
                     }
@@ -884,6 +886,7 @@ export function CoachWorkspace({
                       id="outline-body1-input"
                       rows={2}
                       value={outline.body1Plan}
+                      maxLength={TEXT_LIMITS.outlineField}
                       onChange={(e) =>
                         setOutline({ ...outline, body1Plan: e.target.value })
                       }
@@ -903,6 +906,7 @@ export function CoachWorkspace({
                       id="outline-body2-input"
                       rows={2}
                       value={outline.body2Plan}
+                      maxLength={TEXT_LIMITS.outlineField}
                       onChange={(e) =>
                         setOutline({ ...outline, body2Plan: e.target.value })
                       }
@@ -1180,6 +1184,7 @@ export function CoachWorkspace({
               id="coach-essay-textarea"
               ref={editorRef}
               value={essayText}
+              maxLength={TEXT_LIMITS.essay}
               onChange={(e) => setEssayText(e.target.value)}
               onSelect={captureSelection}
               onKeyUp={captureSelection}

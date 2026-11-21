@@ -127,11 +127,9 @@ public sealed class AiAccessGuard(
     IConfiguration configuration,
     IHostEnvironment environment,
     TimeProvider time,
-    AiQuotaTracker? quotaTracker = null)
+    AiQuotaTracker quotaTracker)
 {
     public const int AiRequestsPerMinute = 20;
-
-    private readonly AiQuotaTracker _quotaTracker = quotaTracker ?? new AiQuotaTracker();
 
     public async Task<AiGuardOutcome> GuardWithConfigAsync(
         UserAccount account,
@@ -188,7 +186,7 @@ public sealed class AiAccessGuard(
             : new AiQuotaTracker.MonthlyKey(account.Id, kind, $"{now.Year:D4}-{now.Month:D2}");
 
         // Reserve before reading stored usage; see AiQuotaTracker for why this cannot over-admit.
-        var reservation = _quotaTracker.Reserve(monthlyKey, dailyCap is null ? null : dayKey, units);
+        var reservation = quotaTracker.Reserve(monthlyKey, dailyCap is null ? null : dayKey, units);
         var admitted = false;
         try
         {

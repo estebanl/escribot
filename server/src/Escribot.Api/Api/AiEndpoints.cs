@@ -103,8 +103,7 @@ internal static class AiEndpoints
             var outline = item.TryGetProperty("outline", out var outlineEl) && outlineEl.ValueKind == JsonValueKind.Object
                 ? outlineEl.Deserialize<OutlineInput>(JsonExtractor.WebOptions)
                 : null;
-            if ((outlineEl.ValueKind == JsonValueKind.Object && !IsOutlineJsonWithinLimits(outlineEl))
-                || !IsOutlineWithinLimits(outline))
+            if (outline is not null && !IsOutlineJsonWithinLimits(outlineEl))
             {
                 return ApiResults.Error(StatusCodes.Status400BadRequest, "Outline fields exceed the maximum allowed length.");
             }
@@ -476,7 +475,7 @@ internal static class AiEndpoints
         }
 
         var outline = outlineEl.Deserialize<OutlineInput>(JsonExtractor.WebOptions) ?? new OutlineInput();
-        if (!IsOutlineJsonWithinLimits(outlineEl) || !IsOutlineWithinLimits(outline))
+        if (!IsOutlineJsonWithinLimits(outlineEl))
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Outline fields exceed the maximum allowed length.");
         }
@@ -755,13 +754,10 @@ internal static class AiEndpoints
         JsonElement? PromptHighlightsJson,
         string? ScratchNotes);
 
-    private static bool IsOutlineWithinLimits(OutlineInput? outline) =>
-        outline is null
-        || ((outline.ThesisOrOverview?.Length ?? 0) <= MaxOutlineFieldLength
-            && (outline.Body1Plan?.Length ?? 0) <= MaxOutlineFieldLength
-            && (outline.Body2Plan?.Length ?? 0) <= MaxOutlineFieldLength
-            && (outline.TargetKeyTerms?.Length ?? 0) <= MaxOutlineFieldLength);
-
+    /// <summary>
+    /// Checks every string field of the outline as sent, so a field the client names in
+    /// another case, or sends twice, cannot slip past the limit.
+    /// </summary>
     private static bool IsOutlineJsonWithinLimits(JsonElement outlineEl)
     {
         foreach (var prop in outlineEl.EnumerateObject())

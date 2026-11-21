@@ -244,7 +244,7 @@ public class AiUnitTests
         var planResolver = new PlanResolver(data, data, authSettings);
         var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
         var env = new FakeEnvironment("Production");
-        var guard = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock);
+        var guard = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, new AiQuotaTracker());
 
         // Unverified Free user in Production -> 403 verification_required
         var unverified = new UserAccount { Id = "u-unver", Email = "unver@example.test", EmailVerified = false };
