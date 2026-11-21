@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Escribot.Api.Configuration;
+using Escribot.Api.Data;
 using Escribot.Api.Email;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Google;
@@ -19,6 +20,9 @@ internal static class GoogleSignIn
     private const string EmailVerifiedClaim = "email_verified";
     private const string PictureClaim = "picture";
     private const string HostedDomainClaim = "hd";
+
+    /// <summary>The same allowance as <c>/api/auth/send-verification-email</c>.</summary>
+    private const int VerificationEmailsPerHour = 3;
 
     public static AuthenticationBuilder AddGoogleSignIn(this AuthenticationBuilder builder, AuthSettings settings)
     {
@@ -89,10 +93,24 @@ internal static class GoogleSignIn
             return;
         }
 
-        // A new account whose address Google could not vouch for verifies it by email, like any other.
-        if (result.IsNew && !result.User.EmailVerified && http.RequestServices.GetRequiredService<EmailSettings>().SendsVerificationLinks)
+        // An account whose address Google could not vouch for verifies it by email, like any other.
+        var emailSettings = http.RequestServices.GetRequiredService<EmailSettings>();
+        if (!result.User.EmailVerified)
         {
-            await http.RequestServices.GetRequiredService<AuthEmails>().TrySendVerificationAsync(http, result.User, context.ReturnUri, http.RequestAborted);
+            // Each Google round trip while unverified resends the link, at most a few times an
+            // hour per account, so repeated sign-ins cannot flood the mailbox or the token store.
+            if ((result.IsNew || emailSettings.VerificationRequired) && emailSettings.SendsVerificationLinks
+                && (await http.RequestServices.GetRequiredService<IRateLimiter>().CheckAsync(
+                    $"auth:google-verification:{result.User.Id}", VerificationEmailsPerHour, TimeSpan.FromHours(1), http.RequestAborted)).Allowed)
+            {
+                await http.RequestServices.GetRequiredService<AuthEmails>().TrySendVerificationAsync(http, result.User, context.ReturnUri, http.RequestAborted);
+            }
+
+            if (emailSettings.VerificationRequired)
+            {
+                http.Response.Redirect("/login?verify=1");
+                return;
+            }
         }
 
         await http.RequestServices.GetRequiredService<SessionManager>().StartAsync(http, result.User.Id, http.RequestAborted);

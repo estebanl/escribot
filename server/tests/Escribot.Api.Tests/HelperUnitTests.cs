@@ -279,6 +279,46 @@ public class DataApiUnitTests
     }
 
     [Theory]
+    [InlineData("image/png", new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 })]
+    [InlineData("image/jpeg", new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 })]
+    [InlineData("image/gif", new byte[] { 0x47, 0x49, 0x46, 0x38, 0x37, 0x61, 0x01 })]
+    [InlineData("image/gif", new byte[] { 0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01 })]
+    [InlineData("image/webp", new byte[] { 0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50 })]
+    public void Valid_magic_bytes_are_accepted_for_each_supported_image_format(string mimeType, byte[] bytes)
+    {
+        var (contentType, data) = ImageStore.ParseDataUrl($"data:{mimeType};base64,{Convert.ToBase64String(bytes)}");
+
+        Assert.Equal(mimeType, contentType);
+        Assert.Equal(bytes, data);
+    }
+
+    [Theory]
+    [InlineData("data:image/png;base64,   ")]
+    [InlineData("data:image/gif;base64,\n")]
+    public void A_data_url_with_no_bytes_is_refused_as_empty(string dataUrl)
+    {
+        var exception = Assert.Throws<ImageUploadException>(() => ImageStore.ParseDataUrl(dataUrl));
+
+        Assert.Equal(400, exception.StatusCode);
+        Assert.Equal("The image is empty.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("image/png", new byte[] { 0x3C, 0x73, 0x76, 0x67, 0x3E })] // <svg>
+    [InlineData("image/png", new byte[] { 0x89, 0x50, 0x4E, 0x47 })] // truncated PNG header
+    [InlineData("image/jpeg", new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A })] // PNG spoofed as JPEG
+    [InlineData("image/gif", new byte[] { 0x47, 0x49, 0x46, 0x38, 0x38, 0x61 })] // GIF88a (invalid)
+    [InlineData("image/webp", new byte[] { 0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45 })] // RIFF WAVE
+    [InlineData("image/webp", new byte[] { 0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42 })] // truncated WEBP
+    public void Spoofed_or_non_image_bytes_are_refused(string mimeType, byte[] bytes)
+    {
+        var exception = Assert.Throws<ImageUploadException>(() =>
+            ImageStore.ParseDataUrl($"data:{mimeType};base64,{Convert.ToBase64String(bytes)}"));
+
+        Assert.Equal(400, exception.StatusCode);
+    }
+
+    [Theory]
     [InlineData(null, false, false, "free")]
     [InlineData("free", false, false, "free")]
     [InlineData("pro", false, false, "pro")]

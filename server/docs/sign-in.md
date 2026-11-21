@@ -27,7 +27,7 @@ All under `/api/auth`. Errors are `{ "error": "...", "code": "..." }`.
 | `GET /me` | | `{ user }`, or 401 |
 | `GET /verify-email` | `token`, `callbackURL?` | Redirect to `callbackURL`, signed in; `?error=invalid_token` on failure |
 | `POST /send-verification-email` | `email`, `callbackURL?` | `{ success }` always |
-| `POST /request-password-reset` | `email`, `redirectTo?` | `{ success }` always |
+| `POST /request-password-reset` | `email` | `{ success }` always; the emailed link always opens `/reset-password` |
 | `POST /reset-password` | `token`, `newPassword` | `{ success }`; 400 `INVALID_TOKEN` |
 | `POST /delete-user` | `password` | `{ success }`; 400 `INVALID_PASSWORD` |
 | `GET /config` | | `{ googleEnabled, passwordResetAvailable, emailVerificationRequired }` |
@@ -89,14 +89,21 @@ straight to the `/reset-password?token=...` page.
   the mailbox once, when the Google Account was made, so `email_verified` proves nothing
   now. Such a sign-in never enters or links an existing account (`/login?error=
   google_account_not_linked`), and a new account from it starts unverified and gets the
-  verification email like any other.
+  verification email like any other. When email verification is required, no session is
+  started and the callback redirects to `/login?verify=1` until the address is verified.
+  Each such Google sign-in also sends the verification email again, up to three times an
+  hour per account; past that it still redirects but sends nothing.
 - **Google and an unverified account.** If the matching account was never verified, its
   password was set by someone who never proved they own the address: that password and
   its sessions are removed when a Google sign-in that does prove it takes the account over.
 - **Cross-site requests:** a `POST`, `PUT`, `PATCH` or `DELETE` to `/api` with an `Origin`
   header must come from the app's own address (`App:PublicUrl` or the address requested).
-- **Redirect targets** taken from a request (`callbackURL`, `redirectTo`) are used only if
-  they are a path on this site.
+  One the browser marks `Sec-Fetch-Site: cross-site` is refused too, with or without
+  `Origin`. Both answer 403. `/api/stripe/webhook` is exempt from the `Sec-Fetch-Site`
+  rule; Stripe's signature authenticates it (see `billing.md`).
+- **Redirect targets** taken from a request (`callbackURL`) are used only if they are a
+  path on this site. The password-reset link is never taken from the request: it always
+  opens `/reset-password`, which is served with `Referrer-Policy: no-referrer`.
 
 ## Email
 
@@ -136,6 +143,11 @@ Set `App__TrustForwardedHeaders=true`. The client address for rate limits and th
 scheme for Google's redirect URI then come from `X-Forwarded-For` and `X-Forwarded-Proto`.
 Only the last `X-Forwarded-For` entry, the one the ingress adds, is used. Do not set it
 when clients can reach the app directly.
+
+Do not set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`. It adds ASP.NET Core's own
+forwarded-headers pass ahead of the app's, which takes the ingress's entry and leaves the
+app reading the one before it, written by the client. The app refuses to start when it
+is set.
 
 ## Behind Cloudflare's proxy
 

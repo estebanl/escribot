@@ -559,4 +559,62 @@ public class AiEndpointTests
         });
         Assert.Equal(HttpStatusCode.BadRequest, oversized.StatusCode);
     }
+
+    [Fact]
+    public async Task Evaluate_does_not_leak_raw_internal_exception_messages()
+    {
+        var internalDetail = $"secret-upstream-detail-{TestSecrets.NewSecret()}";
+        var failingProvider = new FakeProvider("openrouter", _ =>
+            throw new InvalidOperationException($"Upstream error: {internalDetail}"));
+
+        await using var factory = CreateAiFactory(failingProvider);
+        var (browser, _) = await SignUpAsync(factory, "err");
+
+        using var promptRes = await browser.PostAsJsonAsync("/api/prompts", new
+        {
+            taskType = "task2",
+            promptText = "Discuss remote work.",
+            title = "Remote Work",
+        });
+        Assert.Equal(HttpStatusCode.OK, promptRes.StatusCode);
+        var promptId = (await AuthEndpointTests.Json(promptRes)).GetProperty("prompt").GetProperty("id").GetString()!;
+
+        using var sessionRes = await browser.PostAsJsonAsync("/api/sessions", new
+        {
+            mode = "coach",
+            task2PromptId = promptId,
+        });
+        Assert.Equal(HttpStatusCode.OK, sessionRes.StatusCode);
+        var sessionId = (await AuthEndpointTests.Json(sessionRes)).GetProperty("session").GetProperty("id").GetString()!;
+
+        using var evalRes = await browser.PostAsJsonAsync("/api/ai/evaluate", new
+        {
+            sessionId,
+            submissions = new[]
+            {
+                new
+                {
+                    promptId,
+                    taskType = "task2",
+                    essayText = "Remote work has reshaped modern employment across many industries worldwide.",
+                },
+            },
+        });
+        Assert.Equal(HttpStatusCode.OK, evalRes.StatusCode);
+
+        var body = await evalRes.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(internalDetail, body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Upstream error", body, StringComparison.Ordinal);
+
+        var lines = body
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => JsonDocument.Parse(l).RootElement)
+            .ToList();
+
+        var errorEvent = Assert.Single(lines, e => e.GetProperty("type").GetString() == "error");
+        Assert.False(errorEvent.GetProperty("isTimeout").GetBoolean());
+        Assert.Equal(
+            "Grading failed. Your essay is safely preserved in the editor. Please try again.",
+            errorEvent.GetProperty("error").GetString());
+    }
 }

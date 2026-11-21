@@ -717,6 +717,66 @@ public partial class AuthEndpointTests
         }
     }
 
+    [Theory]
+    [InlineData("cross-site")]
+    [InlineData("Cross-Site")]
+    public async Task A_cross_site_fetch_metadata_header_blocks_state_changing_api_requests(string fetchSite)
+    {
+        await using var factory = new ApiFactory();
+        using var browser = factory.CreateBrowser();
+        (await SignUpAsync(browser, Email, _password)).Dispose();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/sign-out") { Content = JsonContent.Create(new { }) };
+        request.Headers.Add("Sec-Fetch-Site", fetchSite);
+        using var response = await browser.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("This request came from another site.", (await Json(response)).GetProperty("error").GetString());
+        Assert.Single(factory.Data.Sessions);
+    }
+
+    [Theory]
+    [InlineData("same-origin")]
+    [InlineData("same-site")]
+    [InlineData("none")]
+    [InlineData(null)]
+    public async Task Non_cross_site_fetch_metadata_headers_are_allowed_on_state_changing_api_requests(string? fetchSite)
+    {
+        await using var factory = new ApiFactory();
+        using var browser = factory.CreateBrowser();
+        (await SignUpAsync(browser, Email, _password)).Dispose();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/sign-out") { Content = JsonContent.Create(new { }) };
+        if (fetchSite is not null)
+        {
+            request.Headers.Add("Sec-Fetch-Site", fetchSite);
+        }
+
+        using var response = await browser.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Cross_site_fetch_metadata_still_allows_safe_gets_and_the_stripe_webhook()
+    {
+        await using var factory = new ApiFactory();
+        using var browser = factory.CreateBrowser();
+
+        using var getRequest = new HttpRequestMessage(HttpMethod.Get, "/api/viewer");
+        getRequest.Headers.Add("Sec-Fetch-Site", "cross-site");
+        using var getResponse = await browser.SendAsync(getRequest);
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+        using var webhookRequest = new HttpRequestMessage(HttpMethod.Post, "/api/stripe/webhook")
+        {
+            Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json"),
+        };
+        webhookRequest.Headers.Add("Sec-Fetch-Site", "cross-site");
+        using var webhookResponse = await browser.SendAsync(webhookRequest);
+        Assert.NotEqual(HttpStatusCode.Forbidden, webhookResponse.StatusCode);
+    }
+
     // ---- Helpers ----
 
     internal static Task<HttpResponseMessage> SignUpAsync(HttpClient browser, string email, string? password, string? name = null) =>

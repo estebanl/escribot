@@ -32,11 +32,6 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
     public async Task<string> StoreAsync(string userId, string plan, string dataUrl, CancellationToken cancellationToken = default)
     {
         var (contentType, data) = ParseDataUrl(dataUrl);
-        if (data.Length == 0)
-        {
-            throw new ImageUploadException("The image is empty.");
-        }
-
         if (data.Length > MaxImageBytes)
         {
             throw new ImageUploadException("Images must be 2 MB or smaller.", StatusCodes.Status413PayloadTooLarge);
@@ -160,15 +155,41 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
             throw new ImageUploadException("Only PNG, JPEG, WebP or GIF images can be uploaded.");
         }
 
+        byte[] data;
         try
         {
-            return (contentType, Convert.FromBase64String(WhiteSpace().Replace(match.Groups[2].Value, string.Empty)));
+            data = Convert.FromBase64String(WhiteSpace().Replace(match.Groups[2].Value, string.Empty));
         }
         catch (FormatException)
         {
             throw new ImageUploadException("The image could not be read. Try a PNG, JPEG or WebP file.");
         }
+
+        if (data.Length == 0)
+        {
+            throw new ImageUploadException("The image is empty.");
+        }
+
+        if (!HasValidMagicBytes(contentType, data))
+        {
+            throw new ImageUploadException("The image file does not match its declared format. Try a PNG, JPEG, WebP or GIF file.");
+        }
+
+        return (contentType, data);
     }
+
+    private static ReadOnlySpan<byte> PngMagic => [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    private static ReadOnlySpan<byte> JpegMagic => [0xFF, 0xD8, 0xFF];
+
+    private static bool HasValidMagicBytes(string contentType, ReadOnlySpan<byte> data) => contentType switch
+    {
+        "image/png" => data.StartsWith(PngMagic),
+        "image/jpeg" => data.StartsWith(JpegMagic),
+        "image/gif" => data.StartsWith("GIF87a"u8) || data.StartsWith("GIF89a"u8),
+        "image/webp" => data.Length >= 12 && data[..4].SequenceEqual("RIFF"u8) && data[8..12].SequenceEqual("WEBP"u8),
+        _ => false,
+    };
 
     [GeneratedRegex(@"^data:([a-z]+/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$", RegexOptions.IgnoreCase)]
     private static partial Regex DataUrl();

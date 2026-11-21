@@ -60,7 +60,9 @@ the route then answers with its own message. On top of that:
 
 ## Images
 
-- Uploads arrive as data URLs: PNG, JPEG, WebP or GIF, at most 2 MB each.
+- Uploads arrive as data URLs: PNG, JPEG, WebP or GIF, at most 2 MB each. The bytes
+  must start with the declared format's signature; an empty image or one that does not
+  match its declared type is a 400.
 - The total per user is limited by plan: 25 MB on Free, 250 MB on Pro, unlimited for the owner.
 - The bytes go to the `files` blob container as `users/{userId}/images/{id}.{ext}`; the
   description is an `image` document in the user's partition. The AppHost declares the

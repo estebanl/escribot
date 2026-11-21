@@ -304,9 +304,10 @@ Partitioned by UTC day, with a container-level time-to-live of 30 days, so old e
 need no cleanup.
 
 Before an event is stored it is shortened (message 1,000 characters, stack 4,000) and
-anything shaped like a credential is replaced with `[redacted]`: bearer tokens, API keys,
-named secrets such as `password=…`, JSON web tokens, connection-string keys and long opaque
-values. Only the path of a URL is kept, not its query string. An event has no field for
+anything shaped like a credential is replaced with `[redacted]`: bearer tokens, API keys
+(including Google `AIza…` keys wherever they appear), named secrets such as `password=…` or
+`key=…`, `?key=…` query parameters (also percent-encoded), JSON web tokens,
+connection-string keys and long opaque values. Only the path of a URL is kept, not its query string. An event has no field for
 essay text, and callers must not put any in a message; the filter cannot recognise prose.
 
 The admin view reads the newest events and a count for the last 24 hours. Both are

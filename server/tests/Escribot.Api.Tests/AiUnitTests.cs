@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text;
 using System.Text.Json.Nodes;
 using Escribot.Api.Ai;
 using Escribot.Api.Api;
@@ -533,5 +535,180 @@ public class AiUnitTests
             new MicroDrillChallenge { DrillType = "cohesion", Level = "beginner", Hints = null!, ReferenceModelAnswer = "Model." },
             "My short answer here for testing.");
         Assert.InRange(drillScore.ScoreOutOf10, 3, 9);
+    }
+
+    private sealed class RecordingHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        public HttpRequestMessage? LastRequest { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastRequest = request;
+            return Task.FromResult(responder(request));
+        }
+    }
+
+    [Fact]
+    public async Task GeminiClient_sends_api_key_in_header_and_not_in_query_string()
+    {
+        var apiKey = $"AIza{Guid.NewGuid():N}xyz";
+        using var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"candidates":[{"content":{"parts":[{"text":"{\"ok\":true}"}]}}]}""",
+                Encoding.UTF8,
+                "application/json"),
+        });
+        using var http = new HttpClient(handler);
+        var client = new GeminiClient(http);
+
+        var result = await client.CompleteAsync(
+            new LlmProviderRequest(
+                ApiKey: apiKey,
+                Model: "gemini-2.5-flash",
+                FallbackModels: null,
+                SystemPrompt: "System.",
+                UserPrompt: "User.",
+                ImageDataUrl: null,
+                JsonMode: true,
+                ThinkingMode: "disabled",
+                ReasoningEffort: "low",
+                MaxTokens: null),
+            CancellationToken.None);
+
+        Assert.Equal("""{"ok":true}""", result.Content);
+        Assert.Equal("gemini-2.5-flash", result.ModelUsed);
+
+        Assert.NotNull(handler.LastRequest);
+        var sent = handler.LastRequest!;
+        Assert.Equal("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", sent.RequestUri!.AbsoluteUri);
+        Assert.DoesNotContain("key=", sent.RequestUri.Query, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(apiKey, sent.RequestUri.AbsoluteUri, StringComparison.Ordinal);
+        Assert.True(sent.Headers.TryGetValues("x-goog-api-key", out var headerValues));
+        Assert.Equal(apiKey, Assert.Single(headerValues));
+    }
+
+    private static LlmProviderRequest GeminiRequest(string model, IReadOnlyList<string>? fallbacks) => new(
+        ApiKey: TestSecrets.NewSecret(),
+        Model: model,
+        FallbackModels: fallbacks,
+        SystemPrompt: "System.",
+        UserPrompt: "User.",
+        ImageDataUrl: null,
+        JsonMode: true,
+        ThinkingMode: "disabled",
+        ReasoningEffort: "low",
+        MaxTokens: null);
+
+    private static HttpResponseMessage GeminiOk() => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(
+            """{"candidates":[{"content":{"parts":[{"text":"{\"ok\":true}"}]}}]}""",
+            Encoding.UTF8,
+            "application/json"),
+    };
+
+    private static string RequestedModel(HttpRequestMessage request) =>
+        request.RequestUri!.AbsolutePath.Split("/models/")[1].Split(':')[0];
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task GeminiClient_falls_back_to_the_next_model_when_one_is_unavailable(HttpStatusCode failure)
+    {
+        var asked = new List<string>();
+        using var handler = new RecordingHttpMessageHandler(req =>
+        {
+            var model = RequestedModel(req);
+            asked.Add(model);
+            return model == "gemini-b" ? GeminiOk() : new HttpResponseMessage(failure) { Content = new StringContent("{}") };
+        });
+        using var http = new HttpClient(handler);
+
+        var result = await new GeminiClient(http).CompleteAsync(
+            GeminiRequest("gemini-a", ["gemini-a", "gemini-b", "gemini-c"]),
+            CancellationToken.None);
+
+        Assert.Equal(["gemini-a", "gemini-b"], asked);
+        Assert.Equal("gemini-b", result.ModelUsed);
+    }
+
+    [Fact]
+    public async Task GeminiClient_does_not_fall_back_when_the_key_is_rejected()
+    {
+        var asked = new List<string>();
+        using var handler = new RecordingHttpMessageHandler(req =>
+        {
+            asked.Add(RequestedModel(req));
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") };
+        });
+        using var http = new HttpClient(handler);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => new GeminiClient(http).CompleteAsync(
+            GeminiRequest("gemini-a", ["gemini-b"]),
+            CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
+        Assert.Equal(["gemini-a"], asked);
+    }
+
+    [Fact]
+    public async Task GeminiClient_tries_at_most_three_models_and_reports_the_last_failure()
+    {
+        var asked = new List<string>();
+        using var handler = new RecordingHttpMessageHandler(req =>
+        {
+            asked.Add(RequestedModel(req));
+            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{}") };
+        });
+        using var http = new HttpClient(handler);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => new GeminiClient(http).CompleteAsync(
+            GeminiRequest("gemini-a", ["gemini-b", "gemini-c", "gemini-d"]),
+            CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, ex.StatusCode);
+        Assert.Equal(["gemini-a", "gemini-b", "gemini-c"], asked);
+    }
+
+    [Fact]
+    public void DescribeEvaluateFailure_judges_timeouts_by_exception_type_only()
+    {
+        Assert.True(AiEndpoints.DescribeEvaluateFailure(new TimeoutException(), usesOwnKey: false).IsTimeout);
+        Assert.True(AiEndpoints.DescribeEvaluateFailure(
+            new TaskCanceledException("HttpClient.Timeout elapsed", new TimeoutException()), usesOwnKey: false).IsTimeout);
+
+        var gatewayError = new HttpRequestException(
+            """OpenRouter API error (502): {"error":"upstream request timed out"}""", null, HttpStatusCode.BadGateway);
+        var (isTimeout, message) = AiEndpoints.DescribeEvaluateFailure(gatewayError, usesOwnKey: false);
+        Assert.False(isTimeout);
+        Assert.Equal("Grading failed. Your essay is safely preserved in the editor. Please try again.", message);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, true, "rejected your API key")]
+    [InlineData(HttpStatusCode.Forbidden, true, "rejected your API key")]
+    [InlineData(HttpStatusCode.TooManyRequests, true, "rate limit or quota")]
+    [InlineData(HttpStatusCode.TooManyRequests, false, "busy right now")]
+    [InlineData(HttpStatusCode.Unauthorized, false, "Grading failed.")]
+    [InlineData(HttpStatusCode.InternalServerError, true, "Grading failed.")]
+    public void DescribeEvaluateFailure_names_provider_failures_a_user_can_act_on(
+        HttpStatusCode status, bool usesOwnKey, string expected)
+    {
+        var detail = TestSecrets.NewSecret();
+        var (isTimeout, message) = AiEndpoints.DescribeEvaluateFailure(
+            new HttpRequestException($"Gemini API error ({(int)status}): {detail}", null, status), usesOwnKey);
+
+        Assert.False(isTimeout);
+        Assert.Contains(expected, message, StringComparison.Ordinal);
+        Assert.DoesNotContain(detail, message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DescribeEvaluateFailure_names_an_unsupported_provider()
+    {
+        var (_, message) = AiEndpoints.DescribeEvaluateFailure(new UnsupportedAiProviderException("nope"), usesOwnKey: true);
+        Assert.Contains("provider isn't supported", message, StringComparison.Ordinal);
     }
 }
