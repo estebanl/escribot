@@ -14,105 +14,96 @@ public sealed record AiGuardOutcome(IResult? Blocked, ResolvedAiConfig? Config, 
 }
 
 /// <summary>
-/// Tracks in-flight platform AI quota units per user/month and per day (Free daily cap),
-/// serializing check-and-reserve against release so concurrent requests cannot race past
-/// monthly quotas or the Free-plan daily cap.
+/// Tracks in-flight platform AI quota units per user/month and per day (Free daily cap), so
+/// concurrent requests cannot race past monthly quotas or the Free-plan daily cap.
 /// </summary>
+/// <remarks>
+/// A request reserves its units first, then reads stored usage, then checks. The lock only
+/// guards the in-memory counts and is never held across I/O. Each reservation remembers how
+/// many units were already in flight when it was taken, and checks against stored usage plus
+/// those. Of any two admitted requests, the later one therefore counts the earlier one, either
+/// while it is in flight or once it has recorded its usage, so admissions never exceed the
+/// limit. A request that finishes between another's reserve and read is counted twice, which
+/// can only deny, never over-admit. The counts live in this process: this holds while the API
+/// runs as a single replica (<c>maxReplicas: 1</c> in <c>infra/api/api-containerapp.bicep</c>).
+/// </remarks>
 public sealed class AiQuotaTracker
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly Dictionary<(string UserId, AiRequestKind Kind, string MonthKey), int> _inFlightMonthly = [];
+    private readonly Lock _lock = new();
+    private readonly Dictionary<MonthlyKey, int> _inFlightMonthly = [];
     private readonly Dictionary<string, int> _inFlightFreeDaily = [];
 
-    internal async Task<T> RunUnderGateAsync<T>(
-        Func<QuotaGate, Task<T>> action,
-        CancellationToken cancellationToken)
+    internal Reservation Reserve(MonthlyKey? monthlyKey, string? freeDailyKey, int units)
     {
-        await _gate.WaitAsync(cancellationToken);
-        try
+        lock (_lock)
         {
-            return await action(new QuotaGate(this));
-        }
-        finally
-        {
-            _gate.Release();
+            var monthlyAhead = monthlyKey is { } mk ? Add(_inFlightMonthly, mk, units) : 0;
+            var dailyAhead = freeDailyKey is not null ? Add(_inFlightFreeDaily, freeDailyKey, units) : 0;
+            return new Reservation(this, monthlyKey, freeDailyKey, units, monthlyAhead, dailyAhead);
         }
     }
 
-    private void Release(
-        (string UserId, AiRequestKind Kind, string MonthKey)? monthlyKey,
-        string? freeDailyKey,
-        int units)
+    private void Release(MonthlyKey? monthlyKey, string? freeDailyKey, int units)
     {
-        _gate.Wait();
-        try
-        {
-            if (monthlyKey is { } mk && _inFlightMonthly.TryGetValue(mk, out var m))
-            {
-                var next = m - units;
-                if (next <= 0)
-                {
-                    _inFlightMonthly.Remove(mk);
-                }
-                else
-                {
-                    _inFlightMonthly[mk] = next;
-                }
-            }
-
-            if (freeDailyKey is not null && _inFlightFreeDaily.TryGetValue(freeDailyKey, out var d))
-            {
-                var next = d - units;
-                if (next <= 0)
-                {
-                    _inFlightFreeDaily.Remove(freeDailyKey);
-                }
-                else
-                {
-                    _inFlightFreeDaily[freeDailyKey] = next;
-                }
-            }
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
-    internal readonly struct QuotaGate(AiQuotaTracker tracker)
-    {
-        public int GetInFlightFreeDaily(string dayKey) =>
-            tracker._inFlightFreeDaily.GetValueOrDefault(dayKey);
-
-        public int GetInFlightMonthly(string userId, AiRequestKind kind, string monthKey) =>
-            tracker._inFlightMonthly.GetValueOrDefault((userId, kind, monthKey));
-
-        public IDisposable Reserve(
-            (string UserId, AiRequestKind Kind, string MonthKey)? monthlyKey,
-            string? freeDailyKey,
-            int units)
+        lock (_lock)
         {
             if (monthlyKey is { } mk)
             {
-                tracker._inFlightMonthly[mk] = tracker._inFlightMonthly.GetValueOrDefault(mk) + units;
+                Subtract(_inFlightMonthly, mk, units);
             }
 
             if (freeDailyKey is not null)
             {
-                tracker._inFlightFreeDaily[freeDailyKey] = tracker._inFlightFreeDaily.GetValueOrDefault(freeDailyKey) + units;
+                Subtract(_inFlightFreeDaily, freeDailyKey, units);
             }
-
-            return new Reservation(tracker, monthlyKey, freeDailyKey, units);
         }
     }
 
-    private sealed class Reservation(
+    /// <summary>Adds <paramref name="units"/> and answers what was in flight before.</summary>
+    private static int Add<TKey>(Dictionary<TKey, int> counts, TKey key, int units)
+        where TKey : notnull
+    {
+        var ahead = counts.GetValueOrDefault(key);
+        counts[key] = ahead + units;
+        return ahead;
+    }
+
+    private static void Subtract<TKey>(Dictionary<TKey, int> counts, TKey key, int units)
+        where TKey : notnull
+    {
+        if (!counts.TryGetValue(key, out var current))
+        {
+            return;
+        }
+
+        var next = current - units;
+        if (next <= 0)
+        {
+            counts.Remove(key);
+        }
+        else
+        {
+            counts[key] = next;
+        }
+    }
+
+    internal readonly record struct MonthlyKey(string UserId, AiRequestKind Kind, string MonthKey);
+
+    internal sealed class Reservation(
         AiQuotaTracker tracker,
-        (string UserId, AiRequestKind Kind, string MonthKey)? monthlyKey,
+        MonthlyKey? monthlyKey,
         string? freeDailyKey,
-        int units) : IDisposable
+        int units,
+        int monthlyAhead,
+        int dailyAhead) : IDisposable
     {
         private int _released;
+
+        /// <summary>Units of this user's monthly quota already in flight when this was reserved.</summary>
+        public int MonthlyAhead { get; } = monthlyAhead;
+
+        /// <summary>Units of the Free daily cap already in flight when this was reserved.</summary>
+        public int DailyAhead { get; } = dailyAhead;
 
         public void Dispose()
         {
@@ -189,16 +180,22 @@ public sealed class AiAccessGuard(
             return new AiGuardOutcome(null, cfg);
         }
 
-        return await _quotaTracker.RunUnderGateAsync(async gate =>
-        {
-            var now = time.GetUtcNow();
-            var dayKey = now.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var now = time.GetUtcNow();
+        var dayKey = now.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
+        var monthlyKey = limit is null
+            ? (AiQuotaTracker.MonthlyKey?)null
+            : new AiQuotaTracker.MonthlyKey(account.Id, kind, $"{now.Year:D4}-{now.Month:D2}");
 
+        // Reserve before reading stored usage; see AiQuotaTracker for why this cannot over-admit.
+        var reservation = _quotaTracker.Reserve(monthlyKey, dailyCap is null ? null : dayKey, units);
+        var admitted = false;
+        try
+        {
             if (dailyCap is { } cap)
             {
                 var usedToday = await freeDailyCounter.GetTodayAsync(cancellationToken);
-                var inFlightToday = gate.GetInFlightFreeDaily(dayKey);
-                if (usedToday + inFlightToday + units > cap)
+                if (usedToday + reservation.DailyAhead + units > cap)
                 {
                     return new AiGuardOutcome(
                         TooManyRequests(
@@ -209,21 +206,17 @@ public sealed class AiAccessGuard(
                 }
             }
 
-            (string UserId, AiRequestKind Kind, string MonthKey)? monthlyKey = null;
             if (limit is { } monthlyLimit)
             {
-                var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
-                var nextMonth = monthStart.AddMonths(1);
-                var monthKey = $"{now.Year:D4}-{now.Month:D2}";
                 var features = kind == AiRequestKind.Evaluation
                     ? UsageService.EvaluationFeatures
                     : UsageService.AssistFeatures;
 
                 var used = await usageRepo.CountAsync(account.Id, monthStart, features, "platform", cancellationToken);
-                var effectiveUsed = used + gate.GetInFlightMonthly(account.Id, kind, monthKey);
+                var effectiveUsed = used + reservation.MonthlyAhead;
                 if (effectiveUsed + units > monthlyLimit)
                 {
-                    var resetDate = nextMonth.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    var resetDate = monthStart.AddMonths(1).UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
                     var what = kind == AiRequestKind.Evaluation ? "graded essays" : "AI coaching requests";
                     var remaining = Math.Max(0, monthlyLimit - effectiveUsed);
                     var detail = remaining > 0 && units > 1
@@ -243,14 +236,18 @@ public sealed class AiAccessGuard(
                             upgradeUrl: canUpgrade ? "/pricing" : null),
                         null);
                 }
-
-                monthlyKey = (account.Id, kind, monthKey);
             }
 
-            var freeDailyKey = dailyCap is not null ? dayKey : null;
-            var reservation = gate.Reserve(monthlyKey, freeDailyKey, units);
+            admitted = true;
             return new AiGuardOutcome(null, cfg, reservation);
-        }, cancellationToken);
+        }
+        finally
+        {
+            if (!admitted)
+            {
+                reservation.Dispose();
+            }
+        }
     }
 
     public async Task<IResult?> GuardAsync(

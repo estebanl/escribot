@@ -349,6 +349,32 @@ public class AiUnitTests
         res2.Dispose();
     }
 
+    [Fact]
+    public void QuotaTracker_reports_units_already_in_flight_per_key_and_releases_once()
+    {
+        var tracker = new AiQuotaTracker();
+        var month = new AiQuotaTracker.MonthlyKey("u-1", AiRequestKind.Evaluation, "2026-11");
+        var otherUser = month with { UserId = "u-2" };
+
+        using var first = tracker.Reserve(month, "2026-11-20", 2);
+        Assert.Equal(0, first.MonthlyAhead);
+        Assert.Equal(0, first.DailyAhead);
+
+        var second = tracker.Reserve(month, "2026-11-20", 1);
+        Assert.Equal(2, second.MonthlyAhead);
+        Assert.Equal(2, second.DailyAhead);
+
+        // Another user's monthly quota is separate; the Free daily cap is shared.
+        using var other = tracker.Reserve(otherUser, "2026-11-20", 1);
+        Assert.Equal(0, other.MonthlyAhead);
+        Assert.Equal(3, other.DailyAhead);
+
+        second.Dispose();
+        second.Dispose(); // idempotent
+        using var third = tracker.Reserve(month, null, 1);
+        Assert.Equal(2, third.MonthlyAhead);
+    }
+
     // ---- Examiner & Usage Tracking with Fake Provider ----
 
     [Fact]
