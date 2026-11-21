@@ -147,7 +147,9 @@ public class DataApiTests(AppHostFixture fixture)
         var wrongType = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" }, HttpStatusCode.BadRequest);
         Assert.Equal("Only PNG, JPEG, WebP or GIF images can be uploaded.", wrongType.GetProperty("error").GetString());
 
-        var tooBig = $"data:image/png;base64,{Convert.ToBase64String(new byte[(2 * 1024 * 1024) + 1])}";
+        var oversizedBytes = new byte[(2 * 1024 * 1024) + 1];
+        ((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).CopyTo(oversizedBytes);
+        var tooBig = $"data:image/png;base64,{Convert.ToBase64String(oversizedBytes)}";
         var oversize = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = tooBig }, HttpStatusCode.RequestEntityTooLarge);
         Assert.Equal("Images must be 2 MB or smaller.", oversize.GetProperty("error").GetString());
 

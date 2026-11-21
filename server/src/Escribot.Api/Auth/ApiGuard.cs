@@ -22,7 +22,9 @@ internal sealed class ApiGuard(RequestDelegate next, IOptions<AppOptions> option
 {
     private static readonly PathString Api = "/api";
 
-    private static readonly PathString[] PublicPaths = ["/api/auth", "/api/stripe/webhook", "/api/errors", "/api/billing/prices", "/api/viewer", "/api/config"];
+    private static readonly PathString StripeWebhook = "/api/stripe/webhook";
+
+    private static readonly PathString[] PublicPaths = ["/api/auth", StripeWebhook, "/api/errors", "/api/billing/prices", "/api/viewer", "/api/config"];
 
     private readonly string? _publicOrigin = options.Value.PublicUrl?.GetLeftPart(UriPartial.Authority);
 
@@ -34,9 +36,20 @@ internal sealed class ApiGuard(RequestDelegate next, IOptions<AppOptions> option
             return next(context);
         }
 
-        if (!HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method) && !HttpMethods.IsOptions(request.Method)
+        var isStateChanging = !HttpMethods.IsGet(request.Method)
+            && !HttpMethods.IsHead(request.Method)
+            && !HttpMethods.IsOptions(request.Method);
+
+        if (isStateChanging
             && request.Headers.Origin.ToString() is { Length: > 0 } origin
             && !IsOwnOrigin(request, origin))
+        {
+            return ApiResults.WriteErrorAsync(context, StatusCodes.Status403Forbidden, "This request came from another site.");
+        }
+
+        if (isStateChanging
+            && !request.Path.StartsWithSegments(StripeWebhook)
+            && string.Equals(request.Headers["Sec-Fetch-Site"].ToString(), "cross-site", StringComparison.OrdinalIgnoreCase))
         {
             return ApiResults.WriteErrorAsync(context, StatusCodes.Status403Forbidden, "This request came from another site.");
         }

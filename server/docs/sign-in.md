@@ -98,6 +98,9 @@ straight to the `/reset-password?token=...` page.
   its sessions are removed when a Google sign-in that does prove it takes the account over.
 - **Cross-site requests:** a `POST`, `PUT`, `PATCH` or `DELETE` to `/api` with an `Origin`
   header must come from the app's own address (`App:PublicUrl` or the address requested).
+  One the browser marks `Sec-Fetch-Site: cross-site` is refused too, with or without
+  `Origin`. Both answer 403. `/api/stripe/webhook` is exempt from the `Sec-Fetch-Site`
+  rule; Stripe's signature authenticates it (see `billing.md`).
 - **Redirect targets** taken from a request (`callbackURL`) are used only if they are a
   path on this site. The password-reset link is never taken from the request: it always
   opens `/reset-password`, which is served with `Referrer-Policy: no-referrer`.

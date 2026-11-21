@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { AlertCircle, ArrowRight, CheckCircle2, Feather } from "lucide-react";
 import { auth } from "@/lib/auth";
@@ -72,6 +72,32 @@ function safeNextPath(raw: string | null): string {
   return raw;
 }
 
+/**
+ * The reset token is taken out of the address bar once the page has it, so it is kept
+ * for this tab in sessionStorage: a reload must not make a valid link look expired.
+ */
+const RESET_TOKEN_KEY = "escribot:reset-token";
+
+function readResetToken(fromUrl: string | null): string | null {
+  try {
+    if (fromUrl) {
+      sessionStorage.setItem(RESET_TOKEN_KEY, fromUrl);
+      return fromUrl;
+    }
+    return sessionStorage.getItem(RESET_TOKEN_KEY);
+  } catch {
+    return fromUrl;
+  }
+}
+
+function forgetResetToken() {
+  try {
+    sessionStorage.removeItem(RESET_TOKEN_KEY);
+  } catch {
+    // Storage unavailable: nothing was kept.
+  }
+}
+
 const inputClass =
   "w-full px-4 py-3 rounded-lg bg-canvas border border-line-strong text-ink placeholder:text-ink-muted focus:outline-none focus:border-accent transition";
 const labelClass =
@@ -90,8 +116,17 @@ export function AuthForm({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"));
-  const resetToken = searchParams.get("token");
+  const [resetToken] = useState(() => (mode === "reset" ? readResetToken(searchParams.get("token")) : null));
   const linkError = searchParams.get("error");
+
+  useEffect(() => {
+    if (mode !== "reset" || !searchParams.has("token")) {
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("token");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [mode, searchParams]);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -179,6 +214,7 @@ export function AuthForm({
         setError(res.error.message || "Could not reset your password.");
         return;
       }
+      forgetResetToken();
       navigate("/login?reset=1");
     } catch {
       setError("Network error. Please try again.");
