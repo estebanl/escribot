@@ -32,11 +32,6 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
     public async Task<string> StoreAsync(string userId, string plan, string dataUrl, CancellationToken cancellationToken = default)
     {
         var (contentType, data) = ParseDataUrl(dataUrl);
-        if (data.Length == 0)
-        {
-            throw new ImageUploadException("The image is empty.");
-        }
-
         if (data.Length > MaxImageBytes)
         {
             throw new ImageUploadException("Images must be 2 MB or smaller.", StatusCodes.Status413PayloadTooLarge);
@@ -168,6 +163,11 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         catch (FormatException)
         {
             throw new ImageUploadException("The image could not be read. Try a PNG, JPEG or WebP file.");
+        }
+
+        if (data.Length == 0)
+        {
+            throw new ImageUploadException("The image is empty.");
         }
 
         if (!HasValidMagicBytes(contentType, data))

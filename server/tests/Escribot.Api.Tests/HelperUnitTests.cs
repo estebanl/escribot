@@ -293,6 +293,17 @@ public class DataApiUnitTests
     }
 
     [Theory]
+    [InlineData("data:image/png;base64,   ")]
+    [InlineData("data:image/gif;base64,\n")]
+    public void A_data_url_with_no_bytes_is_refused_as_empty(string dataUrl)
+    {
+        var exception = Assert.Throws<ImageUploadException>(() => ImageStore.ParseDataUrl(dataUrl));
+
+        Assert.Equal(400, exception.StatusCode);
+        Assert.Equal("The image is empty.", exception.Message);
+    }
+
+    [Theory]
     [InlineData("image/png", new byte[] { 0x3C, 0x73, 0x76, 0x67, 0x3E })] // <svg>
     [InlineData("image/png", new byte[] { 0x89, 0x50, 0x4E, 0x47 })] // truncated PNG header
     [InlineData("image/jpeg", new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A })] // PNG spoofed as JPEG
