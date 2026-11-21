@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -351,8 +352,44 @@ public sealed class GeminiClient(HttpClient http) : IAiProviderClient
             ["generationConfig"] = generationConfig,
         };
 
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(request.Model)}:generateContent?key={Uri.EscapeDataString(request.ApiKey)}";
-        var data = await AiHttpHelpers.PostJsonAsync(http, url, body, null, "Gemini", cancellationToken);
+        // Gemini has no server-side routing, so the fallbacks are tried here in turn, as many as
+        // OpenRouter would route, when a model is missing, rate-limited or unavailable.
+        var models = new List<string> { request.Model };
+        foreach (var fallback in request.FallbackModels ?? [])
+        {
+            if (models.Count >= OpenRouterClient.MaxRoutedModels)
+            {
+                break;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallback) && !models.Contains(fallback, StringComparer.Ordinal))
+            {
+                models.Add(fallback);
+            }
+        }
+
+        JsonNode data = null!;
+        var modelUsed = request.Model;
+        for (var i = 0; i < models.Count; i++)
+        {
+            modelUsed = models[i];
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(modelUsed)}:generateContent";
+            try
+            {
+                data = await AiHttpHelpers.PostJsonAsync(
+                    http,
+                    url,
+                    body,
+                    headers => headers.TryAddWithoutValidation("x-goog-api-key", request.ApiKey),
+                    "Gemini",
+                    cancellationToken);
+                break;
+            }
+            catch (HttpRequestException ex) when (i < models.Count - 1 && IsWorthAnotherModel(ex.StatusCode))
+            {
+                // Try the next model.
+            }
+        }
 
         var resultParts = data["candidates"]?[0]?["content"]?["parts"] as JsonArray;
         var text = resultParts is null
@@ -364,8 +401,16 @@ public sealed class GeminiClient(HttpClient http) : IAiProviderClient
             throw new InvalidOperationException("Empty response from Gemini API.");
         }
 
-        return new LlmResultWithMeta(Content: text, ModelUsed: request.Model);
+        return new LlmResultWithMeta(Content: text, ModelUsed: modelUsed);
     }
+
+    private static bool IsWorthAnotherModel(HttpStatusCode? status) => status is
+        HttpStatusCode.NotFound
+        or HttpStatusCode.TooManyRequests
+        or HttpStatusCode.InternalServerError
+        or HttpStatusCode.BadGateway
+        or HttpStatusCode.ServiceUnavailable
+        or HttpStatusCode.GatewayTimeout;
 }
 
 public sealed class AnthropicClient(HttpClient http) : IAiProviderClient
