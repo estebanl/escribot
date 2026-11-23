@@ -31,7 +31,7 @@
 | Email | Azure Communication Services | Verification and password-reset links |
 | Infrastructure | [`infra/`](infra/main.bicep), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Bicep for Azure Container Apps, Key Vault and the rest |
 
-More detail: [sign-in](server/docs/sign-in.md), [data API](server/docs/data-api.md), [billing and admin](server/docs/billing.md).
+More detail: [architecture overview](docs/architecture.md), [sign-in](server/docs/sign-in.md), [data API](server/docs/data-api.md), [AI](server/docs/ai.md), [billing and admin](server/docs/billing.md).
 
 ### Accounts & data isolation
 
