@@ -146,12 +146,13 @@ public sealed partial class AiCompletionService(
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromMilliseconds(opts.TimeoutMs));
 
+        var streamed = new StringBuilder();
         try
         {
             string content;
             if (stream)
             {
-                var sb = new StringBuilder();
+                var sb = streamed;
                 await foreach (var update in agent.RunStreamingAsync(userMessage, cancellationToken: timeoutCts.Token))
                 {
                     var text = update.Text;
@@ -172,6 +173,18 @@ public sealed partial class AiCompletionService(
 
             if (string.IsNullOrWhiteSpace(content))
             {
+                // OpenRouter reasoning models can return content="" with the answer in "reasoning";
+                // the removed OpenRouterClient used that text, and surfaced refusals, so keep doing both.
+                if (!string.IsNullOrWhiteSpace(captured.Refusal) && string.IsNullOrWhiteSpace(captured.Reasoning))
+                {
+                    throw new InvalidOperationException($"{opts.Provider} model refused request: {captured.Refusal}");
+                }
+
+                content = captured.Reasoning ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(content))
+            {
                 throw new InvalidOperationException($"Empty response from {opts.Provider} agent ({opts.Model}).");
             }
 
@@ -188,21 +201,36 @@ public sealed partial class AiCompletionService(
         {
             throw new TimeoutException($"AI model ({opts.Model}) timed out after {Math.Round(opts.TimeoutMs / 1000.0)}s.");
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested && captured.TotalTokens is > 0)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested
+            && (captured.TotalTokens is > 0 || captured.CostUsd is not null || streamed.Length > 0))
         {
             // Disconnect-safe metering: record partial usage if the client disconnected mid-stream.
+            // Streaming providers report usage only in the final chunk, so a mid-stream disconnect
+            // usually has no token counts yet; estimate them (about 4 characters per token) from the
+            // prompt and the text streamed so far rather than recording nothing.
+            int? promptTokens = captured.InputTokens is { } i
+                ? (int)Math.Min(i, int.MaxValue)
+                : EstimateTokens(instructions.Length + opts.UserPrompt.Length);
+            int? completionTokens = captured.OutputTokens is { } o
+                ? (int)Math.Min(o, int.MaxValue)
+                : EstimateTokens(streamed.Length);
+            int? totalTokens = captured.TotalTokens is { } t
+                ? (int)Math.Min(t, int.MaxValue)
+                : promptTokens + completionTokens;
             var partial = new LlmResultWithMeta(
                 Content: string.Empty,
                 ModelUsed: !string.IsNullOrWhiteSpace(captured.ModelUsed) ? captured.ModelUsed : opts.Model,
                 CostUsd: captured.CostUsd,
-                PromptTokens: captured.InputTokens is { } i ? (int)Math.Min(i, int.MaxValue) : null,
-                CompletionTokens: captured.OutputTokens is { } o ? (int)Math.Min(o, int.MaxValue) : null,
-                TotalTokens: captured.TotalTokens is { } t ? (int)Math.Min(t, int.MaxValue) : null);
+                PromptTokens: promptTokens,
+                CompletionTokens: completionTokens,
+                TotalTokens: totalTokens);
             var baseFeature = string.IsNullOrEmpty(opts.Feature) ? "general" : opts.Feature;
             await RecordUsageAsync(opts, partial, $"{baseFeature}_aborted");
             throw;
         }
     }
+
+    private static int EstimateTokens(long characters) => (int)Math.Min((characters + 3) / 4, int.MaxValue);
 
     private async Task RecordUsageAsync(LlmCompletionRequest opts, LlmResultWithMeta result, string? rawFeature)
     {

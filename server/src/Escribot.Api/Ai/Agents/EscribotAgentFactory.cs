@@ -61,7 +61,12 @@ public sealed partial class EscribotAgentFactory
             ChatRole.User,
             [
                 new TextContent(userPrompt),
-                new DataContent(bytes, mimeType),
+                new DataContent(bytes, mimeType)
+                {
+                    // Read by the OpenAI-compatible clients (OpenAI, OpenRouter, DeepSeek) as image_url.detail;
+                    // "high" keeps small chart labels legible for Task 1 extraction. Other providers ignore it.
+                    AdditionalProperties = new AdditionalPropertiesDictionary { ["detail"] = "high" },
+                },
             ]);
     }
 

@@ -363,6 +363,9 @@ internal static class AiEndpoints
                         ? Ielts.WeightedExamBand(b1, b2)
                         : gradedResults.FirstOrDefault()?["payload"]?["overallBand"]?.GetValue<double?>();
 
+                    // Same disconnect-safe grace as the draft and evaluation saves: every submission
+                    // has been graded and stored, so mark the session completed even if the browser left.
+                    using var sessionSaveCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                     await writing.SaveSessionAsync(
                         userId,
                         bundle.Session with
@@ -372,7 +375,7 @@ internal static class AiEndpoints
                             TotalSecondsSpent = totalSecondsSpent ?? allDrafts.Sum(d => d.SecondsSpent),
                             WeightedBand = weightedBand,
                         },
-                        ct);
+                        sessionSaveCts.Token);
 
                     sendEvent(new JsonObject
                     {

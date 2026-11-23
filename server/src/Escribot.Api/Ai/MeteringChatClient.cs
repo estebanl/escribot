@@ -15,6 +15,12 @@ public sealed class CapturedLlmUsage
     public long? OutputTokens { get; set; }
     public long? TotalTokens { get; set; }
 
+    /// <summary>OpenRouter <c>reasoning</c> text, used as the answer when the visible content is empty.</summary>
+    public string? Reasoning { get; set; }
+
+    /// <summary>OpenRouter <c>refusal</c> text, reported when the visible content is empty.</summary>
+    public string? Refusal { get; set; }
+
     public void Add(UsageDetails? usage, string? modelId)
     {
         if (!string.IsNullOrWhiteSpace(modelId))
@@ -62,6 +68,16 @@ public sealed class CapturedLlmUsage
         if (meta.CostUsd is { } cost)
         {
             CostUsd = (CostUsd ?? 0) + cost;
+        }
+
+        if (!string.IsNullOrEmpty(meta.Reasoning))
+        {
+            Reasoning += meta.Reasoning;
+        }
+
+        if (!string.IsNullOrEmpty(meta.Refusal))
+        {
+            Refusal += meta.Refusal;
         }
     }
 }

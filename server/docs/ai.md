@@ -67,7 +67,7 @@ Every request runs on one of three roles:
 |---|---|
 | `grader` | The 4-criterion rubric score |
 | `fast` | Annotations and rewrite, outline check, toolkit, prompt generation, drills, and the rubric when the grader fails |
-| `vision` | Reading uploaded Task 1 chart screenshots |
+| `vision` | Reading uploaded Task 1 chart screenshots (sent at `detail: "high"` to OpenAI-compatible providers) |
 
 `AiConfigResolver.ResolveAsync` picks a `ModelTarget(Provider, Model, ApiKey, KeySource)` for
 each role, in this order:
@@ -118,11 +118,31 @@ provider, model, key source, plan, tokens and USD cost. Quotas count only `keySo
 When a model's answer cannot be parsed, the call is recorded as `{feature}_invalid_output`,
 which is not billable, so a retry on another model does not use two units.
 
+OpenRouter reports an exact USD cost with each HTTP response. `OpenRouterHttpHandler` adds the
+costs of every call a request makes, so a `drill_generate` that uses its tools records the
+total, not only the last call. If the browser disconnects mid-call after the provider has
+started answering, the call is recorded as `{feature}_aborted` (not billable). Streaming
+providers send token counts only at the end, so when none have arrived the record carries
+estimates (about 4 characters per token, from the prompt and the text streamed so far).
+
+`evaluate` finishes saving after the grading succeeds even if the browser has gone: the
+draft, evaluation, Vault items and the completed session are written with a 10-second grace
+token instead of the request's.
+
 ## When a call fails
 
 - **Timeouts.** Each call sets its own timeout (20–40 seconds, in `ExaminerService`).
   `AiCompletionService` turns it into a `TimeoutException`. The provider HTTP clients have
   no resilience handlers and no client timeout of their own (`ApiExtensions.AddAiClient`).
+- **No automatic retries.** The provider SDKs do not retry on their own (`RetryPolicy` with
+  no retries for the OpenAI SDK clients, `MaxRetries = 0` for Anthropic): a completion is billed
+  per call, and the fallbacks below decide what happens next.
+- **Model fallbacks.** OpenRouter routes over up to 3 models itself. Gemini tries the next
+  fallback model on 404, 429, 500, 502, 503 and 504 before any text has streamed.
+- **Empty answers.** When an OpenRouter model answers with empty content, the text of its
+  `reasoning` field is used instead; a `refusal` with no reasoning fails with the refusal text.
+- **Output limits.** Anthropic calls that set no limit use `max_tokens` 4096. Gemini adds
+  4096 tokens (at least 8192 in all) to a set limit for its thinking tokens.
 - **Grader fails.** The rubric is retried once on the `fast` role (`rubric_score_fallback`),
   if that is a different model.
 - **Annotations fail.** The scores are kept, and the annotations and Vault items come from the

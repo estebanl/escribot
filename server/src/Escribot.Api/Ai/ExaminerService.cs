@@ -146,7 +146,8 @@ public sealed partial class ExaminerService(
 
         async Task<(RubricScoreOutput Data, double? Cost, string Provider, string Model)> RunScoreAsync()
         {
-            var rubricScanner = new JsonMilestoneScanner(
+            // A fresh scanner per attempt, so the fallback reports milestones the failed stream already passed.
+            JsonMilestoneScanner NewRubricScanner() => new(
                 input.OnProgress,
                 [
                     ("\"criteria\"", "Scoring 4 IELTS criteria..."),
@@ -175,7 +176,7 @@ public sealed partial class ExaminerService(
                         TimeoutMs = 35_000,
                     },
                     JsonExtractor.ExtractJsonObject<RubricScoreOutput>,
-                    rubricScanner.Append,
+                    NewRubricScanner().Append,
                     cancellationToken);
 
                 input.OnProgress?.Invoke("4-criterion band scores ready — finalising inline upgrades...");
@@ -205,7 +206,7 @@ public sealed partial class ExaminerService(
                         TimeoutMs = 25_000,
                     },
                     JsonExtractor.ExtractJsonObject<RubricScoreOutput>,
-                    rubricScanner.Append,
+                    NewRubricScanner().Append,
                     cancellationToken);
 
                 var actualModel = !string.IsNullOrEmpty(resFallback.ModelUsed) ? resFallback.ModelUsed : fast.Model;

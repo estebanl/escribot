@@ -10,8 +10,23 @@ namespace Escribot.Api.Ai;
 /// </summary>
 public sealed class ProviderCallMetadata
 {
+    private StringBuilder? _reasoning;
+    private StringBuilder? _refusal;
+
     public string? ActualModel { get; set; }
+
+    /// <summary>Sum of OpenRouter's <c>usage.cost</c> over every HTTP call in the scope (a tool loop makes several).</summary>
     public double? CostUsd { get; set; }
+
+    /// <summary>Text OpenRouter returned in <c>message.reasoning</c> (or streamed <c>delta.reasoning</c>).</summary>
+    public string? Reasoning => _reasoning?.ToString();
+
+    /// <summary>Text OpenRouter returned in <c>message.refusal</c> (or streamed <c>delta.refusal</c>).</summary>
+    public string? Refusal => _refusal?.ToString();
+
+    internal void AppendReasoning(string text) => (_reasoning ??= new StringBuilder()).Append(text);
+
+    internal void AppendRefusal(string text) => (_refusal ??= new StringBuilder()).Append(text);
 }
 
 /// <summary>
@@ -180,7 +195,25 @@ public sealed class OpenRouterHttpHandler(
 
             if (obj["usage"]?["cost"] is JsonValue costVal && costVal.TryGetValue<double>(out var cost) && double.IsFinite(cost))
             {
-                target.CostUsd = cost;
+                // Add rather than overwrite: one metering scope can span several HTTP calls
+                // (a function-invocation loop), and OpenRouter reports cost once per call.
+                target.CostUsd = (target.CostUsd ?? 0) + cost;
+            }
+
+            // Kept for the empty-content fallback: some OpenRouter reasoning models put the whole
+            // answer in "reasoning", and refusals arrive in "refusal", neither of which the OpenAI SDK surfaces.
+            var choice = obj["choices"]?[0];
+            if ((choice?["message"] ?? choice?["delta"]) is JsonObject message)
+            {
+                if (message["reasoning"] is JsonValue reasoningVal && reasoningVal.TryGetValue<string>(out var reasoning) && reasoning.Length > 0)
+                {
+                    target.AppendReasoning(reasoning);
+                }
+
+                if (message["refusal"] is JsonValue refusalVal && refusalVal.TryGetValue<string>(out var refusal) && refusal.Length > 0)
+                {
+                    target.AppendRefusal(refusal);
+                }
             }
         }
         catch
@@ -279,7 +312,10 @@ public sealed class OpenRouterHttpHandler(
                 return;
             }
 
-            if (payload.Contains("\"usage\"", StringComparison.Ordinal) || target.ActualModel is null)
+            if (payload.Contains("\"usage\"", StringComparison.Ordinal)
+                || payload.Contains("\"reasoning\"", StringComparison.Ordinal)
+                || payload.Contains("\"refusal\"", StringComparison.Ordinal)
+                || target.ActualModel is null)
             {
                 CaptureFromJson(payload, target);
             }

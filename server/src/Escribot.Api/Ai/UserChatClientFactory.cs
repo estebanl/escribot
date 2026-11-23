@@ -87,6 +87,7 @@ public sealed class UserChatClientFactory(
         {
             Transport = new HttpClientPipelineTransport(httpClient),
             NetworkTimeout = Timeout.InfiniteTimeSpan,
+            RetryPolicy = NoRetries(),
         };
         return new ChatClient(request.Model, new ApiKeyCredential(request.ApiKey), options).AsIChatClient();
     }
@@ -112,6 +113,7 @@ public sealed class UserChatClientFactory(
             Endpoint = new Uri(baseUrl),
             Transport = new HttpClientPipelineTransport(httpClient),
             NetworkTimeout = Timeout.InfiniteTimeSpan,
+            RetryPolicy = NoRetries(),
         };
         var innerClient = new ChatClient(request.Model, new ApiKeyCredential(request.ApiKey), options).AsIChatClient();
         return new DisposableOwnerChatClient(innerClient, httpClient);
@@ -135,6 +137,7 @@ public sealed class UserChatClientFactory(
             Endpoint = new Uri(baseUrl),
             Transport = new HttpClientPipelineTransport(httpClient),
             NetworkTimeout = Timeout.InfiniteTimeSpan,
+            RetryPolicy = NoRetries(),
         };
         var innerClient = new ChatClient(effectiveModel, new ApiKeyCredential(request.ApiKey), options).AsIChatClient();
         return new DisposableOwnerChatClient(innerClient, httpClient);
@@ -167,8 +170,20 @@ public sealed class UserChatClientFactory(
             HttpClient = httpClient,
             MaxRetries = 0,
         });
-        return anthropic.AsIChatClient(request.Model);
+        // The removed AnthropicClient sent max_tokens = 4096 when the caller set no limit;
+        // keep that default so JSON replies are not cut short by the SDK's smaller one.
+        return anthropic.AsIChatClient(request.Model, defaultMaxOutputTokens: AnthropicDefaultMaxOutputTokens);
     }
+
+    /// <summary>The <c>max_tokens</c> Anthropic calls use when the request sets no limit.</summary>
+    public const int AnthropicDefaultMaxOutputTokens = 4096;
+
+    /// <summary>
+    /// The OpenAI SDK retries 429/5xx and network failures by default. Chat completions are not
+    /// idempotent and are billed per call, and the per-call timeout plus the fast-model fallback
+    /// already handle failures, so OpenAI-compatible clients never retry on their own.
+    /// </summary>
+    private static ClientRetryPolicy NoRetries() => new(maxRetries: 0);
 
     /// <summary>Ensures per-request wrapper resources (e.g. <see cref="HttpClient"/> or <see cref="Google.GenAI.Client"/>) are disposed with the <see cref="IChatClient"/>.</summary>
     private sealed class DisposableOwnerChatClient(IChatClient inner, IDisposable owner) : DelegatingChatClient(inner)
@@ -281,24 +296,37 @@ public sealed class UserChatClientFactory(
 
         private static bool IsWorthAnotherModel(Exception ex)
         {
-            if (ex is HttpRequestException httpEx)
+            if (ex is ApiException apiEx)
             {
-                return httpEx.StatusCode is
-                    HttpStatusCode.NotFound
-                    or HttpStatusCode.TooManyRequests
-                    or HttpStatusCode.InternalServerError
-                    or HttpStatusCode.BadGateway
-                    or HttpStatusCode.ServiceUnavailable
-                    or HttpStatusCode.GatewayTimeout;
+                return IsWorthAnotherModel((HttpStatusCode)apiEx.StatusCode);
+            }
+
+            if (ex is HttpRequestException { StatusCode: { } status })
+            {
+                return IsWorthAnotherModel(status);
             }
 
             var message = ex.Message;
             return message.Contains("404", StringComparison.Ordinal)
                 || message.Contains("429", StringComparison.Ordinal)
+                || message.Contains("500", StringComparison.Ordinal)
+                || message.Contains("502", StringComparison.Ordinal)
                 || message.Contains("503", StringComparison.Ordinal)
+                || message.Contains("504", StringComparison.Ordinal)
                 || message.Contains("NOT_FOUND", StringComparison.OrdinalIgnoreCase)
-                || message.Contains("RESOURCE_EXHAUSTED", StringComparison.OrdinalIgnoreCase);
+                || message.Contains("RESOURCE_EXHAUSTED", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("INTERNAL", StringComparison.Ordinal)
+                || message.Contains("UNAVAILABLE", StringComparison.Ordinal)
+                || message.Contains("DEADLINE_EXCEEDED", StringComparison.Ordinal);
         }
+
+        private static bool IsWorthAnotherModel(HttpStatusCode status) => status is
+            HttpStatusCode.NotFound
+            or HttpStatusCode.TooManyRequests
+            or HttpStatusCode.InternalServerError
+            or HttpStatusCode.BadGateway
+            or HttpStatusCode.ServiceUnavailable
+            or HttpStatusCode.GatewayTimeout;
 
         protected override void Dispose(bool disposing)
         {
