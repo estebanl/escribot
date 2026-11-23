@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Escribot.Api.Ai.Agents;
 using Escribot.Api.Api;
 using Escribot.Api.Common;
 
@@ -10,8 +12,12 @@ namespace Escribot.Api.Ai;
 /// <summary>
 /// IELTS examiner functions: visual extraction, 4-criterion evaluation, outline check,
 /// toolkit, prompt generation, and micro-drill generation &amp; scoring.
+/// Each workflow runs through a stateless <c>Microsoft.Agents.AI</c> <c>ChatClientAgent</c>.
 /// </summary>
-public sealed partial class ExaminerService(AiConfigResolver configResolver, AiCompletionService ai)
+public sealed partial class ExaminerService(
+    AiConfigResolver configResolver,
+    AiCompletionService ai,
+    UserHistoryTools? historyTools = null)
 {
     private static readonly HashSet<string> ValidCategories = ["TA_TR", "CC", "LR", "GRA", "L1"];
 
@@ -47,6 +53,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                 Model = vision.Model,
                 FallbackModels = defaults?.FastFallbacks,
                 Feature = "vision_extract",
+                AgentName = "VisionExtractorAgent",
                 ImageDataUrl = imageDataUrl,
                 JsonMode = true,
                 ThinkingMode = "disabled",
@@ -139,9 +146,16 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
 
         async Task<(RubricScoreOutput Data, double? Cost, string Provider, string Model)> RunScoreAsync()
         {
+            var rubricScanner = new JsonMilestoneScanner(
+                input.OnProgress,
+                [
+                    ("\"criteria\"", "Scoring 4 IELTS criteria..."),
+                    ("\"topPriorities\"", "Prioritising revision steps..."),
+                ]);
+
             try
             {
-                var (parsedRubric, resRubric) = await ai.CallLlmAndParseAsync(
+                var (parsedRubric, resRubric) = await ai.StreamAgentAndParseAsync(
                     new LlmCompletionRequest
                     {
                         UserId = cfg.UserId,
@@ -152,6 +166,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                         Model = grader.Model,
                         FallbackModels = graderDefaults?.GraderFallbacks,
                         Feature = "rubric_score",
+                        AgentName = "ExaminerRubricAgent",
                         SystemPrompt = rubricSystemPrompt,
                         UserPrompt = rubricUserPrompt,
                         JsonMode = true,
@@ -160,6 +175,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                         TimeoutMs = 35_000,
                     },
                     JsonExtractor.ExtractJsonObject<RubricScoreOutput>,
+                    rubricScanner.Append,
                     cancellationToken);
 
                 input.OnProgress?.Invoke("4-criterion band scores ready — finalising inline upgrades...");
@@ -169,7 +185,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             catch when ((fast.Provider, fast.Model) != (grader.Provider, grader.Model) && !cancellationToken.IsCancellationRequested)
             {
                 input.OnProgress?.Invoke("Switching to fast examiner model to complete band scoring...");
-                var (parsedFallback, resFallback) = await ai.CallLlmAndParseAsync(
+                var (parsedFallback, resFallback) = await ai.StreamAgentAndParseAsync(
                     new LlmCompletionRequest
                     {
                         UserId = cfg.UserId,
@@ -180,6 +196,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                         Model = fast.Model,
                         FallbackModels = fastDefaults?.FastFallbacks,
                         Feature = "rubric_score_fallback",
+                        AgentName = "ExaminerRubricAgent",
                         SystemPrompt = rubricSystemPrompt,
                         UserPrompt = rubricUserPrompt,
                         JsonMode = true,
@@ -188,6 +205,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
                         TimeoutMs = 25_000,
                     },
                     JsonExtractor.ExtractJsonObject<RubricScoreOutput>,
+                    rubricScanner.Append,
                     cancellationToken);
 
                 var actualModel = !string.IsNullOrEmpty(resFallback.ModelUsed) ? resFallback.ModelUsed : fast.Model;
@@ -198,27 +216,39 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
 
         async Task<(AnnotationRewriteOutput Data, double? Cost)> RunAnnotationsAsync()
         {
+            var coachScanner = new JsonMilestoneScanner(
+                input.OnProgress,
+                [
+                    ("\"inlineAnnotations\"", "Annotating essay spans..."),
+                    ("\"targetBandRewrite\"", "Drafting Band 8.0+ rewrite..."),
+                    ("\"vaultItems\"", "Extracting Personal Vault items..."),
+                ]);
+
             try
             {
-                var resCoach = await ai.CallLlmWithMetaAsync(new LlmCompletionRequest
-                {
-                    UserId = cfg.UserId,
-                    KeySource = fast.KeySource,
-                    Plan = cfg.Plan,
-                    Provider = fast.Provider,
-                    ApiKey = fast.ApiKey,
-                    Model = fast.Model,
-                    FallbackModels = fastDefaults?.FastFallbacks,
-                    Feature = "annotations_rewrite",
-                    SystemPrompt = coachSystemPrompt,
-                    UserPrompt = coachUserPrompt,
-                    JsonMode = true,
-                    ThinkingMode = "disabled",
-                    MaxTokens = 2100,
-                    TimeoutMs = 40_000,
-                }, cancellationToken);
+                var (parsedCoach, resCoach) = await ai.StreamAgentAndParseAsync(
+                    new LlmCompletionRequest
+                    {
+                        UserId = cfg.UserId,
+                        KeySource = fast.KeySource,
+                        Plan = cfg.Plan,
+                        Provider = fast.Provider,
+                        ApiKey = fast.ApiKey,
+                        Model = fast.Model,
+                        FallbackModels = fastDefaults?.FastFallbacks,
+                        Feature = "annotations_rewrite",
+                        AgentName = "ExaminerCoachAgent",
+                        SystemPrompt = coachSystemPrompt,
+                        UserPrompt = coachUserPrompt,
+                        JsonMode = true,
+                        ThinkingMode = "disabled",
+                        MaxTokens = 2100,
+                        TimeoutMs = 40_000,
+                    },
+                    JsonExtractor.ExtractJsonObject<AnnotationRewriteOutput>,
+                    coachScanner.Append,
+                    cancellationToken);
 
-                var parsedCoach = JsonExtractor.ExtractJsonObject<AnnotationRewriteOutput>(resCoach.Content);
                 input.OnProgress?.Invoke("Inline annotations & Band 8+ rewrite ready...");
                 return (parsedCoach, resCoach.CostUsd);
             }
@@ -445,6 +475,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "outline_check",
+            AgentName = "OutlineCoachAgent",
             JsonMode = true,
             ThinkingMode = "disabled",
             TimeoutMs = 35_000,
@@ -512,6 +543,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "toolkit",
+            AgentName = "ToolkitAgent",
             JsonMode = true,
             ThinkingMode = "disabled",
             TimeoutMs = 35_000,
@@ -588,6 +620,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "prompt_generation",
+            AgentName = "PromptGeneratorAgent",
             JsonMode = true,
             ThinkingMode = "disabled",
             MaxTokens = 1600,
@@ -667,6 +700,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             : $"Set \"chartSpec\" to null and provide a {(level == "beginner" ? "1-3 short sentence" : "2-3 sentence")} \"flawedText\" paragraph exhibiting realistic Band {(level == "beginner" ? "4.5–5.5" : "6.0–6.5")} weaknesses for \"{drillType}\" ({(drillType == "l1_surgeon" ? l1Profile.CoachingFocus : "mechanical linkers or informal unhedged claims")}).";
 
         var defaults = AiProviders.Defaults.GetValueOrDefault(cfg.Fast.Provider);
+        var drillTools = level != "beginner" ? historyTools?.CreateForDrillGenerator(cfg.UserId) : null;
         var raw = await ai.CallLlmAsync(new LlmCompletionRequest
         {
             UserId = cfg.UserId,
@@ -677,6 +711,8 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "drill_generate",
+            AgentName = "DrillGeneratorAgent",
+            Tools = drillTools,
             JsonMode = true,
             ThinkingMode = "disabled",
             TimeoutMs = 40_000,
@@ -771,6 +807,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "drill_score",
+            AgentName = "DrillScorerAgent",
             JsonMode = true,
             ThinkingMode = "disabled",
             TimeoutMs = 35_000,
@@ -807,6 +844,7 @@ public sealed partial class ExaminerService(AiConfigResolver configResolver, AiC
             Model = cfg.Fast.Model,
             FallbackModels = defaults?.FastFallbacks,
             Feature = "drill_score",
+            AgentName = "DrillScorerAgent",
             JsonMode = true,
             ThinkingMode = "disabled",
             TimeoutMs = 35_000,

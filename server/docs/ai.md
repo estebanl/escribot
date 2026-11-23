@@ -14,9 +14,10 @@ of the data API; see [data-api.md](data-api.md).
 | `AiAccessGuard` | The per-user rate limit, the Free-plan email check, the Free daily cap and the monthly quotas |
 | `AiQuotaTracker` | Counts quota units still in flight, so concurrent requests cannot both take the last unit |
 | `AiConfigResolver` | Picks the provider, model and key for each role (`ResolvedAiConfig`) and works out the plan |
-| `ExaminerService` | Builds the prompts for each feature, runs them, parses the JSON, and has a local fallback |
-| `AiCompletionService` | Sends one request to a provider client with a timeout, and records usage |
-| `OpenRouterClient`, `DeepSeekClient`, `OpenAiClient`, `GeminiClient`, `AnthropicClient` | One `IAiProviderClient` per provider (`Ai/AiProviderClients.cs`) |
+| `ExaminerService` | Builds the prompts for each feature, runs them via `ChatClientAgent`, parses the JSON, and has a local fallback |
+| `AiCompletionService` | Executes `Microsoft.Agents.AI` `ChatClientAgent` instances (`RunAsync` / `RunStreamingAsync`) with per-call timeouts and disconnect-safe usage recording |
+| `EscribotAgentFactory`, `UserHistoryTools` | Creates stateless `ChatClientAgent` instances per request and `userId`-scoped read-only `AITool`s for `DrillGeneratorAgent` (`Ai/Agents/`) |
+| `UserChatClientFactory`, `OpenRouterHttpHandler`, `MeteringChatClient` | Builds per-request `IChatClient` instances (`OpenAI` SDK for OpenAI/OpenRouter/DeepSeek, official `Google.GenAI` SDK for Gemini, `Microsoft.Agents.AI.Anthropic` for Anthropic) wrapped in OpenTelemetry (`EnableSensitiveData = false`), usage/cost metering, and optional function invocation |
 | `AiProviders` (`Api/Usage.cs`) | The provider ids, their default models per role and their fallback lists |
 | `UsageService` (`Api/Usage.cs`) | Which features count toward which quota, and the usage summary shown in Settings |
 | `OpenRouterModelsClient`, `ProviderModelsClient`, `ModelPicker` | Live model lists and automatic model picks for Settings |
@@ -44,16 +45,18 @@ the route's fixed message (`.OnFailure(...)`); the exception is recorded, never 
 ### The evaluate stream
 
 Grading takes up to about a minute, so `/api/ai/evaluate` answers `200` right away with
-`application/x-ndjson` and writes one JSON object per line:
+`text/event-stream` when the client sends `Accept: text/event-stream` (or `application/x-ndjson`
+otherwise). As `ExaminerRubricAgent` and `ExaminerCoachAgent` stream via `AIAgent.RunStreamingAsync`,
+`JsonMilestoneScanner` detects top-level JSON sections and emits semantic `progress` milestones:
 
-| `type` | When |
+| `type` / SSE `event` | When |
 |---|---|
-| `progress` | Each stage (`stage` is the text shown to the user) |
-| `ping` | Every 4 seconds, so proxies do not close an idle connection |
+| `progress` | Each stage and streamed section milestone (`stage` is the text shown to the user) |
+| `ping` (`: keepalive`) | Every 4 seconds, so proxies (Cloudflare / Container Apps) do not close an idle connection |
 | `result` | Once at the end: `{ sessionId, weightedBand, results: [{ draftId, version, evaluationId, payload, ... }] }` |
 | `error` | Instead of `result`: `{ error, isTimeout }`. The message is fixed text from `DescribeEvaluateFailure`; it says when the user's own key was rejected or rate-limited, and never contains the provider's answer |
 
-The browser app reads it in `client/src/lib/client-evaluate.ts`. A request the guard blocks
+The browser app reads it in `client/src/lib/client-evaluate.ts` (using `client/src/lib/sse.ts`). A request the guard blocks
 gets a normal JSON error before the stream starts.
 
 ## Roles and model choice

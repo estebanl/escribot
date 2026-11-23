@@ -1,4 +1,5 @@
 using Escribot.Api.Ai;
+using Escribot.Api.Ai.Agents;
 using Escribot.Api.Billing;
 using Escribot.Api.Common;
 
@@ -17,13 +18,14 @@ internal static class ApiExtensions
         builder.Services.AddSingleton<ImageStore>();
         builder.Services.AddSingleton<ErrorReporter>();
 
-        // AI provider clients: timeouts are enforced per call by AiCompletionService so
-        // the default 10s resilience attempt timeout does not cut off 35-45s LLM calls.
-        AddAiClient<OpenRouterClient>(builder.Services);
-        AddAiClient<DeepSeekClient>(builder.Services);
-        AddAiClient<OpenAiClient>(builder.Services);
-        AddAiClient<GeminiClient>(builder.Services);
-        AddAiClient<AnthropicClient>(builder.Services);
+        // AI provider HTTP clients: timeouts are enforced per call by AiCompletionService so
+        // Aspire's default 10s resilience attempt timeout does not cut off 35-45s LLM calls or
+        // retry non-idempotent POST streams.
+        AddAiHttpClient(builder.Services, UserChatClientFactory.OpenAiHttpClientName);
+        AddAiHttpClient(builder.Services, UserChatClientFactory.OpenRouterHttpClientName);
+        AddAiHttpClient(builder.Services, UserChatClientFactory.DeepSeekHttpClientName);
+        AddAiHttpClient(builder.Services, UserChatClientFactory.GeminiHttpClientName);
+        AddAiHttpClient(builder.Services, UserChatClientFactory.AnthropicHttpClientName);
 
 #pragma warning disable EXTEXP0001
         builder.Services.AddHttpClient<OpenRouterModelsClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
@@ -32,6 +34,9 @@ internal static class ApiExtensions
             .RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
 
+        builder.Services.AddSingleton<IAiChatClientFactory, UserChatClientFactory>();
+        builder.Services.AddSingleton<EscribotAgentFactory>();
+        builder.Services.AddScoped<UserHistoryTools>();
         builder.Services.AddSingleton<AiConfigResolver>();
         builder.Services.AddSingleton<AiQuotaTracker>();
         builder.Services.AddScoped<AiCompletionService>();
@@ -53,14 +58,12 @@ internal static class ApiExtensions
         return builder;
     }
 
-    private static void AddAiClient<TClient>(IServiceCollection services)
-        where TClient : class, IAiProviderClient
+    private static void AddAiHttpClient(IServiceCollection services, string name)
     {
 #pragma warning disable EXTEXP0001
-        services.AddHttpClient<TClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+        services.AddHttpClient(name, client => client.Timeout = Timeout.InfiniteTimeSpan)
             .RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
-        services.AddTransient<IAiProviderClient>(sp => sp.GetRequiredService<TClient>());
     }
 
     /// <summary>

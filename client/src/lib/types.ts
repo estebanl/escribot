@@ -328,3 +328,24 @@ export interface MicroDrillScore {
   /** Short feedback per guided step. */
   stepFeedback?: string[];
 }
+
+export type EvaluationStreamEvent =
+  | { type: "progress"; stage: string }
+  | { type: "ping"; ts: number }
+  | { type: "error"; error: string; isTimeout?: boolean }
+  | {
+      type: "result";
+      sessionId: string;
+      weightedBand: number | null;
+      results: Array<{
+        draftId: string;
+        version: number;
+        taskType: TaskType;
+        wordCount: number;
+        evaluationId: string;
+        providerUsed?: string;
+        modelUsed?: string;
+        costUsd?: number | null;
+        payload?: EvaluationPayload;
+      }>;
+    };

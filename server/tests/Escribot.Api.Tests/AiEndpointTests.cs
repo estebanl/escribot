@@ -11,24 +11,11 @@ namespace Escribot.Api.Tests;
 
 public class AiEndpointTests
 {
-    private sealed class FakeProvider(string providerId, Func<LlmProviderRequest, CancellationToken, Task<LlmResultWithMeta>> handler) : IAiProviderClient
-    {
-        public FakeProvider(string providerId, Func<LlmProviderRequest, LlmResultWithMeta> syncHandler)
-            : this(providerId, (req, _) => Task.FromResult(syncHandler(req)))
-        {
-        }
-
-        public string ProviderId { get; } = providerId;
-
-        public Task<LlmResultWithMeta> CompleteAsync(LlmProviderRequest request, CancellationToken cancellationToken) =>
-            handler(request, cancellationToken);
-    }
-
-    private static ApiFactory CreateAiFactory(FakeProvider? provider = null, Dictionary<string, string?>? extraSettings = null)
+    private static ApiFactory CreateAiFactory(FakeChatClientFactory? chatFactory = null, Dictionary<string, string?>? extraSettings = null)
     {
         var settings = new Dictionary<string, string?>
         {
-            ["OPENROUTER_API_KEY"] = provider is null ? null : "or-test-key",
+            ["OPENROUTER_API_KEY"] = chatFactory is null ? null : "or-test-key",
         };
         if (extraSettings is not null)
         {
@@ -43,10 +30,10 @@ public class AiEndpointTests
             Settings = settings,
             ConfigureServices = services =>
             {
-                if (provider is not null)
+                if (chatFactory is not null)
                 {
-                    services.RemoveAll<IAiProviderClient>();
-                    services.AddTransient<IAiProviderClient>(_ => provider);
+                    services.RemoveAll<IAiChatClientFactory>();
+                    services.AddSingleton<IAiChatClientFactory>(chatFactory);
                 }
             },
         };
@@ -170,29 +157,29 @@ public class AiEndpointTests
     [Fact]
     public async Task Outline_toolkit_generate_prompt_and_drills_work_with_fake_provider()
     {
-        var fake = new FakeProvider("openrouter", req =>
+        var fake = new FakeChatClientFactory((_, userPrompt) =>
         {
-            if (req.UserPrompt.Contains("\"readiness\"", StringComparison.Ordinal))
+            if (userPrompt.Contains("\"readiness\"", StringComparison.Ordinal))
             {
-                return new LlmResultWithMeta("""{"readiness":"strong","estimatedTaskBandCeiling":7.5,"verdictSummary":"Ready.","overviewOrThesisCheck":"Clear.","bodyGroupingCheck":"Good.","actionableTweaks":["Keep going"],"suggestedAcademicCollocations":[]}""", "m");
+                return new FakeChatResult("""{"readiness":"strong","estimatedTaskBandCeiling":7.5,"verdictSummary":"Ready.","overviewOrThesisCheck":"Clear.","bodyGroupingCheck":"Good.","actionableTweaks":["Keep going"],"suggestedAcademicCollocations":[]}""", "m");
             }
 
-            if (req.UserPrompt.Contains("\"headline\"", StringComparison.Ordinal))
+            if (userPrompt.Contains("\"headline\"", StringComparison.Ordinal))
             {
-                return new LlmResultWithMeta("""{"tool":"collocations","headline":"Upgraded","analysis":"Better.","suggestions":[{"label":"Option 1","rewrittenOrPhrase":"rose markedly","rationale":"Formal"}]}""", "m");
+                return new FakeChatResult("""{"tool":"collocations","headline":"Upgraded","analysis":"Better.","suggestions":[{"label":"Option 1","rewrittenOrPhrase":"rose markedly","rationale":"Formal"}]}""", "m");
             }
 
-            if (req.UserPrompt.Contains("\"promptText\"", StringComparison.Ordinal))
+            if (userPrompt.Contains("\"promptText\"", StringComparison.Ordinal))
             {
-                return new LlmResultWithMeta("""{"title":"AI Prompt","topic":"Tech","promptText":"Discuss technology. Write at least 250 words.","chartSpec":null}""", "m");
+                return new FakeChatResult("""{"title":"AI Prompt","topic":"Tech","promptText":"Discuss technology. Write at least 250 words.","chartSpec":null}""", "m");
             }
 
-            if (req.UserPrompt.Contains("\"drillType\"", StringComparison.Ordinal))
+            if (userPrompt.Contains("\"drillType\"", StringComparison.Ordinal))
             {
-                return new LlmResultWithMeta("""{"drillType":"cohesion","targetCriterion":"CC","title":"Cohesion Drill","instructions":"Fix linkers.","timeLimitSeconds":300,"sourceContext":"Cities","flawedText":"Firstly, cities grow.","hints":["Remove Firstly"],"referenceModelAnswer":"Urban expansion continues."}""", "m");
+                return new FakeChatResult("""{"drillType":"cohesion","targetCriterion":"CC","title":"Cohesion Drill","instructions":"Fix linkers.","timeLimitSeconds":300,"sourceContext":"Cities","flawedText":"Firstly, cities grow.","hints":["Remove Firstly"],"referenceModelAnswer":"Urban expansion continues."}""", "m");
             }
 
-            return new LlmResultWithMeta("""{"scoreOutOf10":8,"estimatedBandImpact":"Band 8.0","feedback":"Well done.","improvedVersion":"Urban expansion continues.","keyTakeaway":"Avoid list markers."}""", "m");
+            return new FakeChatResult("""{"scoreOutOf10":8,"estimatedBandImpact":"Band 8.0","feedback":"Well done.","improvedVersion":"Urban expansion continues.","keyTakeaway":"Avoid list markers."}""", "m");
         });
 
         await using var factory = CreateAiFactory(fake);
@@ -419,9 +406,9 @@ public class AiEndpointTests
         // 1. Concurrent evaluations cannot bypass the Free monthly evaluation quota (5).
         var evalGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var inFlightEvalCalls = 0;
-        var evalProvider = new FakeProvider("openrouter", async (req, _) =>
+        var evalProvider = new FakeChatClientFactory(async (_, userPrompt, _) =>
         {
-            if (req.UserPrompt.Contains("taTrBand", StringComparison.Ordinal))
+            if (userPrompt.Contains("taTrBand", StringComparison.Ordinal))
             {
                 if (Interlocked.Increment(ref inFlightEvalCalls) >= 5)
                 {
@@ -429,12 +416,12 @@ public class AiEndpointTests
                 }
 
                 await Task.WhenAny(evalGate.Task, Task.Delay(150));
-                return new LlmResultWithMeta(
+                return new FakeChatResult(
                     """{"taTrBand":7.0,"ccBand":7.0,"lrBand":7.0,"graBand":7.0,"examinerSummary":"Good.","criteria":{"TA_TR":{"band":7.0},"CC":{"band":7.0},"LR":{"band":7.0},"GRA":{"band":7.0}},"topPriorities":[]}""",
                     "m");
             }
 
-            return new LlmResultWithMeta(
+            return new FakeChatResult(
                 """{"inlineAnnotations":[],"targetBandRewrite":"Improved.","rewriteKeyChanges":[],"vaultItems":[]}""",
                 "m");
         });
@@ -477,7 +464,7 @@ public class AiEndpointTests
         // 2. Concurrent assist requests cannot bypass FREE_PLAN_DAILY_AI_CAP (3).
         var dailyGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var inFlightDailyCalls = 0;
-        var dailyProvider = new FakeProvider("openrouter", async (_, _) =>
+        var dailyProvider = new FakeChatClientFactory(async (_, _, _) =>
         {
             if (Interlocked.Increment(ref inFlightDailyCalls) >= 3)
             {
@@ -485,7 +472,7 @@ public class AiEndpointTests
             }
 
             await Task.WhenAny(dailyGate.Task, Task.Delay(150));
-            return new LlmResultWithMeta(
+            return new FakeChatResult(
                 """{"tool":"collocations","headline":"Upgraded","analysis":"Better.","suggestions":[{"label":"Option 1","rewrittenOrPhrase":"rose markedly","rationale":"Formal"}]}""",
                 "m");
         });
@@ -564,7 +551,7 @@ public class AiEndpointTests
     public async Task Evaluate_does_not_leak_raw_internal_exception_messages()
     {
         var internalDetail = $"secret-upstream-detail-{TestSecrets.NewSecret()}";
-        var failingProvider = new FakeProvider("openrouter", _ =>
+        var failingProvider = new FakeChatClientFactory((_, _) =>
             throw new InvalidOperationException($"Upstream error: {internalDetail}"));
 
         await using var factory = CreateAiFactory(failingProvider);
@@ -616,5 +603,81 @@ public class AiEndpointTests
         Assert.Equal(
             "Grading failed. Your essay is safely preserved in the editor. Please try again.",
             errorEvent.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Evaluate_streams_sse_with_semantic_progress_milestones_when_accept_is_event_stream()
+    {
+        var fake = new FakeChatClientFactory((_, userPrompt) =>
+        {
+            if (userPrompt.Contains("taTrBand", StringComparison.Ordinal))
+            {
+                return new FakeChatResult(
+                    Content: """{"taTrBand":7.0,"ccBand":7.0,"lrBand":7.5,"graBand":7.0,"examinerSummary":"Strong.","criteria":{"TA_TR":{"band":7.0},"CC":{"band":7.0},"LR":{"band":7.5},"GRA":{"band":7.0}},"topPriorities":["Refine conclusion"]}""",
+                    ModelUsed: "anthropic/claude-sonnet-5.5",
+                    StreamChunks:
+                    [
+                        """{"taTrBand":7.0,"ccBand":7.0,"lrBand":7.5,"graBand":7.0,"examinerSummary":"Strong.",""",
+                        """ "criteria":{"TA_TR":{"band":7.0},"CC":{"band":7.0},"LR":{"band":7.5},"GRA":{"band":7.0}},""",
+                        """ "topPriorities":["Refine conclusion"]}""",
+                    ]);
+            }
+
+            return new FakeChatResult(
+                Content: """{"inlineAnnotations":[],"targetBandRewrite":"Polished essay.","rewriteKeyChanges":["Sharper thesis"],"vaultItems":[]}""",
+                ModelUsed: "deepseek/deepseek-v4.1-flash-1017",
+                StreamChunks:
+                [
+                    """{"inlineAnnotations":[],""",
+                    """ "targetBandRewrite":"Polished essay.","rewriteKeyChanges":["Sharper thesis"],""",
+                    """ "vaultItems":[]}""",
+                ]);
+        });
+
+        await using var factory = CreateAiFactory(fake);
+        var (browser, _) = await SignUpAsync(factory, "sse");
+
+        using var promptRes = await browser.PostAsJsonAsync("/api/prompts", new
+        {
+            taskType = "task2",
+            promptText = "Discuss urban transit.",
+            title = "Urban Transit",
+        });
+        var promptId = (await AuthEndpointTests.Json(promptRes)).GetProperty("prompt").GetProperty("id").GetString()!;
+        using var sessionRes = await browser.PostAsJsonAsync("/api/sessions", new { mode = "coach", task2PromptId = promptId });
+        var sessionId = (await AuthEndpointTests.Json(sessionRes)).GetProperty("session").GetProperty("id").GetString()!;
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/ai/evaluate")
+        {
+            Content = JsonContent.Create(new
+            {
+                sessionId,
+                submissions = new[]
+                {
+                    new { promptId, taskType = "task2", essayText = "Public transit reduces urban congestion and lowers carbon emissions across major cities." },
+                },
+            }),
+        };
+        req.Headers.Accept.ParseAdd("text/event-stream");
+
+        using var evalRes = await browser.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, evalRes.StatusCode);
+        Assert.Contains("text/event-stream", evalRes.Content.Headers.ContentType?.ToString());
+        Assert.Equal("no", evalRes.Headers.GetValues("X-Accel-Buffering").Single());
+
+        var sseBody = await evalRes.Content.ReadAsStringAsync();
+        Assert.Contains("event: progress\n", sseBody);
+        Assert.Contains("event: result\n", sseBody);
+
+        var stages = sseBody
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(l => l.StartsWith("data: ", StringComparison.Ordinal))
+            .Select(l => JsonDocument.Parse(l[6..]).RootElement)
+            .Where(e => e.GetProperty("type").GetString() == "progress")
+            .Select(e => e.GetProperty("stage").GetString())
+            .ToList();
+
+        Assert.Contains("Scoring 4 IELTS criteria...", stages);
+        Assert.Contains("Drafting Band 8.0+ rewrite...", stages);
     }
 }

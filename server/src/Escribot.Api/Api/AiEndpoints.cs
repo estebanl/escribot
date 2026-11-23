@@ -245,6 +245,11 @@ internal static class AiEndpoints
                             ["stage"] = $"{taskPrefix}Saving band scores & marginalia...",
                         });
 
+                        // Disconnect-safe grace token: once the paid LLM evaluation succeeds,
+                        // finish persisting to Cosmos DB even if the browser closes at the last millisecond.
+                        using var saveCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                        var saveCt = saveCts.Token;
+
                         var draftId = $"draft-{Guid.NewGuid().ToString("N")[..10]}";
                         var draftRecord = new Draft
                         {
@@ -263,7 +268,7 @@ internal static class AiEndpoints
                             ScratchNotes = string.IsNullOrEmpty(sub.ScratchNotes) ? null : sub.ScratchNotes,
                             CreatedAt = now,
                         };
-                        await writing.SaveDraftAsync(userId, draftRecord, ct);
+                        await writing.SaveDraftAsync(userId, draftRecord, saveCt);
                         allDrafts.Add(draftRecord);
 
                         var p = evalResult.Payload;
@@ -290,7 +295,7 @@ internal static class AiEndpoints
                             CostUsd = evalResult.CostUsd,
                             CreatedAt = now,
                         };
-                        await writing.SaveEvaluationAsync(userId, evalRecord, ct);
+                        await writing.SaveEvaluationAsync(userId, evalRecord, saveCt);
                         allEvaluations.Add(evalRecord);
                         evaluationsByDraft[draftId] = evalRecord;
 
@@ -323,7 +328,7 @@ internal static class AiEndpoints
 
                         if (newVaultItems.Count > 0)
                         {
-                            await vault.SaveManyAsync(userId, newVaultItems, ct);
+                            await vault.SaveManyAsync(userId, newVaultItems, saveCt);
                         }
 
                         gradedResults.Add(new JsonObject
@@ -777,9 +782,14 @@ internal static class AiEndpoints
         public async Task ExecuteAsync(HttpContext httpContext)
         {
             using var _ = reservation;
+            var useSse = httpContext.Request.Headers.Accept.ToString()
+                .Contains("text/event-stream", StringComparison.OrdinalIgnoreCase);
+
             var response = httpContext.Response;
             response.StatusCode = StatusCodes.Status200OK;
-            response.ContentType = "application/x-ndjson; charset=utf-8";
+            response.ContentType = useSse
+                ? "text/event-stream; charset=utf-8"
+                : "application/x-ndjson; charset=utf-8";
             response.Headers.CacheControl = "no-cache, no-transform";
             response.Headers["X-Accel-Buffering"] = "no";
 
@@ -790,7 +800,7 @@ internal static class AiEndpoints
                 SingleWriter = false,
             });
 
-            var writerTask = WriteEventsAsync(channel.Reader, response.Body, ct);
+            var writerTask = WriteEventsAsync(channel.Reader, response.Body, useSse, ct);
             try
             {
                 await streamBody(evt => channel.Writer.TryWrite(evt), ct);
@@ -802,13 +812,26 @@ internal static class AiEndpoints
             }
         }
 
-        private static async Task WriteEventsAsync(ChannelReader<JsonObject> reader, Stream body, CancellationToken ct)
+        private static async Task WriteEventsAsync(ChannelReader<JsonObject> reader, Stream body, bool useSse, CancellationToken ct)
         {
             try
             {
                 await foreach (var evt in reader.ReadAllAsync(ct))
                 {
-                    var bytes = Encoding.UTF8.GetBytes($"{evt.ToJsonString()}\n");
+                    string frame;
+                    if (useSse)
+                    {
+                        var eventType = evt["type"]?.GetValue<string>() ?? "message";
+                        frame = eventType == "ping"
+                            ? ": keepalive\n\n"
+                            : $"event: {eventType}\ndata: {evt.ToJsonString()}\n\n";
+                    }
+                    else
+                    {
+                        frame = $"{evt.ToJsonString()}\n";
+                    }
+
+                    var bytes = Encoding.UTF8.GetBytes(frame);
                     await body.WriteAsync(bytes, ct);
                     await body.FlushAsync(ct);
                 }
