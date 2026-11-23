@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using Escribot.Api.Ai;
+using Escribot.Api.Ai.Agents;
 using Escribot.Api.Api;
 using Escribot.Api.Auth;
 using Escribot.Api.Common;
@@ -391,11 +392,11 @@ public class AiUnitTests
         var user = new UserAccount { Id = "u-eval", Email = "eval@example.test", EmailVerified = true };
         await data.CreateAsync(user);
 
-        var fakeProvider = new FakeProviderClient("openrouter", req =>
+        var fakeFactory = new FakeChatClientFactory((req, userPrompt) =>
         {
-            if (req.UserPrompt.Contains("taTrBand", StringComparison.Ordinal))
+            if (userPrompt.Contains("taTrBand", StringComparison.Ordinal))
             {
-                return new LlmResultWithMeta(
+                return new FakeChatResult(
                     Content: """
                     ```json
                     {
@@ -421,7 +422,7 @@ public class AiUnitTests
                     TotalTokens: 300);
             }
 
-            return new LlmResultWithMeta(
+            return new FakeChatResult(
                 Content: """
                 {
                   "inlineAnnotations": [
@@ -443,7 +444,7 @@ public class AiUnitTests
         var authSettings = new AuthSettings(config);
         var planResolver = new PlanResolver(data, data, authSettings);
         var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
-        var completion = new AiCompletionService([fakeProvider], data, data, clock, NullLogger<AiCompletionService>.Instance);
+        var completion = new AiCompletionService(fakeFactory, new EscribotAgentFactory(), data, data, clock, NullLogger<AiCompletionService>.Instance);
         var examiner = new ExaminerService(resolver, completion);
 
         var result = await examiner.EvaluateEssayWithAiAsync(new EvaluateEssayInput(
@@ -496,26 +497,26 @@ public class AiUnitTests
         var user = new UserAccount { Id = "u-fb", Email = "fb@example.test", EmailVerified = true };
         await data.CreateAsync(user);
 
-        var fakeProvider = new FakeProviderClient("openrouter", req =>
+        var fakeFactory = new FakeChatClientFactory((req, userPrompt) =>
         {
-            if (req.UserPrompt.Contains("taTrBand", StringComparison.Ordinal))
+            if (userPrompt.Contains("taTrBand", StringComparison.Ordinal))
             {
                 // Primary grader returns invalid JSON; fastModel fallback returns valid JSON
                 if (req.Model == AiProviders.Defaults["openrouter"].GraderModel)
                 {
-                    return new LlmResultWithMeta("not valid json at all", req.Model, CostUsd: 0.001);
+                    return new FakeChatResult("not valid json at all", req.Model, CostUsd: 0.001);
                 }
 
-                return new LlmResultWithMeta("""{"taTrBand":7.0,"ccBand":7.0,"lrBand":7.0,"graBand":7.0,"examinerSummary":"Fallback worked."}""", req.Model, CostUsd: 0.002);
+                return new FakeChatResult("""{"taTrBand":7.0,"ccBand":7.0,"lrBand":7.0,"graBand":7.0,"examinerSummary":"Fallback worked."}""", req.Model, CostUsd: 0.002);
             }
 
-            return new LlmResultWithMeta("""{"inlineAnnotations":[],"targetBandRewrite":"Clean.","rewriteKeyChanges":[],"vaultItems":[]}""", req.Model);
+            return new FakeChatResult("""{"inlineAnnotations":[],"targetBandRewrite":"Clean.","rewriteKeyChanges":[],"vaultItems":[]}""", req.Model);
         });
 
         var authSettings = new AuthSettings(config);
         var planResolver = new PlanResolver(data, data, authSettings);
         var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
-        var completion = new AiCompletionService([fakeProvider], data, data, clock, NullLogger<AiCompletionService>.Instance);
+        var completion = new AiCompletionService(fakeFactory, new EscribotAgentFactory(), data, data, clock, NullLogger<AiCompletionService>.Instance);
         var examiner = new ExaminerService(resolver, completion);
 
         var coachingWithNullSuggestions = new List<ToolkitResponse>
@@ -696,6 +697,64 @@ public class AiUnitTests
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, ex.StatusCode);
         Assert.Equal(["gemini-a", "gemini-b", "gemini-c"], asked);
+    }
+
+    [Fact]
+    public async Task UserHistoryTools_closes_over_userId_and_isolates_vault_and_evaluations()
+    {
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var data = new InMemoryData(clock);
+
+        await ((IVaultRepository)data).SaveAsync("user-a", new VaultItem
+        {
+            Id = "v-a",
+            UserId = "user-a",
+            ItemType = "error",
+            Criterion = "L1",
+            OriginalText = "actually grew",
+            UpgradedText = "currently expanded",
+            Explanation = "False cognate",
+            CreatedAt = clock.GetUtcNow(),
+        });
+        await ((IVaultRepository)data).SaveAsync("user-b", new VaultItem
+        {
+            Id = "v-b",
+            UserId = "user-b",
+            ItemType = "error",
+            Criterion = "GRA",
+            OriginalText = "secret user B text",
+            UpgradedText = "secret user B fix",
+            Explanation = "Private",
+            CreatedAt = clock.GetUtcNow(),
+        });
+
+        await ((IWritingRepository)data).SaveEvaluationAsync("user-a", new Evaluation
+        {
+            Id = "e-a",
+            UserId = "user-a",
+            SessionId = "s-a",
+            DraftId = "d-a",
+            OverallBand = 6.5,
+            TaTrBand = 7.0,
+            CcBand = 6.5,
+            LrBand = 7.0,
+            GraBand = 5.5,
+            CreatedAt = clock.GetUtcNow(),
+        });
+
+        var toolsFactory = new UserHistoryTools(data, data);
+        var tools = toolsFactory.CreateForDrillGenerator("user-a");
+        Assert.Equal(2, tools.Count);
+
+        var vaultTool = Assert.IsAssignableFrom<Microsoft.Extensions.AI.AIFunction>(tools[0]);
+        var criteriaTool = Assert.IsAssignableFrom<Microsoft.Extensions.AI.AIFunction>(tools[1]);
+
+        var vaultOutput = (await vaultTool.InvokeAsync())?.ToString() ?? string.Empty;
+        Assert.Contains("actually grew", vaultOutput);
+        Assert.DoesNotContain("secret user B text", vaultOutput);
+
+        var criteriaOutput = (await criteriaTool.InvokeAsync())?.ToString() ?? string.Empty;
+        Assert.Contains("GRA: 5.50", criteriaOutput);
     }
 
     [Fact]

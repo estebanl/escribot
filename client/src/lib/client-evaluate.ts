@@ -1,4 +1,6 @@
+import { readSseStream } from "./sse";
 import type {
+  EvaluationStreamEvent,
   OutlineFeedback,
   OutlineInput,
   TaskType,
@@ -77,7 +79,10 @@ export async function submitEvaluationStream(
   try {
     res = await fetch("/api/ai/evaluate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -173,24 +178,12 @@ export async function submitEvaluationStream(
       };
     }
 
-    // Stream NDJSON progress & final result
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buffer = "";
     let finalResult: SubmitEvaluationResponse | null = null;
 
-    const handleLine = (line: string): SubmitEvaluationResponse | null => {
-      const trimmed = line.trim();
+    const handleEventPayload = (rawJson: string): SubmitEvaluationResponse | null => {
+      const trimmed = rawJson.trim();
       if (!trimmed) return null;
-      const event = parseJsonSafely<{
-        type?: string;
-        stage?: string;
-        error?: string;
-        isTimeout?: boolean;
-        sessionId?: string;
-        weightedBand?: number | null;
-        results?: SubmitEvaluationResponse["results"];
-      }>(trimmed);
+      const event = parseJsonSafely<EvaluationStreamEvent>(trimmed);
 
       if (!event) return null;
 
@@ -220,24 +213,38 @@ export async function submitEvaluationStream(
     };
 
     try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const outcome = handleLine(line);
+      if (contentType.includes("text/event-stream")) {
+        await readSseStream(res.body, (msg) => {
+          const outcome = handleEventPayload(msg.data);
           if (outcome) {
             finalResult = outcome;
           }
+        });
+      } else {
+        // Fallback: NDJSON progress & final result
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const outcome = handleEventPayload(line);
+            if (outcome) {
+              finalResult = outcome;
+            }
+          }
         }
-      }
-      buffer += decoder.decode();
-      if (buffer.trim()) {
-        const outcome = handleLine(buffer);
-        if (outcome) {
-          finalResult = outcome;
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          const outcome = handleEventPayload(buffer);
+          if (outcome) {
+            finalResult = outcome;
+          }
         }
       }
     } catch {

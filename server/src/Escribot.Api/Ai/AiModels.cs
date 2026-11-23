@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.AI;
 
 namespace Escribot.Api.Ai;
 
@@ -49,6 +50,8 @@ public sealed record LlmCompletionRequest
     public string ReasoningEffort { get; init; } = "high";
     public int? MaxTokens { get; init; }
     public int TimeoutMs { get; init; } = 45_000;
+    public string? AgentName { get; init; }
+    public IList<AITool>? Tools { get; init; }
 }
 
 public sealed record LlmProviderRequest(

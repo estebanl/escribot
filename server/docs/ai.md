@@ -14,9 +14,10 @@ of the data API; see [data-api.md](data-api.md).
 | `AiAccessGuard` | The per-user rate limit, the Free-plan email check, the Free daily cap and the monthly quotas |
 | `AiQuotaTracker` | Counts quota units still in flight, so concurrent requests cannot both take the last unit |
 | `AiConfigResolver` | Picks the provider, model and key for each role (`ResolvedAiConfig`) and works out the plan |
-| `ExaminerService` | Builds the prompts for each feature, runs them, parses the JSON, and has a local fallback |
-| `AiCompletionService` | Sends one request to a provider client with a timeout, and records usage |
-| `OpenRouterClient`, `DeepSeekClient`, `OpenAiClient`, `GeminiClient`, `AnthropicClient` | One `IAiProviderClient` per provider (`Ai/AiProviderClients.cs`) |
+| `ExaminerService` | Builds the prompts for each feature, runs them via `ChatClientAgent`, parses the JSON, and has a local fallback |
+| `AiCompletionService` | Executes `Microsoft.Agents.AI` `ChatClientAgent` instances (`RunAsync` / `RunStreamingAsync`) with per-call timeouts and disconnect-safe usage recording |
+| `EscribotAgentFactory`, `UserHistoryTools` | Creates stateless `ChatClientAgent` instances per request and `userId`-scoped read-only `AITool`s for `DrillGeneratorAgent` (`Ai/Agents/`) |
+| `UserChatClientFactory`, `OpenRouterHttpHandler`, `MeteringChatClient` | Builds per-request `IChatClient` instances (`OpenAI` SDK for OpenAI/OpenRouter/DeepSeek, official `Google.GenAI` SDK for Gemini, `Microsoft.Agents.AI.Anthropic` for Anthropic) wrapped in OpenTelemetry (`EnableSensitiveData = false`), usage/cost metering, and optional function invocation |
 | `AiProviders` (`Api/Usage.cs`) | The provider ids, their default models per role and their fallback lists |
 | `UsageService` (`Api/Usage.cs`) | Which features count toward which quota, and the usage summary shown in Settings |
 | `OpenRouterModelsClient`, `ProviderModelsClient`, `ModelPicker` | Live model lists and automatic model picks for Settings |
@@ -44,16 +45,18 @@ the route's fixed message (`.OnFailure(...)`); the exception is recorded, never 
 ### The evaluate stream
 
 Grading takes up to about a minute, so `/api/ai/evaluate` answers `200` right away with
-`application/x-ndjson` and writes one JSON object per line:
+`text/event-stream` when the client sends `Accept: text/event-stream` (or `application/x-ndjson`
+otherwise). As `ExaminerRubricAgent` and `ExaminerCoachAgent` stream via `AIAgent.RunStreamingAsync`,
+`JsonMilestoneScanner` detects top-level JSON sections and emits semantic `progress` milestones:
 
-| `type` | When |
+| `type` / SSE `event` | When |
 |---|---|
-| `progress` | Each stage (`stage` is the text shown to the user) |
-| `ping` | Every 4 seconds, so proxies do not close an idle connection |
+| `progress` | Each stage and streamed section milestone (`stage` is the text shown to the user) |
+| `ping` (`: keepalive`) | Every 4 seconds, so proxies (Cloudflare / Container Apps) do not close an idle connection |
 | `result` | Once at the end: `{ sessionId, weightedBand, results: [{ draftId, version, evaluationId, payload, ... }] }` |
 | `error` | Instead of `result`: `{ error, isTimeout }`. The message is fixed text from `DescribeEvaluateFailure`; it says when the user's own key was rejected or rate-limited, and never contains the provider's answer |
 
-The browser app reads it in `client/src/lib/client-evaluate.ts`. A request the guard blocks
+The browser app reads it in `client/src/lib/client-evaluate.ts` (using `client/src/lib/sse.ts`). A request the guard blocks
 gets a normal JSON error before the stream starts.
 
 ## Roles and model choice
@@ -64,7 +67,7 @@ Every request runs on one of three roles:
 |---|---|
 | `grader` | The 4-criterion rubric score |
 | `fast` | Annotations and rewrite, outline check, toolkit, prompt generation, drills, and the rubric when the grader fails |
-| `vision` | Reading uploaded Task 1 chart screenshots |
+| `vision` | Reading uploaded Task 1 chart screenshots (sent at `detail: "high"` to OpenAI-compatible providers) |
 
 `AiConfigResolver.ResolveAsync` picks a `ModelTarget(Provider, Model, ApiKey, KeySource)` for
 each role, in this order:
@@ -115,11 +118,31 @@ provider, model, key source, plan, tokens and USD cost. Quotas count only `keySo
 When a model's answer cannot be parsed, the call is recorded as `{feature}_invalid_output`,
 which is not billable, so a retry on another model does not use two units.
 
+OpenRouter reports an exact USD cost with each HTTP response. `OpenRouterHttpHandler` adds the
+costs of every call a request makes, so a `drill_generate` that uses its tools records the
+total, not only the last call. If the browser disconnects mid-call after the provider has
+started answering, the call is recorded as `{feature}_aborted` (not billable). Streaming
+providers send token counts only at the end, so when none have arrived the record carries
+estimates (about 4 characters per token, from the prompt and the text streamed so far).
+
+`evaluate` finishes saving after the grading succeeds even if the browser has gone: the
+draft, evaluation, Vault items and the completed session are written with a 10-second grace
+token instead of the request's.
+
 ## When a call fails
 
 - **Timeouts.** Each call sets its own timeout (20–40 seconds, in `ExaminerService`).
   `AiCompletionService` turns it into a `TimeoutException`. The provider HTTP clients have
   no resilience handlers and no client timeout of their own (`ApiExtensions.AddAiClient`).
+- **No automatic retries.** The provider SDKs do not retry on their own (`RetryPolicy` with
+  no retries for the OpenAI SDK clients, `MaxRetries = 0` for Anthropic): a completion is billed
+  per call, and the fallbacks below decide what happens next.
+- **Model fallbacks.** OpenRouter routes over up to 3 models itself. Gemini tries the next
+  fallback model on 404, 429, 500, 502, 503 and 504 before any text has streamed.
+- **Empty answers.** When an OpenRouter model answers with empty content, the text of its
+  `reasoning` field is used instead; a `refusal` with no reasoning fails with the refusal text.
+- **Output limits.** Anthropic calls that set no limit use `max_tokens` 4096. Gemini adds
+  4096 tokens (at least 8192 in all) to a set limit for its thinking tokens.
 - **Grader fails.** The rubric is retried once on the `fast` role (`rubric_score_fallback`),
   if that is a different model.
 - **Annotations fail.** The scores are kept, and the annotations and Vault items come from the
