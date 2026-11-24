@@ -362,6 +362,7 @@
     "topic": "Industrial Engineering",
     "title": "Closed-Loop Hydrometallurgical Recycling of Lithium-Ion Batteries",
     "promptText": "The diagram below illustrates the industrial process by which spent electric-vehicle lithium-ion batteries are recycled to manufacture new battery cells.\n\nSummarise the information by selecting and reporting the main features, and make comparisons where relevant.\n\nWrite at least 150 words.",
+    "imageUrl": "/task1/t1-process-lithium-recycling.svg",
     "chartSpec": {
       "kind": "process",
       "title": "Closed-Loop Hydrometallurgical Battery Recycling Process",
@@ -420,6 +421,7 @@
     "topic": "Urban Planning",
     "title": "Redevelopment of Port Haverford Waterfront (1995 vs. Present)",
     "promptText": "The two maps below show the coastal district of Port Haverford in 1995 and as it appears at the present day following urban regeneration.\n\nSummarise the information by selecting and reporting the main features, and make comparisons where relevant.\n\nWrite at least 150 words.",
+    "imageUrl": "/task1/t1-map-port-haverford.svg",
     "chartSpec": {
       "kind": "map",
       "title": "Port Haverford Harbour District: 1995 vs. Present Day",

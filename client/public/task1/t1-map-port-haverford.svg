@@ -1,0 +1,436 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 590" width="1040" height="590" role="img" aria-labelledby="title desc">
+  <title id="title">Port Haverford Harbour District: 1995 vs. Present Day</title>
+  <desc id="desc">Two side-by-side comparison maps showing the redevelopment of the coastal district of Port Haverford from an industrial harbour surrounded by woodland and farmland in 1995 to a residential, leisure, educational, and commercial waterfront at the present day.</desc>
+
+  <defs>
+    <style>
+      .font-sans { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+      .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+      .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
+      .subtitle { font-size: 12.5px; fill: #475569; }
+      .period-badge { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; fill: #ffffff; }
+      .zone-label { font-size: 10px; font-weight: 700; fill: #0f172a; }
+      .zone-sub { font-size: 9px; font-weight: 500; fill: #334155; }
+      .road-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; fill: #ffffff; }
+      .water-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; fill: #0c4a6e; }
+      .legend-text { font-size: 10.5px; font-weight: 500; fill: #334155; }
+    </style>
+
+    <linearGradient id="harbour-water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#bae6fd" />
+      <stop offset="100%" stop-color="#7dd3fc" />
+    </linearGradient>
+
+    <pattern id="crop-rows" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(25)">
+      <line x1="0" y1="0" x2="0" y2="10" stroke="#a3c995" stroke-width="1.5" />
+    </pattern>
+
+    <pattern id="plaza-tiles" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="12" height="12" fill="#e0f2fe" />
+      <path d="M 12 0 L 0 0 0 12" fill="none" stroke="#bae6fd" stroke-width="0.9" />
+    </pattern>
+
+    <pattern id="boardwalk-planks" width="8" height="8" patternUnits="userSpaceOnUse">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#99d5c9" stroke-width="1" />
+    </pattern>
+  </defs>
+
+  <!-- Canvas background -->
+  <rect x="0" y="0" width="1040" height="590" rx="12" fill="#ffffff" />
+
+  <!-- Header -->
+  <text x="24" y="36" class="font-sans title">Port Haverford Harbour District: 1995 vs. Present Day</text>
+  <text x="24" y="56" class="font-sans subtitle">Southern coastline faces the harbour · Main Coastal Road runs East–West across the centre</text>
+
+  <!-- Compass Rose (top right) -->
+  <g transform="translate(990, 40)">
+    <circle cx="0" cy="0" r="22" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2" />
+    <polygon points="0,-16 4,-2 0,-5 -4,-2" fill="#0f172a" />
+    <polygon points="0,16 4,2 0,5 -4,2" fill="#94a3b8" />
+    <polygon points="16,0 2,4 5,0 2,-4" fill="#94a3b8" />
+    <polygon points="-16,0 -2,4 -5,0 -2,-4" fill="#94a3b8" />
+    <text x="0" y="-17.5" text-anchor="middle" class="font-mono" font-size="8.5" font-weight="700" fill="#0f172a">N</text>
+    <text x="0" y="25" text-anchor="middle" class="font-mono" font-size="7.5" font-weight="600" fill="#64748b">S</text>
+    <text x="25" y="3" text-anchor="middle" class="font-mono" font-size="7.5" font-weight="600" fill="#64748b">E</text>
+    <text x="-25" y="3" text-anchor="middle" class="font-mono" font-size="7.5" font-weight="600" fill="#64748b">W</text>
+  </g>
+
+  <line x1="24" y1="72" x2="1016" y2="72" stroke="#e2e8f0" stroke-width="1" />
+
+  <!-- =========================================================================
+       LEFT PANEL: 1995
+       ========================================================================= -->
+  <g transform="translate(24, 84)">
+    <rect x="0" y="0" width="480" height="444" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.3" />
+
+    <!-- Panel Header -->
+    <rect x="14" y="12" width="66" height="24" rx="5" fill="#1e293b" />
+    <text x="47" y="28" text-anchor="middle" class="font-mono period-badge">1995</text>
+    <text x="92" y="28" class="font-sans" font-size="11.5" font-weight="600" fill="#475569">Industrial Port &amp; Surrounding Rural Belt</text>
+
+    <!-- Map Frame (452 x 384) -->
+    <g transform="translate(14, 46)">
+      <rect x="0" y="0" width="452" height="384" rx="8" fill="#f5f5f0" stroke="#94a3b8" stroke-width="1.2" />
+
+      <!-- ===== NORTH OF ROAD (y=0..124) ===== -->
+      <!-- NW: Pine Woodland -->
+      <g>
+        <path d="M 1 8 Q 1 1 8 1 L 148 1 L 148 124 L 1 124 Z" fill="#dff0e3" stroke="#7fb38d" stroke-width="1" />
+        <!-- Pine trees -->
+        <g fill="#2b7a52">
+          <polygon points="26,20 18,36 34,36" /><polygon points="26,30 16,46 36,46" />
+          <polygon points="56,16 48,32 64,32" /><polygon points="56,26 46,42 66,42" />
+          <polygon points="90,22 82,38 98,38" /><polygon points="90,32 80,48 100,48" />
+          <polygon points="124,18 116,34 132,34" /><polygon points="124,28 114,44 134,44" />
+          <polygon points="40,52 32,68 48,68" /><polygon points="74,56 66,72 82,72" />
+          <polygon points="112,52 104,68 120,68" />
+        </g>
+        <rect x="14" y="88" width="120" height="26" rx="4" fill="#ffffff" fill-opacity="0.88" />
+        <text x="74" y="105" text-anchor="middle" class="font-sans zone-label">Pine Woodland</text>
+      </g>
+
+      <!-- N: Low-Density Cottages -->
+      <g>
+        <rect x="150" y="1" width="152" height="123" fill="#fef5e7" stroke="#d9a566" stroke-width="1" />
+        <!-- Scattered small cottages -->
+        <g stroke="#854d0e" stroke-width="1">
+          <rect x="168" y="24" width="20" height="14" fill="#fde68a" /><polygon points="166,24 178,15 190,24" fill="#c55e1b" />
+          <rect x="216" y="18" width="20" height="14" fill="#fde68a" /><polygon points="214,18 226,9 238,18" fill="#c55e1b" />
+          <rect x="264" y="26" width="20" height="14" fill="#fde68a" /><polygon points="262,26 274,17 286,26" fill="#c55e1b" />
+          <rect x="188" y="54" width="20" height="14" fill="#fde68a" /><polygon points="186,54 198,45 210,54" fill="#c55e1b" />
+          <rect x="242" y="52" width="20" height="14" fill="#fde68a" /><polygon points="240,52 252,43 264,52" fill="#c55e1b" />
+        </g>
+        <rect x="160" y="88" width="132" height="26" rx="4" fill="#ffffff" fill-opacity="0.9" />
+        <text x="226" y="105" text-anchor="middle" class="font-sans zone-label">Low-Density Cottages</text>
+      </g>
+
+      <!-- NE: Agricultural Farmland -->
+      <g>
+        <path d="M 304 1 L 444 1 Q 451 1 451 8 L 451 124 L 304 124 Z" fill="#ecf6e4" stroke="#8ab87a" stroke-width="1" />
+        <rect x="312" y="10" width="130" height="72" rx="4" fill="url(#crop-rows)" stroke="#8ab87a" stroke-width="1" />
+        <line x1="377" y1="10" x2="377" y2="82" stroke="#8ab87a" stroke-width="1.2" stroke-dasharray="3 2" />
+        <rect x="314" y="88" width="128" height="26" rx="4" fill="#ffffff" fill-opacity="0.9" />
+        <text x="378" y="105" text-anchor="middle" class="font-sans zone-label">Agricultural Farmland</text>
+      </g>
+
+      <!-- ===== MAIN COASTAL ROAD (y=124..148) ===== -->
+      <rect x="1" y="124" width="450" height="24" fill="#475569" />
+      <line x1="10" y1="136" x2="442" y2="136" stroke="#f8fafc" stroke-width="1.4" stroke-dasharray="10 8" stroke-opacity="0.55" />
+      <rect x="122" y="128" width="208" height="16" rx="3" fill="#334155" />
+      <text x="226" y="139.5" text-anchor="middle" class="font-mono road-label">MAIN COASTAL ROAD (E–W)</text>
+
+      <!-- ===== CENTRAL CORRIDOR (y=148..236) ===== -->
+      <!-- W: Bus Depot & Car Park -->
+      <g>
+        <rect x="1" y="148" width="147" height="88" fill="#f5ebe6" stroke="#c08066" stroke-width="1" />
+        <!-- Depot shed + parking lines -->
+        <rect x="14" y="158" width="54" height="32" rx="2" fill="#d6b4a5" stroke="#7c3e26" stroke-width="1.1" />
+        <text x="41" y="177" text-anchor="middle" class="font-mono" font-size="8.5" font-weight="700" fill="#522514">BUS</text>
+        <rect x="78" y="158" width="56" height="32" rx="2" fill="#e2e8f0" stroke="#64748b" stroke-width="1" />
+        <line x1="92" y1="158" x2="92" y2="172" stroke="#64748b" stroke-width="1" />
+        <line x1="106" y1="158" x2="106" y2="172" stroke="#64748b" stroke-width="1" />
+        <line x1="120" y1="158" x2="120" y2="172" stroke="#64748b" stroke-width="1" />
+        <text x="106" y="185" text-anchor="middle" class="font-mono" font-size="8" font-weight="700" fill="#475569">P</text>
+        <rect x="10" y="200" width="128" height="26" rx="4" fill="#ffffff" fill-opacity="0.9" />
+        <text x="74" y="217" text-anchor="middle" class="font-sans zone-label">Bus Depot &amp; Car Park</text>
+      </g>
+
+      <!-- C: Town Market Square -->
+      <g>
+        <rect x="150" y="148" width="152" height="88" fill="#eef2f8" stroke="#7c96ba" stroke-width="1" />
+        <!-- Market stalls -->
+        <rect x="172" y="158" width="108" height="34" rx="4" fill="#dbe6f4" stroke="#5a769e" stroke-width="1" stroke-dasharray="3 2" />
+        <rect x="182" y="165" width="22" height="9" rx="1.5" fill="#5a769e" />
+        <rect x="215" y="165" width="22" height="9" rx="1.5" fill="#5a769e" />
+        <rect x="248" y="165" width="22" height="9" rx="1.5" fill="#5a769e" />
+        <rect x="198" y="179" width="22" height="8" rx="1.5" fill="#7c96ba" />
+        <rect x="232" y="179" width="22" height="8" rx="1.5" fill="#7c96ba" />
+        <rect x="162" y="200" width="128" height="26" rx="4" fill="#ffffff" fill-opacity="0.9" />
+        <text x="226" y="217" text-anchor="middle" class="font-sans zone-label">Town Market Square</text>
+      </g>
+
+      <!-- E: Textile Warehouses -->
+      <g>
+        <rect x="304" y="148" width="147" height="88" fill="#eceff2" stroke="#8b98a8" stroke-width="1" />
+        <!-- Sawtooth warehouse roofs -->
+        <polygon points="320,188 320,164 342,174 342,164 364,174 364,164 386,174 386,188" fill="#94a3b8" stroke="#475569" stroke-width="1.2" />
+        <rect x="394" y="166" width="42" height="22" rx="1" fill="#cbd5e1" stroke="#475569" stroke-width="1.2" />
+        <rect x="314" y="200" width="128" height="26" rx="4" fill="#ffffff" fill-opacity="0.9" />
+        <text x="378" y="217" text-anchor="middle" class="font-sans zone-label">Textile Warehouses</text>
+      </g>
+
+      <!-- ===== HARBOURFRONT (y=236..322) ===== -->
+      <!-- SW: Fishing Boat Pier -->
+      <g>
+        <rect x="1" y="236" width="147" height="84" fill="#eceff2" stroke="#8b98a8" stroke-width="1" />
+        <rect x="16" y="246" width="116" height="24" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="74" y="262" text-anchor="middle" class="font-sans zone-label">Fishing Boat Pier</text>
+      </g>
+
+      <!-- S: Cargo Container Docks -->
+      <g>
+        <rect x="150" y="236" width="152" height="84" fill="#eceff2" stroke="#8b98a8" stroke-width="1" />
+        <!-- Stacked shipping containers -->
+        <rect x="166" y="280" width="28" height="12" fill="#c55e1b" stroke="#7c2d12" stroke-width="0.9" />
+        <rect x="196" y="280" width="28" height="12" fill="#16656e" stroke="#0f4c53" stroke-width="0.9" />
+        <rect x="180" y="268" width="28" height="12" fill="#64748b" stroke="#334155" stroke-width="0.9" />
+        <!-- Dock crane -->
+        <path d="M 244 294 L 254 270 L 282 270 M 254 270 L 264 294" fill="none" stroke="#334155" stroke-width="2" />
+        <rect x="158" y="242" width="136" height="22" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="226" y="257" text-anchor="middle" class="font-sans zone-label">Cargo Container Docks</text>
+      </g>
+
+      <!-- SE: Coal Storage Yard -->
+      <g>
+        <rect x="304" y="236" width="147" height="84" fill="#e5e7eb" stroke="#8b98a8" stroke-width="1" />
+        <!-- Coal mounds -->
+        <path d="M 322 308 Q 344 276 366 308 Z" fill="#334155" />
+        <path d="M 358 308 Q 382 272 406 308 Z" fill="#1e293b" />
+        <path d="M 392 308 Q 414 282 436 308 Z" fill="#475569" />
+        <rect x="314" y="242" width="128" height="22" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="378" y="257" text-anchor="middle" class="font-sans zone-label">Coal Storage Yard</text>
+      </g>
+
+      <!-- ===== SOUTHERN HARBOUR WATER (y=320..384) ===== -->
+      <path d="M 1 320 L 451 320 L 451 376 Q 451 383 444 383 L 8 383 Q 1 383 1 376 Z" fill="url(#harbour-water)" />
+      <!-- Seawall line -->
+      <line x1="1" y1="320" x2="451" y2="320" stroke="#475569" stroke-width="3" />
+
+      <!-- Wooden Fishing Pier extending into harbour (SW) -->
+      <rect x="56" y="294" width="16" height="54" rx="1" fill="#9a6b25" stroke="#5c390c" stroke-width="1.2" />
+      <line x1="56" y1="306" x2="72" y2="306" stroke="#5c390c" stroke-width="0.9" />
+      <line x1="56" y1="318" x2="72" y2="318" stroke="#5c390c" stroke-width="0.9" />
+      <line x1="56" y1="330" x2="72" y2="330" stroke="#5c390c" stroke-width="0.9" />
+      <!-- Small fishing boats -->
+      <path d="M 80 332 L 98 332 L 94 338 L 84 338 Z" fill="#475569" />
+      <path d="M 30 336 L 48 336 L 44 342 L 34 342 Z" fill="#475569" />
+
+      <!-- Water wave accents -->
+      <path d="M 120 344 Q 132 340 144 344 T 168 344" fill="none" stroke="#0284c7" stroke-width="1.1" stroke-opacity="0.45" />
+      <path d="M 290 342 Q 302 338 314 342 T 338 342" fill="none" stroke="#0284c7" stroke-width="1.1" stroke-opacity="0.45" />
+
+      <text x="226" y="368" text-anchor="middle" class="font-mono water-label">SOUTHERN HARBOUR &amp; SEAFRONT CHANNEL</text>
+    </g>
+  </g>
+
+  <!-- Center Evolution Arrow -->
+  <g transform="translate(508, 290)">
+    <circle cx="12" cy="12" r="13" fill="#16656e" />
+    <path d="M 7 12 L 17 12 M 13 8 L 17 12 L 13 16" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- =========================================================================
+       RIGHT PANEL: PRESENT DAY
+       ========================================================================= -->
+  <g transform="translate(536, 84)">
+    <rect x="0" y="0" width="480" height="444" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.3" />
+
+    <!-- Panel Header -->
+    <rect x="14" y="12" width="112" height="24" rx="5" fill="#16656e" />
+    <text x="70" y="28" text-anchor="middle" class="font-mono period-badge">PRESENT DAY</text>
+    <text x="136" y="28" class="font-sans" font-size="11.5" font-weight="600" fill="#475569">Regenerated Mixed-Use Waterfront</text>
+
+    <!-- Map Frame (452 x 384) -->
+    <g transform="translate(14, 46)">
+      <rect x="0" y="0" width="452" height="384" rx="8" fill="#f5f5f0" stroke="#94a3b8" stroke-width="1.2" />
+
+      <!-- ===== NORTH OF ROAD (y=0..124) ===== -->
+      <!-- NW: Public Eco-Park (Reduced) -->
+      <g>
+        <path d="M 1 8 Q 1 1 8 1 L 148 1 L 148 124 L 1 124 Z" fill="#e2f5f0" stroke="#4ea894" stroke-width="1" />
+        <!-- Smaller manicured park enclosure + pond + footpath -->
+        <rect x="14" y="12" width="110" height="68" rx="14" fill="#c7eee4" stroke="#2e9c84" stroke-width="1.1" stroke-dasharray="3 2" />
+        <ellipse cx="92" cy="48" rx="20" ry="12" fill="#bae6fd" stroke="#0284c7" stroke-width="1" />
+        <path d="M 22 68 Q 52 50 74 30" fill="none" stroke="#d99b4e" stroke-width="2" stroke-linecap="round" />
+        <!-- Fewer trees -->
+        <circle cx="34" cy="30" r="8" fill="#2b7a52" />
+        <circle cx="52" cy="24" r="6.5" fill="#2e9c84" />
+        <circle cx="38" cy="52" r="7" fill="#2b7a52" />
+        <rect x="8" y="84" width="132" height="32" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="74" y="98" text-anchor="middle" class="font-sans zone-label">Public Eco-Park</text>
+        <text x="74" y="111" text-anchor="middle" class="font-sans zone-sub">(Reduced Area)</text>
+      </g>
+
+      <!-- N: Mid-Rise Apartments -->
+      <g>
+        <rect x="150" y="1" width="152" height="123" fill="#fef5e7" stroke="#d9a566" stroke-width="1" />
+        <!-- Three mid-rise residential blocks -->
+        <rect x="164" y="16" width="34" height="58" rx="3" fill="#f59e0b" fill-opacity="0.28" stroke="#b45309" stroke-width="1.3" />
+        <rect x="209" y="16" width="34" height="58" rx="3" fill="#f59e0b" fill-opacity="0.28" stroke="#b45309" stroke-width="1.3" />
+        <rect x="254" y="16" width="34" height="58" rx="3" fill="#f59e0b" fill-opacity="0.28" stroke="#b45309" stroke-width="1.3" />
+        <!-- Floor lines -->
+        <g stroke="#b45309" stroke-width="0.9" stroke-opacity="0.7">
+          <line x1="168" y1="30" x2="194" y2="30" /><line x1="168" y1="44" x2="194" y2="44" /><line x1="168" y1="58" x2="194" y2="58" />
+          <line x1="213" y1="30" x2="239" y2="30" /><line x1="213" y1="44" x2="239" y2="44" /><line x1="213" y1="58" x2="239" y2="58" />
+          <line x1="258" y1="30" x2="284" y2="30" /><line x1="258" y1="44" x2="284" y2="44" /><line x1="258" y1="58" x2="284" y2="58" />
+        </g>
+        <rect x="160" y="88" width="132" height="26" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="226" y="105" text-anchor="middle" class="font-sans zone-label">Mid-Rise Apartments</text>
+      </g>
+
+      <!-- NE: Marine Tech University Campus -->
+      <g>
+        <path d="M 304 1 L 444 1 Q 451 1 451 8 L 451 124 L 304 124 Z" fill="#eef2f8" stroke="#6c87ad" stroke-width="1" />
+        <!-- U-shaped campus around green quad -->
+        <path d="M 324 14 L 432 14 L 432 72 L 408 72 L 408 36 L 348 36 L 348 72 L 324 72 Z" fill="#c7d6ea" stroke="#3b5984" stroke-width="1.3" />
+        <rect x="356" y="44" width="44" height="26" rx="3" fill="#dff0e3" stroke="#7fb38d" stroke-width="0.9" />
+        <rect x="310" y="84" width="136" height="32" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="378" y="98" text-anchor="middle" class="font-sans zone-label">Marine Tech</text>
+        <text x="378" y="111" text-anchor="middle" class="font-sans zone-sub">University Campus</text>
+      </g>
+
+      <!-- ===== MAIN COASTAL ROAD (y=124..148) ===== -->
+      <rect x="1" y="124" width="450" height="24" fill="#475569" />
+      <line x1="10" y1="136" x2="442" y2="136" stroke="#f8fafc" stroke-width="1.4" stroke-dasharray="10 8" stroke-opacity="0.55" />
+      <rect x="122" y="128" width="208" height="16" rx="3" fill="#334155" />
+      <text x="226" y="139.5" text-anchor="middle" class="font-mono road-label">MAIN COASTAL ROAD (E–W)</text>
+
+      <!-- ===== CENTRAL CORRIDOR (y=148..236) ===== -->
+      <!-- W: Light-Rail Terminus -->
+      <g>
+        <rect x="1" y="148" width="147" height="88" fill="#f5ebe6" stroke="#c08066" stroke-width="1" />
+        <!-- Rail tracks from west -->
+        <line x1="2" y1="168" x2="112" y2="168" stroke="#522514" stroke-width="1.8" />
+        <line x1="2" y1="176" x2="112" y2="176" stroke="#522514" stroke-width="1.8" />
+        <line x1="10" y1="165" x2="10" y2="179" stroke="#7c3e26" stroke-width="1.2" />
+        <line x1="24" y1="165" x2="24" y2="179" stroke="#7c3e26" stroke-width="1.2" />
+        <line x1="38" y1="165" x2="38" y2="179" stroke="#7c3e26" stroke-width="1.2" />
+        <line x1="52" y1="165" x2="52" y2="179" stroke="#7c3e26" stroke-width="1.2" />
+        <!-- Terminus station canopy -->
+        <rect x="64" y="158" width="66" height="28" rx="4" fill="#b56a4c" stroke="#522514" stroke-width="1.2" />
+        <text x="97" y="176" text-anchor="middle" class="font-mono" font-size="8.5" font-weight="700" fill="#ffffff">LRT</text>
+        <rect x="10" y="200" width="128" height="26" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="74" y="217" text-anchor="middle" class="font-sans zone-label">Light-Rail Terminus</text>
+      </g>
+
+      <!-- C: Pedestrianised Market Plaza -->
+      <g>
+        <rect x="150" y="148" width="152" height="88" fill="url(#plaza-tiles)" stroke="#3b8ea5" stroke-width="1" />
+        <!-- Central fountain & trees -->
+        <circle cx="226" cy="174" r="13" fill="#bae6fd" stroke="#0284c7" stroke-width="1.4" />
+        <circle cx="226" cy="174" r="5" fill="#0284c7" fill-opacity="0.45" />
+        <circle cx="176" cy="164" r="6" fill="#2b7a52" />
+        <circle cx="276" cy="164" r="6" fill="#2b7a52" />
+        <rect x="156" y="196" width="140" height="32" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="226" y="210" text-anchor="middle" class="font-sans zone-label">Pedestrianised</text>
+        <text x="226" y="223" text-anchor="middle" class="font-sans zone-sub">Market Plaza</text>
+      </g>
+
+      <!-- E: Co-Working & Art Lofts (Converted) -->
+      <g>
+        <rect x="304" y="148" width="147" height="88" fill="#e3f2f6" stroke="#3b8ea5" stroke-width="1" />
+        <!-- Converted loft buildings -->
+        <rect x="318" y="160" width="52" height="28" rx="3" fill="#99d1de" stroke="#16656e" stroke-width="1.3" />
+        <rect x="380" y="160" width="52" height="28" rx="3" fill="#99d1de" stroke="#16656e" stroke-width="1.3" />
+        <line x1="330" y1="168" x2="358" y2="168" stroke="#16656e" stroke-width="1.2" />
+        <line x1="330" y1="178" x2="358" y2="178" stroke="#16656e" stroke-width="1.2" />
+        <line x1="392" y1="168" x2="420" y2="168" stroke="#16656e" stroke-width="1.2" />
+        <line x1="392" y1="178" x2="420" y2="178" stroke="#16656e" stroke-width="1.2" />
+        <rect x="310" y="196" width="136" height="32" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="378" y="210" text-anchor="middle" class="font-sans zone-label">Co-Working &amp; Art Lofts</text>
+        <text x="378" y="223" text-anchor="middle" class="font-sans zone-sub">(Converted Warehouses)</text>
+      </g>
+
+      <!-- ===== HARBOURFRONT (y=236..322) ===== -->
+      <!-- SW: Yacht Marina & Cafés -->
+      <g>
+        <rect x="1" y="236" width="147" height="84" fill="#e2f5f0" stroke="#4ea894" stroke-width="1" />
+        <!-- Waterfront café terrace -->
+        <rect x="20" y="274" width="108" height="20" rx="3" fill="#fef3e2" stroke="#d99b4e" stroke-width="1.1" />
+        <circle cx="42" cy="284" r="5" fill="#c55e1b" fill-opacity="0.7" />
+        <circle cx="74" cy="284" r="5" fill="#16656e" fill-opacity="0.7" />
+        <circle cx="106" cy="284" r="5" fill="#c55e1b" fill-opacity="0.7" />
+        <rect x="10" y="242" width="128" height="24" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="74" y="258" text-anchor="middle" class="font-sans zone-label">Yacht Marina &amp; Cafés</text>
+      </g>
+
+      <!-- S: Waterfront Boardwalk -->
+      <g>
+        <rect x="150" y="236" width="152" height="84" fill="#e2f5f0" stroke="#4ea894" stroke-width="1" />
+        <!-- Promenade deck along seawall -->
+        <rect x="154" y="280" width="144" height="32" rx="3" fill="#d1efe8" stroke="#2e9c84" stroke-width="1.1" />
+        <rect x="154" y="280" width="144" height="32" rx="3" fill="url(#boardwalk-planks)" />
+        <circle cx="176" cy="296" r="5.5" fill="#2b7a52" />
+        <circle cx="226" cy="296" r="5.5" fill="#2b7a52" />
+        <circle cx="276" cy="296" r="5.5" fill="#2b7a52" />
+        <rect x="158" y="242" width="136" height="24" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="226" y="258" text-anchor="middle" class="font-sans zone-label">Waterfront Boardwalk</text>
+      </g>
+
+      <!-- SE: Passenger Ferry Terminal -->
+      <g>
+        <rect x="304" y="236" width="147" height="84" fill="#f5ebe6" stroke="#c08066" stroke-width="1" />
+        <!-- Terminal hall -->
+        <path d="M 326 296 Q 378 272 430 296 L 430 310 L 326 310 Z" fill="#d6b4a5" stroke="#7c3e26" stroke-width="1.3" />
+        <text x="378" y="303" text-anchor="middle" class="font-mono" font-size="8.5" font-weight="700" fill="#522514">TERMINAL</text>
+        <rect x="310" y="242" width="136" height="24" rx="4" fill="#ffffff" fill-opacity="0.92" />
+        <text x="378" y="258" text-anchor="middle" class="font-sans zone-label">Passenger Ferry Terminal</text>
+      </g>
+
+      <!-- ===== SOUTHERN HARBOUR WATER (y=320..384) ===== -->
+      <path d="M 1 320 L 451 320 L 451 376 Q 451 383 444 383 L 8 383 Q 1 383 1 376 Z" fill="url(#harbour-water)" />
+      <!-- Seawall line -->
+      <line x1="1" y1="320" x2="451" y2="320" stroke="#16656e" stroke-width="3" />
+
+      <!-- Yacht Marina pontoons & sailboats (SW) -->
+      <path d="M 24 320 L 24 344 L 122 344 L 122 320" fill="none" stroke="#16656e" stroke-width="2.2" />
+      <line x1="56" y1="320" x2="56" y2="344" stroke="#16656e" stroke-width="1.6" />
+      <line x1="90" y1="320" x2="90" y2="344" stroke="#16656e" stroke-width="1.6" />
+      <!-- Sailboats -->
+      <polygon points="40,326 40,339 49,339" fill="#ffffff" stroke="#16656e" stroke-width="0.9" />
+      <polygon points="73,326 73,339 82,339" fill="#ffffff" stroke="#16656e" stroke-width="0.9" />
+      <polygon points="106,326 106,339 115,339" fill="#ffffff" stroke="#16656e" stroke-width="0.9" />
+
+      <!-- Ferry Berth & Passenger Ferry (SE) -->
+      <rect x="366" y="318" width="24" height="24" rx="2" fill="#94a3b8" stroke="#475569" stroke-width="1.2" />
+      <path d="M 394 334 L 434 334 L 440 342 L 394 342 Z" fill="#ffffff" stroke="#16656e" stroke-width="1.3" />
+      <rect x="404" y="328" width="20" height="6" rx="1" fill="#16656e" />
+
+      <!-- Water wave accents -->
+      <path d="M 190 342 Q 202 338 214 342 T 238 342" fill="none" stroke="#0284c7" stroke-width="1.1" stroke-opacity="0.45" />
+      <path d="M 264 346 Q 276 342 288 346 T 312 346" fill="none" stroke="#0284c7" stroke-width="1.1" stroke-opacity="0.45" />
+
+      <text x="226" y="368" text-anchor="middle" class="font-mono water-label">SOUTHERN HARBOUR &amp; SEAFRONT CHANNEL</text>
+    </g>
+  </g>
+
+  <!-- =========================================================================
+       LEGEND (Bottom Bar)
+       ========================================================================= -->
+  <g transform="translate(24, 544)">
+    <rect x="0" y="0" width="992" height="32" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1" />
+
+    <g transform="translate(18, 10)">
+      <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#dff0e3" stroke="#7fb38d" stroke-width="1" />
+      <text x="18" y="10" class="font-sans legend-text">Green / Rural</text>
+    </g>
+    <g transform="translate(132, 10)">
+      <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#fef5e7" stroke="#d9a566" stroke-width="1" />
+      <text x="18" y="10" class="font-sans legend-text">Residential</text>
+    </g>
+    <g transform="translate(238, 10)">
+      <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#eef2f8" stroke="#6c87ad" stroke-width="1" />
+      <text x="18" y="10" class="font-sans legend-text">Civic / University</text>
+    </g>
+    <g transform="translate(374, 10)">
+      <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#e3f2f6" stroke="#3b8ea5" stroke-width="1" />
+      <text x="18" y="10" class="font-sans legend-text">Commercial</text>
+    </g>
+    <g transform="translate(486, 10)">
+      <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#eceff2" stroke="#8b98a8" stroke-width="1" />
+      <text x="18" y="10" class="font-sans legend-text">Industrial</text>
+    </g>
+    <g transform="translate(588, 10)">
+      <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#f5ebe6" stroke="#c08066" stroke-width="1" />
+      <text x="18" y="10" class="font-sans legend-text">Transport</text>
+    </g>
+    <g transform="translate(690, 10)">
+      <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#e2f5f0" stroke="#4ea894" stroke-width="1" />
+      <text x="18" y="10" class="font-sans legend-text">Leisure / Park</text>
+    </g>
+    <g transform="translate(812, 10)">
+      <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#bae6fd" stroke="#0284c7" stroke-width="1" />
+      <text x="18" y="10" class="font-sans legend-text">Harbour / Water</text>
+    </g>
+  </g>
+</svg>
