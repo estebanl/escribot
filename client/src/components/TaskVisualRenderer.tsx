@@ -15,8 +15,9 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { ArrowRight, RotateCw, ZoomIn, X, Compass, BarChart2, FileText } from "lucide-react";
+import { ZoomIn, X, Compass, BarChart2, FileText } from "lucide-react";
 import { normalizeChartSpec } from "@/lib/chart-utils";
+import { ProcessDiagram } from "./ProcessDiagram";
 import type {
   ChartSpec,
   ComparisonMapSpec,
@@ -445,52 +446,8 @@ function SpecContent({
   /* ---------- 4. PROCESS / LIFECYCLE DIAGRAM ---------- */
   if (spec.kind === "process") {
     return (
-      <div className={`${marginClass} rounded-xl border border-slate-300 bg-white text-slate-900 p-4 shadow-xs`}>
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <div>
-            <h3 className="font-sans text-sm font-bold text-slate-900">{spec.title}</h3>
-            {spec.subtitle && (
-              <p className="text-xs text-slate-600 mt-0.5">{spec.subtitle}</p>
-            )}
-          </div>
-          {spec.isCyclic && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-teal-50 border border-teal-300 text-teal-900 text-[11px] font-mono font-semibold shrink-0">
-              <RotateCw className="w-3 h-3" /> Closed-Loop Cycle
-            </span>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {spec.steps.map((step, idx) => (
-            <div
-              key={step.stepNumber}
-              className="relative rounded-lg border border-slate-200 bg-slate-50 p-3 flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <span className="inline-flex items-center justify-center px-2 py-0.5 rounded bg-slate-800 text-white font-mono text-[11px] font-bold">
-                    Stage {step.stepNumber}
-                  </span>
-                  {step.badge && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-medium">
-                      {step.badge}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs font-bold text-slate-900">{step.stageName}</p>
-                <p className="text-xs text-slate-600 leading-relaxed mt-1">
-                  {step.detail}
-                </p>
-              </div>
-              {idx < spec.steps.length - 1 && (
-                <div className="mt-2 pt-1.5 border-t border-slate-200/80 flex items-center justify-end text-[10px] font-mono text-slate-500">
-                  <span>Proceeds to Stage {step.stepNumber + 1}</span>
-                  <ArrowRight className="w-3 h-3 ml-1" />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+      <div className={`${marginClass} rounded-xl border border-slate-300 bg-white text-slate-900 p-2 shadow-xs`}>
+        <ProcessDiagram spec={spec} />
       </div>
     );
   }
