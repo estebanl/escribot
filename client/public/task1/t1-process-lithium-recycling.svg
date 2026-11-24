@@ -1,0 +1,291 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" width="1000" height="580" role="img" aria-labelledby="title desc">
+  <title id="title">Closed-Loop Hydrometallurgical Battery Recycling Process</title>
+  <desc id="desc">Seven-stage industrial recovery cycle showing how spent electric-vehicle lithium-ion batteries are mechanically dismantled and chemically refined to manufacture new cathode material in a closed loop.</desc>
+
+  <defs>
+    <style>
+      .font-sans { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+      .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+      .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
+      .subtitle { font-size: 12.5px; fill: #475569; }
+      .phase-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; }
+      .stage-num { font-size: 10px; font-weight: 700; fill: #ffffff; }
+      .stage-badge { font-size: 9.5px; font-weight: 600; }
+      .stage-title { font-size: 11.5px; font-weight: 700; fill: #0f172a; }
+      .stage-detail { font-size: 10.5px; fill: #475569; }
+      .callout { font-size: 9.5px; font-weight: 600; fill: #475569; }
+      .footer { font-size: 11px; fill: #64748b; }
+    </style>
+
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1.5 L 8.5 5 L 1 8.5 z" fill="#16656e" />
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1.5 L 8.5 5 L 1 8.5 z" fill="#c55e1b" />
+    </marker>
+    <marker id="arrow-emerald" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M 1 1.5 L 8.5 5 L 1 8.5 z" fill="#2b7a52" />
+    </marker>
+    <marker id="arrow-slate" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1 1.5 L 8.5 5 L 1 8.5 z" fill="#64748b" />
+    </marker>
+
+    <filter id="card-shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#0f172a" flood-opacity="0.06" />
+    </filter>
+  </defs>
+
+  <!-- Canvas background -->
+  <rect x="0" y="0" width="1000" height="580" rx="12" fill="#ffffff" />
+
+  <!-- Header -->
+  <text x="28" y="38" class="font-sans title">Closed-Loop Hydrometallurgical Battery Recycling Process</text>
+  <text x="28" y="58" class="font-sans subtitle">Seven-stage industrial recovery cycle from spent EV packs to new cathode synthesis</text>
+
+  <!-- Closed-Loop Badge -->
+  <g transform="translate(822, 22)">
+    <rect x="0" y="0" width="150" height="28" rx="14" fill="#e6f4ea" stroke="#2b7a52" stroke-width="1.2" />
+    <path d="M 20 11 A 5.5 5.5 0 1 1 15.5 18.5" fill="none" stroke="#2b7a52" stroke-width="1.6" stroke-linecap="round" />
+    <path d="M 18 8 L 21.5 11.5 L 17.5 13" fill="none" stroke="#2b7a52" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="32" y="18" class="font-mono" font-size="10.5" font-weight="700" fill="#1b4d2e">CLOSED-LOOP CYCLE</text>
+  </g>
+
+  <line x1="28" y1="74" x2="972" y2="74" stroke="#e2e8f0" stroke-width="1" />
+
+  <!-- ==================== PHASE 1 BAND: MECHANICAL (STAGES 1-4) ==================== -->
+  <rect x="28" y="88" width="944" height="206" rx="12" fill="#f8fafc" stroke="#99c2c6" stroke-width="1.2" stroke-dasharray="5 4" />
+  <rect x="44" y="80" width="326" height="18" rx="4" fill="#e6f2f3" />
+  <text x="54" y="93" class="font-mono phase-label" fill="#16656e">MECHANICAL PREPARATION &amp; SEPARATION (STAGES 1–4)</text>
+
+  <!-- STAGE 1 -->
+  <g transform="translate(44, 108)" filter="url(#card-shadow)">
+    <rect x="0" y="0" width="206" height="170" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" />
+    <rect x="10" y="10" width="54" height="19" rx="4" fill="#1e293b" />
+    <text x="37" y="23" text-anchor="middle" class="font-mono stage-num">STAGE 1</text>
+    <rect x="122" y="10" width="74" height="19" rx="4" fill="#fef3e2" stroke="#e8c38e" stroke-width="0.8" />
+    <text x="159" y="23" text-anchor="middle" class="font-mono stage-badge" fill="#92400e">Safety Prep</text>
+
+    <!-- Icon: EV Battery in Brine Tank -->
+    <g transform="translate(55, 38)">
+      <rect x="0" y="16" width="96" height="36" rx="4" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.4" />
+      <path d="M 2 24 Q 14 20 26 24 T 50 24 T 74 24 T 94 24" fill="none" stroke="#38bdf8" stroke-width="1.2" />
+      <!-- Battery pack -->
+      <rect x="20" y="8" width="56" height="30" rx="3" fill="#475569" stroke="#1e293b" stroke-width="1.2" />
+      <rect x="30" y="4" width="10" height="4" rx="1" fill="#1e293b" />
+      <rect x="56" y="4" width="10" height="4" rx="1" fill="#1e293b" />
+      <!-- Discharge bolt -->
+      <path d="M 50 13 L 43 24 L 49 24 L 46 33 L 55 21 L 49 21 Z" fill="#fbbf24" />
+      <text x="48" y="48" text-anchor="middle" class="font-mono" font-size="8.5" font-weight="700" fill="#0369a1">BRINE TANK</text>
+    </g>
+
+    <text x="103" y="110" text-anchor="middle" class="font-sans stage-title">Collection &amp; Deep Discharge</text>
+    <text x="103" y="128" text-anchor="middle" class="font-sans stage-detail">End-of-life EV packs tested &amp;</text>
+    <text x="103" y="142" text-anchor="middle" class="font-sans stage-detail">discharged in brine tanks to</text>
+    <text x="103" y="156" text-anchor="middle" class="font-sans stage-detail">prevent thermal hazards</text>
+  </g>
+
+  <!-- Arrow 1 -> 2 -->
+  <line x1="250" y1="193" x2="274" y2="193" stroke="#16656e" stroke-width="2.2" marker-end="url(#arrow-teal)" />
+
+  <!-- STAGE 2 -->
+  <g transform="translate(280, 108)" filter="url(#card-shadow)">
+    <rect x="0" y="0" width="206" height="170" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" />
+    <rect x="10" y="10" width="54" height="19" rx="4" fill="#1e293b" />
+    <text x="37" y="23" text-anchor="middle" class="font-mono stage-num">STAGE 2</text>
+    <rect x="122" y="10" width="74" height="19" rx="4" fill="#e6f2f3" stroke="#99c2c6" stroke-width="0.8" />
+    <text x="159" y="23" text-anchor="middle" class="font-mono stage-badge" fill="#16656e">Mechanical</text>
+
+    <!-- Icon: Robotic Disassembly -->
+    <g transform="translate(48, 36)">
+      <!-- Robotic arm -->
+      <rect x="6" y="42" width="26" height="8" rx="2" fill="#334155" />
+      <line x1="19" y1="42" x2="36" y2="16" stroke="#16656e" stroke-width="4" stroke-linecap="round" />
+      <line x1="36" y1="16" x2="64" y2="16" stroke="#16656e" stroke-width="3.5" stroke-linecap="round" />
+      <circle cx="36" cy="16" r="4.5" fill="#ffffff" stroke="#16656e" stroke-width="2" />
+      <!-- Gripper holding casing -->
+      <path d="M 64 16 L 64 24 M 58 24 L 70 24 M 58 24 L 58 30 M 70 24 L 70 30" stroke="#334155" stroke-width="2" fill="none" />
+      <!-- Separated parts -->
+      <rect x="52" y="34" width="24" height="14" rx="2" fill="#cbd5e1" stroke="#475569" stroke-width="1.2" />
+      <rect x="82" y="28" width="18" height="20" rx="2" fill="#e2e8f0" stroke="#64748b" stroke-width="1.1" stroke-dasharray="2 1" />
+      <path d="M 79 38 L 86 38" stroke="#64748b" stroke-width="1.2" />
+    </g>
+
+    <text x="103" y="110" text-anchor="middle" class="font-sans stage-title">Automated Disassembly</text>
+    <text x="103" y="128" text-anchor="middle" class="font-sans stage-detail">Robotic units remove Al casings,</text>
+    <text x="103" y="142" text-anchor="middle" class="font-sans stage-detail">wiring &amp; plastic modules for</text>
+    <text x="103" y="156" text-anchor="middle" class="font-sans stage-detail">separate recycling</text>
+  </g>
+
+  <!-- Arrow 2 -> 3 -->
+  <line x1="486" y1="193" x2="510" y2="193" stroke="#16656e" stroke-width="2.2" marker-end="url(#arrow-teal)" />
+
+  <!-- STAGE 3 -->
+  <g transform="translate(516, 108)" filter="url(#card-shadow)">
+    <rect x="0" y="0" width="206" height="170" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" />
+    <rect x="10" y="10" width="54" height="19" rx="4" fill="#1e293b" />
+    <text x="37" y="23" text-anchor="middle" class="font-mono stage-num">STAGE 3</text>
+    <rect x="122" y="10" width="74" height="19" rx="4" fill="#eef2f8" stroke="#94a3b8" stroke-width="0.8" />
+    <text x="159" y="23" text-anchor="middle" class="font-mono stage-badge" fill="#334155">N₂ Chamber</text>
+
+    <!-- Icon: Inert-Gas Shredder Chamber -->
+    <g transform="translate(52, 36)">
+      <rect x="4" y="6" width="94" height="46" rx="6" fill="#f1f5f9" stroke="#475569" stroke-width="1.4" />
+      <text x="14" y="19" class="font-mono" font-size="9" font-weight="700" fill="#16656e">N₂</text>
+      <text x="74" y="19" class="font-mono" font-size="8" font-weight="600" fill="#64748b">O₂=0</text>
+      <!-- Shredding gears -->
+      <circle cx="38" cy="28" r="10" fill="#cbd5e1" stroke="#334155" stroke-width="1.5" stroke-dasharray="3 2" />
+      <circle cx="38" cy="28" r="3" fill="#334155" />
+      <circle cx="62" cy="28" r="10" fill="#cbd5e1" stroke="#334155" stroke-width="1.5" stroke-dasharray="3 2" />
+      <circle cx="62" cy="28" r="3" fill="#334155" />
+      <!-- Granules falling -->
+      <circle cx="44" cy="44" r="1.8" fill="#475569" />
+      <circle cx="50" cy="46" r="2" fill="#1e293b" />
+      <circle cx="56" cy="44" r="1.7" fill="#475569" />
+      <circle cx="48" cy="42" r="1.5" fill="#64748b" />
+    </g>
+
+    <text x="103" y="110" text-anchor="middle" class="font-sans stage-title">Inert-Gas Shredding</text>
+    <text x="103" y="128" text-anchor="middle" class="font-sans stage-detail">Cells crushed under oxygen-free</text>
+    <text x="103" y="142" text-anchor="middle" class="font-sans stage-detail">nitrogen atmosphere into a</text>
+    <text x="103" y="156" text-anchor="middle" class="font-sans stage-detail">fine granular mixture</text>
+  </g>
+
+  <!-- Arrow 3 -> 4 -->
+  <line x1="722" y1="193" x2="746" y2="193" stroke="#16656e" stroke-width="2.2" marker-end="url(#arrow-teal)" />
+
+  <!-- STAGE 4 -->
+  <g transform="translate(752, 108)" filter="url(#card-shadow)">
+    <rect x="0" y="0" width="206" height="170" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" />
+    <rect x="10" y="10" width="54" height="19" rx="4" fill="#1e293b" />
+    <text x="37" y="23" text-anchor="middle" class="font-mono stage-num">STAGE 4</text>
+    <rect x="122" y="10" width="74" height="19" rx="4" fill="#e2e8f0" stroke="#94a3b8" stroke-width="0.8" />
+    <text x="159" y="23" text-anchor="middle" class="font-mono stage-badge" fill="#1e293b">Black Mass</text>
+
+    <!-- Icon: Sieve & Magnet -->
+    <g transform="translate(46, 36)">
+      <!-- Sieve mesh -->
+      <line x1="8" y1="26" x2="62" y2="26" stroke="#334155" stroke-width="2.5" stroke-dasharray="4 2" />
+      <path d="M 8 18 L 8 28 L 62 28 L 62 18" fill="none" stroke="#475569" stroke-width="1.5" />
+      <!-- Black mass pile below -->
+      <path d="M 20 46 Q 35 32 50 46 Z" fill="#1e293b" />
+      <!-- U-Magnet on right -->
+      <path d="M 76 12 L 76 28 A 10 10 0 0 0 96 28 L 96 12" fill="none" stroke="#c55e1b" stroke-width="4.5" stroke-linecap="butt" />
+      <rect x="73.5" y="10" width="5" height="6" fill="#94a3b8" />
+      <rect x="93.5" y="10" width="5" height="6" fill="#94a3b8" />
+      <text x="86" y="48" text-anchor="middle" class="font-mono" font-size="8" font-weight="700" fill="#64748b">Cu/Fe out</text>
+    </g>
+
+    <text x="103" y="110" text-anchor="middle" class="font-sans stage-title">Sieving &amp; Magnetic Separation</text>
+    <text x="103" y="128" text-anchor="middle" class="font-sans stage-detail">Copper &amp; steel foils filtered out,</text>
+    <text x="103" y="142" text-anchor="middle" class="font-sans stage-detail">isolating metal-rich 'black mass'</text>
+    <text x="103" y="156" text-anchor="middle" class="font-sans stage-detail">powder</text>
+  </g>
+
+  <!-- ==================== PHASE 2 BAND: CHEMICAL (STAGES 5-7) ==================== -->
+  <rect x="192" y="330" width="780" height="206" rx="12" fill="#fffbf7" stroke="#e4b08a" stroke-width="1.2" stroke-dasharray="5 4" />
+  <rect x="208" y="322" width="352" height="18" rx="4" fill="#fef3e2" />
+  <text x="218" y="335" class="font-mono phase-label" fill="#9a4412">CHEMICAL REFINING &amp; CATHODE SYNTHESIS (STAGES 5–7)</text>
+
+  <!-- ==================== TRANSITION: STAGE 4 -> STAGE 5 ==================== -->
+  <line x1="855" y1="278" x2="855" y2="344" stroke="#c55e1b" stroke-width="2.4" marker-end="url(#arrow-amber)" />
+  <rect x="760" y="299" width="84" height="18" rx="4" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" />
+  <text x="802" y="311" text-anchor="middle" class="font-mono callout">Black mass</text>
+
+  <!-- STAGE 5 (Right, flows left to Stage 6) -->
+  <g transform="translate(734, 350)" filter="url(#card-shadow)">
+    <rect x="0" y="0" width="224" height="170" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" />
+    <rect x="10" y="10" width="54" height="19" rx="4" fill="#1e293b" />
+    <text x="37" y="23" text-anchor="middle" class="font-mono stage-num">STAGE 5</text>
+    <rect x="122" y="10" width="92" height="19" rx="4" fill="#fef3e2" stroke="#e8c38e" stroke-width="0.8" />
+    <text x="168" y="23" text-anchor="middle" class="font-mono stage-badge" fill="#92400e">Chemical 60°C</text>
+
+    <!-- Icon: Acid Leaching Tank / Flask -->
+    <g transform="translate(64, 36)">
+      <path d="M 32 6 L 32 18 L 16 42 Q 14 48 22 48 L 74 48 Q 82 48 80 42 L 64 18 L 64 6 Z" fill="#fef3e2" stroke="#c55e1b" stroke-width="1.6" />
+      <path d="M 22 33 L 74 33 L 80 42 Q 82 48 74 48 L 22 48 Q 14 48 16 42 Z" fill="#fdba74" fill-opacity="0.65" />
+      <line x1="28" y1="6" x2="68" y2="6" stroke="#c55e1b" stroke-width="2" stroke-linecap="round" />
+      <text x="48" y="44" text-anchor="middle" class="font-mono" font-size="9" font-weight="700" fill="#7c2d12">H₂SO₄ 60°C</text>
+      <!-- Bubbles -->
+      <circle cx="40" cy="26" r="2" fill="#c55e1b" fill-opacity="0.5" />
+      <circle cx="54" cy="22" r="2.5" fill="#c55e1b" fill-opacity="0.5" />
+    </g>
+
+    <text x="112" y="110" text-anchor="middle" class="font-sans stage-title">Acid Leaching &amp; Filtration</text>
+    <text x="112" y="128" text-anchor="middle" class="font-sans stage-detail">Black mass dissolved in warm</text>
+    <text x="112" y="142" text-anchor="middle" class="font-sans stage-detail">sulphuric acid (60°C) to extract</text>
+    <text x="112" y="156" text-anchor="middle" class="font-sans stage-detail">metal ions into liquid phase</text>
+  </g>
+
+  <!-- Arrow 5 -> 6 (right to left) -->
+  <line x1="734" y1="435" x2="704" y2="435" stroke="#c55e1b" stroke-width="2.2" marker-end="url(#arrow-amber)" />
+
+  <!-- STAGE 6 (Center) -->
+  <g transform="translate(472, 350)" filter="url(#card-shadow)">
+    <rect x="0" y="0" width="224" height="170" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" />
+    <rect x="10" y="10" width="54" height="19" rx="4" fill="#1e293b" />
+    <text x="37" y="23" text-anchor="middle" class="font-mono stage-num">STAGE 6</text>
+    <rect x="128" y="10" width="86" height="19" rx="4" fill="#e6f2f3" stroke="#99c2c6" stroke-width="0.8" />
+    <text x="171" y="23" text-anchor="middle" class="font-mono stage-badge" fill="#16656e">99.5% Purity</text>
+
+    <!-- Icon: Salt Crystals (Li, Ni, Co) -->
+    <g transform="translate(52, 38)">
+      <!-- Li crystal -->
+      <polygon points="22,6 34,14 34,30 22,38 10,30 10,14" fill="#e6f2f3" stroke="#16656e" stroke-width="1.5" />
+      <text x="22" y="26" text-anchor="middle" class="font-mono" font-size="10.5" font-weight="700" fill="#16656e">Li</text>
+      <!-- Ni crystal -->
+      <polygon points="60,6 72,14 72,30 60,38 48,30 48,14" fill="#e6f4ea" stroke="#2b7a52" stroke-width="1.5" />
+      <text x="60" y="26" text-anchor="middle" class="font-mono" font-size="10.5" font-weight="700" fill="#1b4d2e">Ni</text>
+      <!-- Co crystal -->
+      <polygon points="98,6 110,14 110,30 98,38 86,30 86,14" fill="#fef3e2" stroke="#c55e1b" stroke-width="1.5" />
+      <text x="98" y="26" text-anchor="middle" class="font-mono" font-size="10.5" font-weight="700" fill="#92400e">Co</text>
+      <text x="60" y="50" text-anchor="middle" class="font-mono" font-size="8.5" font-weight="600" fill="#64748b">CRYSTALLISED SALTS</text>
+    </g>
+
+    <text x="112" y="110" text-anchor="middle" class="font-sans stage-title">Solvent Precipitation</text>
+    <text x="112" y="128" text-anchor="middle" class="font-sans stage-detail">Battery-grade lithium, nickel &amp;</text>
+    <text x="112" y="142" text-anchor="middle" class="font-sans stage-detail">cobalt salts (99.5% purity)</text>
+    <text x="112" y="156" text-anchor="middle" class="font-sans stage-detail">selectively crystallised</text>
+  </g>
+
+  <!-- Arrow 6 -> 7 (right to left) -->
+  <line x1="472" y1="435" x2="442" y2="435" stroke="#c55e1b" stroke-width="2.2" marker-end="url(#arrow-amber)" />
+
+  <!-- STAGE 7 (Left) -->
+  <g transform="translate(210, 350)" filter="url(#card-shadow)">
+    <rect x="0" y="0" width="224" height="170" rx="10" fill="#ffffff" stroke="#2b7a52" stroke-width="1.5" />
+    <rect x="10" y="10" width="54" height="19" rx="4" fill="#2b7a52" />
+    <text x="37" y="23" text-anchor="middle" class="font-mono stage-num">STAGE 7</text>
+    <rect x="130" y="10" width="84" height="19" rx="4" fill="#e6f4ea" stroke="#68a87b" stroke-width="0.8" />
+    <text x="172" y="23" text-anchor="middle" class="font-mono stage-badge" fill="#1b4d2e">Closed Loop</text>
+
+    <!-- Icon: New EV Battery Cell / Cathode -->
+    <g transform="translate(64, 36)">
+      <rect x="12" y="10" width="72" height="36" rx="5" fill="#e6f4ea" stroke="#2b7a52" stroke-width="1.8" />
+      <rect x="84" y="20" width="6" height="16" rx="2" fill="#2b7a52" />
+      <!-- Active cathode bars -->
+      <rect x="20" y="17" width="12" height="22" rx="2" fill="#2b7a52" />
+      <rect x="36" y="17" width="12" height="22" rx="2" fill="#2b7a52" fill-opacity="0.75" />
+      <rect x="52" y="17" width="12" height="22" rx="2" fill="#2b7a52" fill-opacity="0.5" />
+      <text x="72" y="32" text-anchor="middle" class="font-mono" font-size="11" font-weight="700" fill="#1b4d2e">+</text>
+    </g>
+
+    <text x="112" y="110" text-anchor="middle" class="font-sans stage-title">Cathode Re-Manufacturing</text>
+    <text x="112" y="128" text-anchor="middle" class="font-sans stage-detail">Purified salts synthesised into</text>
+    <text x="112" y="142" text-anchor="middle" class="font-sans stage-detail">active cathode material for</text>
+    <text x="112" y="156" text-anchor="middle" class="font-sans stage-detail">new EV battery cells</text>
+  </g>
+
+  <!-- ==================== CLOSED-LOOP RETURN ARROW: STAGE 7 -> STAGE 1 ==================== -->
+  <path d="M 210 435 L 114 435 Q 92 435 92 413 L 92 316 Q 92 298 114 298 L 147 298 L 147 282"
+        fill="none" stroke="#2b7a52" stroke-width="2.6" marker-end="url(#arrow-emerald)" />
+
+  <g transform="translate(28, 344)">
+    <rect x="0" y="0" width="134" height="54" rx="8" fill="#e6f4ea" stroke="#68a87b" stroke-width="1.2" />
+    <text x="67" y="21" text-anchor="middle" class="font-mono" font-size="9.5" font-weight="700" fill="#1b4d2e">NEW EV CELLS</text>
+    <text x="67" y="35" text-anchor="middle" class="font-sans" font-size="10" fill="#1b4d2e">Used in vehicles &amp;</text>
+    <text x="67" y="47" text-anchor="middle" class="font-sans" font-size="10" fill="#1b4d2e">returned at end of life</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="28" y="560" class="font-mono footer">Flow: Stages 1–4 (Mechanical dismantling &amp; physical separation) → Stages 5–7 (Hydrometallurgical chemical recovery) → Closed-loop reuse</text>
+</svg>

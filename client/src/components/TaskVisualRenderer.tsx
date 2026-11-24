@@ -579,13 +579,21 @@ export function TaskVisualRenderer({
 
   if (!imageDataUrl && !spec) return null;
 
+  const isStaticSvg =
+    typeof imageDataUrl === "string" &&
+    /\.svg(?:[?#].*)?$/i.test(imageDataUrl.trim());
+  const imageAlt =
+    spec?.title || "Academic IELTS Task 1 official prompt visual or diagram";
+
   const renderImage = () => (
     <div className={isNested ? "" : "mt-4"}>
       <div className="relative rounded-xl border border-line bg-white p-3 overflow-hidden group">
         <img
           src={imageDataUrl!}
-          alt="Academic IELTS Task 1 official prompt visual or diagram"
-          className="w-full max-h-[420px] object-contain mx-auto rounded"
+          alt={imageAlt}
+          className={`w-full ${
+            isStaticSvg && !compact ? "max-h-[560px]" : "max-h-[420px]"
+          } object-contain mx-auto rounded`}
         />
         <button
           type="button"
@@ -615,7 +623,7 @@ export function TaskVisualRenderer({
             </button>
             <img
               src={imageDataUrl!}
-              alt="Zoomed Task 1 visual"
+              alt={imageAlt}
               className="w-full max-h-[84vh] object-contain mx-auto"
             />
           </div>
@@ -624,8 +632,8 @@ export function TaskVisualRenderer({
     </div>
   );
 
-  // If only image is available
-  if (imageDataUrl && !spec) {
+  // If only image is available, or a dedicated static SVG illustration is provided
+  if (imageDataUrl && (!spec || isStaticSvg)) {
     return renderImage();
   }
 
