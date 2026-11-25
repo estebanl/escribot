@@ -118,6 +118,9 @@ straight to the `/reset-password?token=...` page.
 - `EMAIL_FROM` must be a MailFrom address on a domain connected to the Communication
   Services resource. `Name <address>` is accepted and reduced to the address.
 - A send returns once Azure has accepted the message; the app does not wait for delivery.
+  What happened next (delivered, bounced, suppressed, filtered as spam) is in the
+  `ACSEmailStatusUpdateOperational` table of the app's Log Analytics workspace; the
+  diagnostic setting is in `infra/acs/acs.bicep`.
 - A failed send is logged as `Email delivery failed (status)` with no other detail and
   does not fail the request, which would reveal whether the address has an account.
 - **Azure sending limits:** 30 a minute and 100 an hour on a verified custom domain, 5 and

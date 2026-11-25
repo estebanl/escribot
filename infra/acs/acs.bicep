@@ -7,6 +7,9 @@ param customDomain string
 @description('Name of the Key Vault where the ACS connection string is stored.')
 param vaultName string
 
+@description('Log Analytics workspace that receives the email send and delivery logs.')
+param logAnalyticsWorkspaceId string
+
 resource emailService 'Microsoft.Communication/emailServices@2023-04-01' = {
   name: take('email-${uniqueString(resourceGroup().id)}', 63)
   location: 'global'
@@ -41,6 +44,21 @@ resource communicationService 'Microsoft.Communication/communicationServices@202
     dataLocation: dataLocation
     linkedDomains: [
       emailDomain.id
+    ]
+  }
+}
+
+// A send answers 202 once Azure has queued the message; whether it was then delivered,
+// bounced or suppressed is only recorded here (ACSEmailSendMailOperational,
+// ACSEmailStatusUpdateOperational).
+resource emailDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'email-logs'
+  scope: communicationService
+  properties: {
+    workspaceId: logAnalyticsWorkspaceId
+    logs: [
+      { category: 'EmailSendMailOperational', enabled: true }
+      { category: 'EmailStatusUpdateOperational', enabled: true }
     ]
   }
 }

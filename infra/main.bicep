@@ -122,6 +122,7 @@ module acs 'acs/acs.bicep' = if (!empty(effectiveEmailDomain)) {
     dataLocation: acsDataLocation
     customDomain: effectiveEmailDomain
     vaultName: vault.outputs.name
+    logAnalyticsWorkspaceId: aca.outputs.AZURE_LOG_ANALYTICS_WORKSPACE_ID
   }
 }
 
