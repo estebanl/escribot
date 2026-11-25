@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -508,6 +508,37 @@ function SpecContent({
   return null;
 }
 
+const STORED_IMAGE_PREFIX = "/api/images/";
+
+/**
+ * Whether a stored upload (`/api/images/{id}`) is an SVG. Its URL carries no extension,
+ * so ask the server: the response is cached privately and immutably, so the <img> that
+ * shows it reuses the same bytes.
+ */
+function useStoredImageIsSvg(url: string | null | undefined): boolean {
+  const [result, setResult] = useState<{ url: string; isSvg: boolean } | null>(
+    null
+  );
+  const stored =
+    typeof url === "string" && url.startsWith(STORED_IMAGE_PREFIX) ? url : null;
+
+  useEffect(() => {
+    if (!stored) return;
+    const controller = new AbortController();
+    fetch(stored, { signal: controller.signal })
+      .then((res) => {
+        const type = res.headers.get("content-type") ?? "";
+        setResult({ url: stored, isSvg: res.ok && /^image\/svg\+xml\b/i.test(type) });
+      })
+      .catch(() => {
+        // Aborted or offline: keep the default raster sizing.
+      });
+    return () => controller.abort();
+  }, [stored]);
+
+  return stored !== null && result?.url === stored && result.isSvg;
+}
+
 export function TaskVisualRenderer({
   chartSpecJson,
   chartSpecDirect,
@@ -523,6 +554,7 @@ export function TaskVisualRenderer({
 }) {
   const [zoomed, setZoomed] = useState(false);
   const [activeTab, setActiveTab] = useState<"spec" | "image">("spec");
+  const storedImageIsSvg = useStoredImageIsSvg(imageDataUrl);
 
   let rawSpec: unknown = chartSpecDirect || null;
   if (!rawSpec && chartSpecJson) {
@@ -539,7 +571,8 @@ export function TaskVisualRenderer({
   const isStaticSvg =
     typeof imageDataUrl === "string" &&
     (/\.svg(?:[?#].*)?$/i.test(imageDataUrl.trim()) ||
-      /^data:image\/svg\+xml[;,]/i.test(imageDataUrl.trim()));
+      /^data:image\/svg\+xml[;,]/i.test(imageDataUrl.trim()) ||
+      storedImageIsSvg);
   const imageAlt =
     spec?.title || "Academic IELTS Task 1 official prompt visual or diagram";
 

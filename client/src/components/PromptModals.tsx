@@ -346,7 +346,9 @@ export function CustomPromptModal({
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <label className="block text-xs font-medium text-ink-secondary">
-                  Chart / Diagram / Map Screenshot (WebP Compressed)
+                  {`Chart / Diagram / Map Screenshot (${
+                    isUploadedSvg || usingGeneratedSvg ? "SVG" : "WebP Compressed"
+                  })`}
                 </label>
                 {canTransformSvg && imageDataUrl && !isUploadedSvg && svgDataUrl && (
                   <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-subtle border border-line">
