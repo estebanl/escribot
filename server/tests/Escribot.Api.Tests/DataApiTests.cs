@@ -145,10 +145,12 @@ public class DataApiTests(AppHostFixture fixture)
         var (browser, userId, _) = await SignUpAsync();
 
         var wrongType = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = "data:image/bmp;base64,Qk0=" }, HttpStatusCode.BadRequest);
-        Assert.Equal("Only PNG, JPEG, WebP, GIF or SVG images can be uploaded.", wrongType.GetProperty("error").GetString());
+        Assert.Equal("Only PNG, JPEG, WebP or GIF images can be uploaded.", wrongType.GetProperty("error").GetString());
 
-        var invalidSvg = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" }, HttpStatusCode.BadRequest);
-        Assert.Equal("The SVG image is not valid.", invalidSvg.GetProperty("error").GetString());
+        // SVGs are a Pro feature.
+        const string emptySvg = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=";
+        var freeSvg = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = emptySvg }, HttpStatusCode.Forbidden);
+        Assert.Equal("upgrade_required", freeSvg.GetProperty("code").GetString());
 
         var oversizedBytes = new byte[(2 * 1024 * 1024) + 1];
         ((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).CopyTo(oversizedBytes);
@@ -164,6 +166,12 @@ public class DataApiTests(AppHostFixture fixture)
         // Complimentary Pro has room again.
         await Service<ISettingsRepository>().UpdateAsync(userId, s => s with { Plan = "pro" });
         await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = Png });
+
+        // Pro takes SVGs, but only valid ones, and names them among the accepted types.
+        var proWrongType = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = "data:image/bmp;base64,Qk0=" }, HttpStatusCode.BadRequest);
+        Assert.Equal("Only PNG, JPEG, WebP, GIF or SVG images can be uploaded.", proWrongType.GetProperty("error").GetString());
+        var invalidSvg = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = emptySvg }, HttpStatusCode.BadRequest);
+        Assert.Equal("The SVG image is not valid.", invalidSvg.GetProperty("error").GetString());
 
         // Nothing was saved for the refused uploads, and a Task 2 prompt takes no image at all.
         var task2 = (await PostJsonAsync(browser, "/api/prompts", new { taskType = "task2", promptText = "x", imageDataUrl = Png })).GetProperty("prompt");

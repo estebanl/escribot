@@ -174,7 +174,7 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         {
             throw new ImageUploadException(allowSvg
                 ? "Only PNG, JPEG, WebP, GIF or SVG images can be uploaded."
-                : "Only PNG, JPEG, WebP or GIF images can be transformed to SVG.");
+                : "Only PNG, JPEG, WebP or GIF images can be uploaded.");
         }
 
         byte[] data;
