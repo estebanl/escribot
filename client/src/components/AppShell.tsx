@@ -117,7 +117,7 @@ export function AppShell({
               id="theme-toggle-button"
               type="button"
               onClick={toggleTheme}
-              title={dark ? "Switch to Inkwell Paper (Light)" : "Switch to Inkwell Night (Dark)"}
+              title={dark ? "Switch to light mode" : "Switch to dark mode"}
               className="p-2 rounded-lg border border-line bg-canvas hover:bg-subtle text-ink-secondary hover:text-ink transition cursor-pointer"
             >
               {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}

@@ -93,7 +93,7 @@ export function RootError() {
             padding: "8px 16px",
             borderRadius: 8,
             border: "none",
-            background: "#d63b1f",
+            background: "#0f6e5c",
             color: "#fff",
             cursor: "pointer",
           }}

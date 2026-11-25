@@ -150,7 +150,7 @@ export function StudioHomeClient({
             )}
           </div>
           <h1 className="font-serif text-4xl sm:text-5xl font-semibold tracking-tight text-ink leading-[1.05]">
-            Writing <em className="italic text-accent">Studio</em>
+            Writing <span className="text-accent">Studio</span>
           </h1>
           <p className="text-base text-ink-secondary leading-relaxed">
             Write with the coach, who checks your outline before you start, or sit a timed

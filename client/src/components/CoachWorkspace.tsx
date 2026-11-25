@@ -1176,7 +1176,7 @@ export function CoachWorkspace({
                 onClick={() => setSerifEditor((s) => !s)}
                 className="text-xs font-mono text-ink-muted hover:text-ink cursor-pointer"
               >
-                Font: {serifEditor ? "Editorial Serif" : "Clean Sans"}
+                Font: {serifEditor ? "Serif" : "Sans"}
               </button>
             </div>
 
