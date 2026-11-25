@@ -347,7 +347,7 @@ export function EvaluationWorkbench({
         <div className="flex items-center gap-3">
           {hasTask1 && hasTask2 && sessionData.weightedBand !== null && (
             <div className="px-4 py-2 rounded-xl border border-line-strong bg-surface text-right">
-              <span className="block text-[10px] font-mono uppercase text-ink-muted">
+              <span className="block text-xs font-mono uppercase text-ink-muted">
                 Combined Exam (1:2 Weight)
               </span>
               <span className="font-mono text-xl font-bold text-ink">
@@ -356,8 +356,8 @@ export function EvaluationWorkbench({
             </div>
           )}
 
-          <div className="px-5 py-2.5 rounded-xl bg-accent text-accent-fg text-right">
-            <span className="block text-[10px] font-mono uppercase opacity-85">
+          <div className="px-5 py-2.5 rounded-xl border border-line-strong bg-surface text-ink text-right">
+            <span className="block text-xs font-mono uppercase text-ink-muted">
               {activeTaskType === "task1" ? "Task 1 Band" : "Task 2 Band"} (v
               {currentDraft.version})
             </span>
@@ -366,7 +366,7 @@ export function EvaluationWorkbench({
                 {ev.overallBand.toFixed(1)}
               </span>
               {bandDelta !== null && bandDelta !== 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-white/20 text-xs font-mono font-semibold">
+                <span className={`px-1.5 py-0.5 rounded text-xs font-mono font-semibold ${bandDelta > 0 ? "bg-[var(--status-success-soft)] text-[var(--status-success)]" : "bg-subtle text-ink-secondary"}`}>
                   {bandDelta > 0 ? `+${bandDelta.toFixed(1)} ↑` : bandDelta.toFixed(1)}
                 </span>
               )}
@@ -447,7 +447,7 @@ export function EvaluationWorkbench({
           onClick={() => setPromptExpanded((p) => !p)}
           className="text-xs font-medium text-accent hover:underline cursor-pointer"
         >
-          {promptExpanded ? "Hide Task Prompt & Chart" : "Show Task Prompt & Chart"}
+          {promptExpanded ? "Hide the task" : "Show the task"}
         </button>
       </div>
 
@@ -518,7 +518,7 @@ export function EvaluationWorkbench({
 
                 {crit?.howToGainHalfBand && (
                   <div className="pt-2.5 border-t border-line">
-                    <span className="block text-[10px] font-mono uppercase text-accent font-semibold mb-0.5">
+                    <span className="block text-xs font-mono uppercase text-accent font-semibold mb-0.5">
                       Next +0.5 Unlock
                     </span>
                     <p className="text-xs text-ink font-medium leading-snug">
@@ -591,7 +591,7 @@ export function EvaluationWorkbench({
                     key={cat}
                     type="button"
                     onClick={() => setCategoryFilter(cat)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold transition cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition cursor-pointer ${
                       categoryFilter === cat
                         ? "bg-ink text-canvas"
                         : cat === "ALL"
@@ -636,7 +636,7 @@ export function EvaluationWorkbench({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase span-${ann.category}`}
+                        className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase span-${ann.category}`}
                       >
                         {CRITERION_META[ann.category]?.short || ann.category} ·{" "}
                         {ann.severity}
@@ -649,7 +649,7 @@ export function EvaluationWorkbench({
                           handleSaveAnnotationToVault(ann);
                         }}
                         disabled={saved}
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline cursor-pointer disabled:opacity-60"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline cursor-pointer disabled:opacity-60"
                       >
                         {saved ? (
                           <>
@@ -762,7 +762,7 @@ export function EvaluationWorkbench({
             </ol>
 
             <div className="pt-3 border-t border-line space-y-2">
-              <span className="block text-[11px] font-mono uppercase text-ink-muted">
+              <span className="block text-xs font-mono uppercase text-ink-muted">
                 Key Span Fixes to Apply
               </span>
               <div className="max-h-72 overflow-y-auto space-y-2 pr-1">

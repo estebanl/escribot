@@ -302,11 +302,11 @@ export function DrillsClient({
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="px-2 py-0.5 rounded bg-subtle text-ink-secondary text-[11px] font-mono font-semibold">
+                  <span className="px-2 py-0.5 rounded bg-subtle text-ink-secondary text-xs font-mono font-semibold">
                     {card.badge} · {isBeginner ? "5 min" : card.duration}
                   </span>
                   {isRec && !isBeginner && (
-                    <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-accent-soft text-accent font-semibold">
+                    <span className="text-xs font-mono uppercase px-2 py-0.5 rounded bg-accent-soft text-accent font-semibold">
                       Recommended Focus
                     </span>
                   )}
@@ -349,7 +349,7 @@ export function DrillsClient({
         <section className="editorial-surface rounded-2xl p-6 space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-line">
             <div>
-              <span className="text-[11px] font-mono uppercase text-accent font-semibold">
+              <span className="text-xs font-mono uppercase text-accent font-semibold">
                 {challenge.sourceContext}
               </span>
               <h2 className="font-serif text-xl font-semibold text-ink">
@@ -389,7 +389,7 @@ export function DrillsClient({
 
           {challenge.flawedText && (
             <div className="p-4 rounded-xl bg-subtle border border-line space-y-1">
-              <span className="text-[10px] font-mono uppercase text-ink-muted">
+              <span className="text-xs font-mono uppercase text-ink-muted">
                 {isAdvanced ? "Passage to Upgrade" : "Text to Improve"}
               </span>
               <p className="editorial-prose text-ink">{challenge.flawedText}</p>
@@ -426,7 +426,7 @@ export function DrillsClient({
 
           {challenge.steps && challenge.steps.length > 0 && (
             <div className="p-4 rounded-xl border border-line space-y-3">
-              <span className="text-[10px] font-mono uppercase text-accent font-semibold">
+              <span className="text-xs font-mono uppercase text-accent font-semibold">
                 Step by Step
               </span>
               <ol className="space-y-3">
@@ -462,7 +462,7 @@ export function DrillsClient({
 
           {challenge.wordBank && challenge.wordBank.length > 0 && (
             <div className="space-y-2">
-              <span className="text-[10px] font-mono uppercase text-ink-muted">
+              <span className="text-xs font-mono uppercase text-ink-muted">
                 Useful Words · click to add
               </span>
               <div className="flex flex-wrap gap-2">
@@ -553,7 +553,7 @@ export function DrillsClient({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {scoreResult.improvedVersion.trim() !== challenge.referenceModelAnswer.trim() && (
                 <div className="p-3.5 rounded-xl bg-subtle space-y-1">
-                  <span className="text-[10px] font-mono uppercase text-accent font-semibold">
+                  <span className="text-xs font-mono uppercase text-accent font-semibold">
                     {isAdvanced
                       ? "Polished Band 8.5 Version of Your Draft"
                       : "A Better Version of Your Answer"}
@@ -564,7 +564,7 @@ export function DrillsClient({
                 </div>
                 )}
                 <div className="p-3.5 rounded-xl bg-subtle space-y-1">
-                  <span className="text-[10px] font-mono uppercase text-ink-muted font-semibold">
+                  <span className="text-xs font-mono uppercase text-ink-muted font-semibold">
                     {isAdvanced ? "Examiner Reference Benchmark" : "Example Answer"}
                   </span>
                   <p className="editorial-prose text-sm text-ink">

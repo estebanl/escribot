@@ -562,8 +562,8 @@ export function CoachWorkspace({
     return (
       <div className="space-y-2.5">
         <div className="p-2 rounded-lg border-l-2 border-accent/60 bg-subtle/50">
-          <span className="text-[10px] font-mono uppercase text-ink-muted">Checked text</span>
-          <p className="text-[11px] text-ink-secondary italic line-clamp-3">
+          <span className="text-xs font-mono uppercase text-ink-muted">Checked text</span>
+          <p className="text-xs text-ink-secondary italic line-clamp-3">
             &ldquo;{entry.checkedText}&rdquo;
           </p>
         </div>
@@ -579,11 +579,11 @@ export function CoachWorkspace({
                 className="p-2.5 rounded-lg bg-subtle flex items-start justify-between gap-3"
               >
                 <div className="space-y-0.5">
-                  <span className="text-[10px] font-mono uppercase font-semibold text-accent">
+                  <span className="text-xs font-mono uppercase font-semibold text-accent">
                     {sug.label}
                   </span>
                   <p className="text-ink font-medium">{sug.rewrittenOrPhrase}</p>
-                  <p className="text-[11px] text-ink-secondary">{sug.rationale}</p>
+                  <p className="text-xs text-ink-secondary">{sug.rationale}</p>
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0">
                   <button
@@ -622,34 +622,33 @@ export function CoachWorkspace({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-5">
       {/* Top Studio Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-line">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <Link
             to="/"
-            className="p-2 rounded-lg border border-line bg-surface hover:bg-subtle text-ink-secondary hover:text-ink transition"
+            aria-label="Back to Studio"
+            className="p-2 rounded-lg border border-line bg-surface hover:bg-subtle text-ink-secondary hover:text-ink transition shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded bg-accent-soft text-accent font-semibold">
-                Coach Studio · {taskType === "task1" ? "Task 1" : "Task 2"}
-              </span>
-              <span className="text-xs text-ink-muted">
-                Target pace: ~{recMinutes} min · {minWords}+ words
-              </span>
-            </div>
+            <p className="text-sm text-ink-muted">
+              <span className="font-semibold text-accent">
+                Coach · {taskType === "task1" ? "Task 1" : "Task 2"}
+              </span>{" "}
+              · about {recMinutes} min · {minWords}+ words
+            </p>
             <h1 className="font-serif text-lg sm:text-xl font-semibold text-ink mt-0.5">
               {prompt.title}
             </h1>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setTimerPaused((p) => !p)}
             title="Click to pause/resume study stopwatch"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line bg-surface text-xs font-mono tabular-nums text-ink cursor-pointer"
+            className="btn btn-secondary font-mono tabular-nums"
           >
             <Clock className="w-3.5 h-3.5 text-accent" />
             <span>
@@ -663,17 +662,18 @@ export function CoachWorkspace({
             type="button"
             disabled={submitting || wordCount < 10}
             onClick={handleSubmitEssay}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-accent-fg text-xs sm:text-sm font-semibold transition cursor-pointer disabled:opacity-50"
+            title={wordCount < 10 ? "Write a few sentences first" : undefined}
+            className="btn btn-primary"
           >
             {submitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Examiner Grading...</span>
+                <span>Grading…</span>
               </>
             ) : (
               <>
                 <Send className="w-3.5 h-3.5" />
-                <span>Submit for Band Grading</span>
+                <span>Submit for grading</span>
               </>
             )}
           </button>
@@ -769,7 +769,7 @@ export function CoachWorkspace({
         {/* Left Column: Prompt + Visual + 5-Min Interactive Outline Check */}
         <div className="lg:col-span-5 space-y-5">
           <section className="editorial-surface rounded-2xl p-5">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-ink-muted">
+            <span className="text-xs font-mono uppercase tracking-wider text-ink-muted">
               Prompt Instructions
             </span>
             <p className="text-sm text-ink leading-relaxed whitespace-pre-line mt-2">
@@ -793,7 +793,7 @@ export function CoachWorkspace({
                     Your Focus for This Draft
                   </h2>
                 </div>
-                <span className="text-[11px] font-mono text-ink-muted">
+                <span className="text-xs font-mono text-ink-muted">
                   {previousFocus.isRedraft
                     ? `From v${previousFocus.fromVersion}`
                     : "Last graded essay"}{" "}
@@ -855,7 +855,7 @@ export function CoachWorkspace({
                 </p>
 
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-ink-secondary mb-1">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-ink-secondary mb-1">
                     {taskType === "task1"
                       ? "Macro Overview (2–3 overarching trends, NO raw numbers)"
                       : "Thesis & Clear Position"}
@@ -879,7 +879,7 @@ export function CoachWorkspace({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-ink-secondary mb-1">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-ink-secondary mb-1">
                       Body 1 Grouping / Claim
                     </label>
                     <textarea
@@ -899,7 +899,7 @@ export function CoachWorkspace({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-ink-secondary mb-1">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-ink-secondary mb-1">
                       Body 2 Grouping / Claim
                     </label>
                     <textarea
@@ -941,7 +941,7 @@ export function CoachWorkspace({
                   <div className="mt-3 p-3.5 rounded-xl bg-canvas border border-line-strong space-y-2.5 text-xs">
                     <div className="flex items-center justify-between">
                       <span
-                        className={`px-2 py-0.5 rounded font-mono font-semibold uppercase text-[10px] ${
+                        className={`px-2 py-0.5 rounded font-mono font-semibold uppercase text-xs ${
                           outlineFeedback.readiness === "strong"
                             ? "bg-accent-soft text-accent"
                             : "bg-warm-soft text-warm"
@@ -956,7 +956,7 @@ export function CoachWorkspace({
                     </div>
 
                     {outlineIsStale && (
-                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-warm-soft text-[11px] text-ink">
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-warm-soft text-xs text-ink">
                         <span className="flex items-center gap-1.5">
                           <AlertTriangle className="w-3.5 h-3.5 text-warm shrink-0" />
                           Outline changed since this check.
@@ -983,7 +983,7 @@ export function CoachWorkspace({
 
                     {outlineFeedback.actionableTweaks?.length > 0 && (
                       <div className="pt-2 border-t border-line space-y-1.5">
-                        <p className="text-[11px] font-mono uppercase text-ink-muted">
+                        <p className="text-xs font-mono uppercase text-ink-muted">
                           Fix Before You Write ({doneTweaks.size}/
                           {outlineFeedback.actionableTweaks.length})
                         </p>
@@ -1016,7 +1016,7 @@ export function CoachWorkspace({
 
                     {outlineFeedback.suggestedAcademicCollocations?.length > 0 && (
                       <div className="pt-2 border-t border-line space-y-1.5">
-                        <p className="text-[11px] font-mono uppercase text-ink-muted">
+                        <p className="text-xs font-mono uppercase text-ink-muted">
                           High-Register Collocations for This Topic
                         </p>
                         {outlineFeedback.suggestedAcademicCollocations.map((c, idx) => (
@@ -1028,7 +1028,7 @@ export function CoachWorkspace({
                               <span className="font-semibold text-ink">
                                 &ldquo;{c.phrase}&rdquo;
                               </span>
-                              <p className="text-[11px] text-ink-secondary">
+                              <p className="text-xs text-ink-secondary">
                                 {c.usageNote}
                               </p>
                             </div>
@@ -1082,7 +1082,7 @@ export function CoachWorkspace({
                     <h2 className="font-serif text-base font-semibold text-ink">
                       Suggested Keywords
                     </h2>
-                    <span className="text-[11px] font-mono text-ink-muted tabular-nums">
+                    <span className="text-xs font-mono text-ink-muted tabular-nums">
                       {usedCount}/{allKeywords.length} used
                     </span>
                   </div>
@@ -1109,7 +1109,7 @@ export function CoachWorkspace({
                     <div className="space-y-2.5">
                       {keywordGroups.map((group) => (
                         <div key={group.label} className="space-y-1.5">
-                          <p className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-muted">
+                          <p className="text-xs font-mono font-semibold uppercase tracking-wider text-ink-muted">
                             {group.label}
                           </p>
                           <div className="flex flex-wrap gap-1.5">
@@ -1163,7 +1163,7 @@ export function CoachWorkspace({
                 </div>
                 {lastLocalSave && (
                   <span
-                    className="text-[11px] text-ink-muted"
+                    className="text-xs text-ink-muted"
                     title="Your draft is saved on this device until you submit it for grading"
                   >
                     Saved locally · {lastLocalSave}
@@ -1176,7 +1176,7 @@ export function CoachWorkspace({
                 onClick={() => setSerifEditor((s) => !s)}
                 className="text-xs font-mono text-ink-muted hover:text-ink cursor-pointer"
               >
-                Font: {serifEditor ? "Editorial Serif" : "Clean Sans"}
+                Font: {serifEditor ? "Serif" : "Sans"}
               </button>
             </div>
 
@@ -1205,13 +1205,15 @@ export function CoachWorkspace({
             {/* On-Demand Surgical Toolkit Bar (No Ghost Autocomplete) */}
             <div className="pt-3 border-t border-line space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] font-mono uppercase tracking-wider text-ink-muted">
-                  On-Demand Coach Toolkit{" "}
-                  {selectedSnippet
-                    ? `(Selected: "${selectedSnippet.slice(0, 28)}${
-                        selectedSnippet.length > 28 ? "…" : ""
-                      }")`
-                    : "(Inspects the paragraph your cursor is in)"}
+                <span className="text-xs font-mono uppercase tracking-wider text-ink-muted">
+                  Coach tools{" "}
+                  <span className="normal-case tracking-normal font-normal">
+                    {selectedSnippet
+                      ? `· checks “${selectedSnippet.slice(0, 28)}${
+                          selectedSnippet.length > 28 ? "…" : ""
+                        }”`
+                      : "· checks the paragraph your cursor is in"}
+                  </span>
                 </span>
               </div>
 

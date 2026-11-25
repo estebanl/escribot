@@ -1,33 +1,34 @@
 @import "tailwindcss";
 
 :root {
-  /* Inkwell & Vermilion typography, loaded from Google Fonts in index.html */
+  /* Calm Study typography, loaded from Google Fonts in index.html */
   --font-inter: "Inter";
-  --font-fraunces: "Fraunces";
+  --font-display: "Plus Jakarta Sans";
+  --font-reading: "Source Serif 4";
   --font-plex-mono: "IBM Plex Mono";
 
-  /* Inkwell & Vermilion — Editorial broadsheet: paper white, near-black ink,
-     a single examiner's-red-pen accent (Zero Purple) */
-  --bg-canvas: #fbfaf8;
+  /* Calm Study: soft green-grey surfaces, one deep-green accent.
+     Red is kept for mistakes (status-danger and the GRA/L1 marks). */
+  --bg-canvas: #f6f7f5;
   --bg-surface: #ffffff;
   --bg-elevated: #ffffff;
-  --bg-subtle: #f2efea;
-  --bg-hover: #e9e5de;
+  --bg-subtle: #eef2ef;
+  --bg-hover: #e4e9e5;
 
-  --ink-primary: #141414;
-  --ink-secondary: #4a4743;
-  --ink-muted: #7c7770;
+  --ink-primary: #0f1a17;
+  --ink-secondary: #44524d;
+  --ink-muted: #6f7b76;
 
-  --border-subtle: #e6e1da;
-  --border-strong: #cfc8be;
+  --border-subtle: #e2e7e3;
+  --border-strong: #c9d1cc;
 
-  --accent-primary: #d63b1f;
-  --accent-primary-hover: #b8301a;
+  --accent-primary: #0f6e5c;
+  --accent-primary-hover: #0b5a4b;
   --accent-primary-fg: #ffffff;
-  --accent-soft: #fbe9e4;
+  --accent-soft: #e2f2ed;
 
-  --accent-warm: #9a6a12;
-  --accent-warm-soft: #f7eed9;
+  --accent-warm: #b45309;
+  --accent-warm-soft: #fdf1e3;
 
   --status-success: hsl(156, 64%, 29%);
   --status-success-soft: hsl(156, 52%, 92%);
@@ -46,33 +47,33 @@
   --crit-l1: hsl(22, 80%, 39%);
   --crit-l1-bg: hsla(22, 85%, 50%, 0.16);
 
-  /* Flat editorial surfaces: hairline borders instead of soft shadows */
-  --shadow-card: none;
-  --shadow-float: 0 12px 32px rgba(20, 20, 20, 0.12), 0 0 0 1px rgba(20, 20, 20, 0.06);
+  /* Soft lift on cards */
+  --shadow-card: 0 1px 2px rgba(15, 26, 23, 0.04), 0 2px 8px rgba(15, 26, 23, 0.05);
+  --shadow-float: 0 12px 32px rgba(15, 26, 23, 0.12), 0 0 0 1px rgba(15, 26, 23, 0.06);
 }
 
 html.dark {
-  /* Inkwell Night — charcoal press room & coral-vermilion (Strictly Zero Purple) */
-  --bg-canvas: #121212;
-  --bg-surface: #1a1a1a;
-  --bg-elevated: #202020;
-  --bg-subtle: #242424;
-  --bg-hover: #2c2c2c;
+  /* Calm Study, night */
+  --bg-canvas: #0e1412;
+  --bg-surface: #151c1a;
+  --bg-elevated: #1b2421;
+  --bg-subtle: #1f2926;
+  --bg-hover: #273330;
 
-  --ink-primary: #f2eee8;
-  --ink-secondary: #bdb7ae;
-  --ink-muted: #8a847c;
+  --ink-primary: #e8eeeb;
+  --ink-secondary: #a9b6b1;
+  --ink-muted: #7f8d88;
 
-  --border-subtle: #2c2c2c;
-  --border-strong: #424242;
+  --border-subtle: #24302c;
+  --border-strong: #3a4844;
 
-  --accent-primary: #ff6b4a;
-  --accent-primary-hover: #ff8466;
-  --accent-primary-fg: #160a06;
-  --accent-soft: rgba(255, 107, 74, 0.14);
+  --accent-primary: #3ccfa8;
+  --accent-primary-hover: #63dbbb;
+  --accent-primary-fg: #04140f;
+  --accent-soft: rgba(60, 207, 168, 0.14);
 
-  --accent-warm: #e8b04b;
-  --accent-warm-soft: rgba(232, 176, 75, 0.14);
+  --accent-warm: #f0b45a;
+  --accent-warm-soft: rgba(240, 180, 90, 0.14);
 
   --status-success: hsl(156, 56%, 50%);
   --status-success-soft: hsla(156, 56%, 45%, 0.16);
@@ -90,19 +91,19 @@ html.dark {
   --crit-l1: hsl(24, 88%, 65%);
   --crit-l1-bg: hsla(24, 88%, 55%, 0.2);
 
-  --shadow-card: none;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-float: 0 14px 36px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
-/* Square, broadsheet-style corners across every rounded-* utility (rounded-full untouched) */
+/* Soft, friendly corners across every rounded-* utility */
 @theme {
-  --radius-xs: 1px;
-  --radius-sm: 2px;
-  --radius-md: 2px;
-  --radius-lg: 2px;
-  --radius-xl: 3px;
-  --radius-2xl: 3px;
-  --radius-3xl: 4px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
 }
 
 @theme inline {
@@ -123,7 +124,7 @@ html.dark {
   --color-warm-soft: var(--accent-warm-soft);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-fraunces), Georgia, Cambria, "Times New Roman", serif;
+  --font-serif: var(--font-display), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -139,13 +140,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Fraunces display headings: optical sizing + tight broadsheet tracking */
+/* Display headings (the font-serif utility maps to the display face) */
 .font-serif {
-  font-optical-sizing: auto;
-  font-variation-settings: "SOFT" 30;
+  letter-spacing: -0.015em;
 }
 h1.font-serif,
 h2.font-serif {
+  font-weight: 700;
   letter-spacing: -0.025em;
 }
 
@@ -161,8 +162,9 @@ h2.font-serif {
   border: 1px solid var(--border-subtle);
 }
 
+/* Essays are read and written in a serif built for long text */
 .editorial-prose {
-  font-family: var(--font-serif);
+  font-family: var(--font-reading), Georgia, Cambria, "Times New Roman", serif;
   font-size: 1.09rem;
   line-height: 1.78;
   letter-spacing: -0.004em;
@@ -290,7 +292,7 @@ h2.font-serif {
   line-height: 1.7;
 }
 .legal-prose h2 {
-  font-family: var(--font-serif);
+  font-family: var(--font-display), var(--font-inter), sans-serif;
   font-size: 1.35rem;
   font-weight: 600;
   color: var(--ink-primary);
@@ -313,4 +315,71 @@ h2.font-serif {
 .legal-prose a {
   color: var(--accent-primary);
   text-decoration: underline;
+}
+
+/* Shared buttons: one primary action per area, the same heights everywhere */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms, color 150ms;
+}
+.btn-sm {
+  height: 2rem;
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
+  gap: 0.375rem;
+}
+.btn-primary {
+  background-color: var(--accent-primary);
+  color: var(--accent-primary-fg);
+}
+.btn-primary:hover {
+  background-color: var(--accent-primary-hover);
+}
+.btn-secondary {
+  background-color: var(--bg-surface);
+  border-color: var(--border-strong);
+  color: var(--ink-primary);
+}
+.btn-secondary:hover {
+  background-color: var(--bg-subtle);
+}
+.btn-ghost {
+  color: var(--ink-secondary);
+}
+.btn-ghost:hover {
+  background-color: var(--bg-subtle);
+  color: var(--ink-primary);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Unavailable reads as neutral, not as a faded accent */
+.btn:disabled,
+button.bg-accent:disabled {
+  opacity: 1;
+  background-color: var(--bg-subtle);
+  border-color: var(--border-subtle);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+/* Small uppercase labels use the text face; monospace stays for numbers and scores */
+.font-mono.uppercase:not(.inspera-shell *) {
+  font-family: var(--font-sans);
+  letter-spacing: 0.06em;
+  font-weight: 600;
 }

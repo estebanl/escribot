@@ -17,9 +17,9 @@ import { auth } from "@/lib/auth";
 
 const NAV_ITEMS = [
   { href: "/", label: "Studio", icon: BookOpen, id: "nav-studio" },
-  { href: "/drills", label: "5-Min Drills", icon: Zap, id: "nav-drills" },
-  { href: "/vault", label: "Error & Lexical Vault", icon: Bookmark, id: "nav-vault" },
-  { href: "/analytics", label: "Band Progress", icon: LineChart, id: "nav-analytics" },
+  { href: "/drills", label: "Drills", icon: Zap, id: "nav-drills" },
+  { href: "/vault", label: "Vault", icon: Bookmark, id: "nav-vault" },
+  { href: "/analytics", label: "Progress", icon: LineChart, id: "nav-analytics" },
   { href: "/settings", label: "Settings", icon: Settings, id: "nav-settings" },
 ];
 
@@ -78,7 +78,7 @@ export function AppShell({
               <span className="font-serif text-lg font-semibold tracking-tight text-ink block">
                 Escribot
               </span>
-              <span className="text-[10px] font-mono uppercase tracking-widest text-ink-muted hidden sm:block">
+              <span className="text-xs font-mono uppercase tracking-widest text-ink-muted hidden sm:block">
                 Academic IELTS Studio
               </span>
             </div>
@@ -117,7 +117,7 @@ export function AppShell({
               id="theme-toggle-button"
               type="button"
               onClick={toggleTheme}
-              title={dark ? "Switch to Inkwell Paper (Light)" : "Switch to Inkwell Night (Dark)"}
+              title={dark ? "Switch to light mode" : "Switch to dark mode"}
               className="p-2 rounded-lg border border-line bg-canvas hover:bg-subtle text-ink-secondary hover:text-ink transition cursor-pointer"
             >
               {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -197,12 +197,12 @@ export function AppShell({
               key={item.href}
               id={`${item.id}-mobile`}
               to={item.href}
-              className={`flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition ${
+              className={`flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
                 active ? "text-accent font-semibold" : "text-ink-muted hover:text-ink"
               }`}
             >
               <Icon className="w-4 h-4" />
-              <span>{item.label.split(" ")[0]}</span>
+              <span>{item.label}</span>
             </Link>
           );
         })}
