@@ -23,6 +23,17 @@ public class ConfigurationTests
         Assert.Contains("App:EncryptionSecret is required", exception.Message);
     }
 
+    [Theory]
+    [InlineData("FREE_PLAN_EVALUATIONS_PER_MONTH", "-1")]
+    [InlineData("FREE_PLAN_ASSISTS_PER_MONTH", "lots")]
+    [InlineData("PRO_PLAN_EVALUATIONS_PER_MONTH", "2.5")]
+    public void App_refuses_to_start_with_a_bad_plan_allowance(string name, string value)
+    {
+        var exception = StartupFailure<InvalidOperationException>(() => new ApiFactory { Settings = new() { [name] = value } });
+
+        Assert.Contains($"{name} must be a whole number", exception.Message);
+    }
+
     [Fact]
     public void App_refuses_to_start_in_production_without_the_public_url()
     {

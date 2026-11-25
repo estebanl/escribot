@@ -245,7 +245,7 @@ public class AiUnitTests
         var planResolver = new PlanResolver(data, data, authSettings);
         var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
         var env = new FakeEnvironment("Production");
-        var guard = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, new AiQuotaTracker());
+        var guard = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, new AiQuotaTracker(), new PlanCatalog(config));
 
         // Unverified Free user in Production -> 403 verification_required
         var unverified = new UserAccount { Id = "u-unver", Email = "unver@example.test", EmailVerified = false };
@@ -264,9 +264,9 @@ public class AiUnitTests
         var blockedDaily = await guard.GuardAsync(freeUser, AiRequestKind.Assist);
         Assert.NotNull(blockedDaily);
 
-        // Advance day -> daily cap resets, now test monthly quota (Free = 5 evaluations)
+        // Advance day -> daily cap resets, now test monthly quota (Free = 3 evaluations)
         clock.Now = clock.Now.AddDays(1);
-        for (var i = 0; i < 4; i++)
+        for (var i = 0; i < 2; i++)
         {
             await ((IAiUsageRepository)data).RecordAsync(freeUser.Id, new AiUsageRecord
             {
@@ -280,9 +280,9 @@ public class AiUnitTests
             });
         }
 
-        // 4 used + 1 unit = 5 <= 5 -> allowed
+        // 2 used + 1 unit = 3 <= 3 -> allowed
         Assert.Null(await guard.GuardAsync(freeUser, AiRequestKind.Evaluation, units: 1));
-        // 4 used + 2 units = 6 > 5 -> blocked
+        // 2 used + 2 units = 4 > 3 -> blocked
         Assert.NotNull(await guard.GuardAsync(freeUser, AiRequestKind.Evaluation, units: 2));
 
         // User's own key bypasses monthly quota and daily cap
@@ -321,8 +321,8 @@ public class AiUnitTests
         var resolver = new AiConfigResolver(data, data, planResolver, protector, config);
         var env = new FakeEnvironment("Production");
         var tracker = new AiQuotaTracker();
-        var guard1 = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, tracker);
-        var guard2 = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, tracker);
+        var guard1 = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, tracker, new PlanCatalog(config));
+        var guard2 = new AiAccessGuard(data, resolver, data, data, authSettings, config, env, clock, tracker, new PlanCatalog(config));
 
         var user = new UserAccount { Id = "u-inflight", Email = "inflight@example.test", EmailVerified = true };
         await data.CreateAsync(user);

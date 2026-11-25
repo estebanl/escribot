@@ -17,6 +17,7 @@ builder.AddDataApi();
 var app = builder.Build();
 
 app.EnsureStorageConfigured();
+app.EnsurePlansConfigured();
 app.EnsureEmailConfigured();
 app.UseProxyHeaders();
 if (!app.Environment.IsDevelopment())

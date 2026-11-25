@@ -127,7 +127,8 @@ public sealed class AiAccessGuard(
     IConfiguration configuration,
     IHostEnvironment environment,
     TimeProvider time,
-    AiQuotaTracker quotaTracker)
+    AiQuotaTracker quotaTracker,
+    PlanCatalog planCatalog)
 {
     public const int AiRequestsPerMinute = 20;
 
@@ -171,7 +172,7 @@ public sealed class AiAccessGuard(
         }
 
         var dailyCap = cfg.Plan == Plans.Free ? GetFreeDailyCap() : null;
-        var limits = Plans.Limits[cfg.Plan];
+        var limits = planCatalog[cfg.Plan];
         var limit = kind == AiRequestKind.Evaluation ? limits.EvaluationsPerMonth : limits.AssistsPerMonth;
         if (dailyCap is null && limit is null)
         {
@@ -222,7 +223,7 @@ public sealed class AiAccessGuard(
                         : $"You have used all {monthlyLimit} {what} included in the {limits.Label} plan this month.";
 
                     var canUpgrade = cfg.Plan == Plans.Free && billingEnabled;
-                    var pro = Plans.Limits[Plans.Pro];
+                    var pro = planCatalog[Plans.Pro];
                     var nextStep = canUpgrade
                         ? $"To keep going now, upgrade to Pro ({(kind == AiRequestKind.Evaluation ? pro.EvaluationsPerMonth : pro.AssistsPerMonth)} {what} a month) on the Pricing page, or add your own API key in Settings."
                         : "To keep going now, add your own API key in Settings.";

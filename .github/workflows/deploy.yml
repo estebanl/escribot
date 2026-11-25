@@ -116,6 +116,10 @@ jobs:
           ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS }}
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
           FREE_PLAN_DAILY_AI_CAP: ${{ vars.FREE_PLAN_DAILY_AI_CAP }}
+          FREE_PLAN_EVALUATIONS_PER_MONTH: ${{ vars.FREE_PLAN_EVALUATIONS_PER_MONTH }}
+          FREE_PLAN_ASSISTS_PER_MONTH: ${{ vars.FREE_PLAN_ASSISTS_PER_MONTH }}
+          PRO_PLAN_EVALUATIONS_PER_MONTH: ${{ vars.PRO_PLAN_EVALUATIONS_PER_MONTH }}
+          PRO_PLAN_ASSISTS_PER_MONTH: ${{ vars.PRO_PLAN_ASSISTS_PER_MONTH }}
           SITE_OPERATOR: ${{ vars.SITE_OPERATOR }}
           SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
           SITE_JURISDICTION: ${{ vars.SITE_JURISDICTION }}
@@ -125,6 +129,14 @@ jobs:
             echo "::error::Set the BUDGET_AMOUNT secret in the production environment to a whole number (the monthly budget)."
             exit 1
           fi
+          # The app refuses to start with a bad allowance; catch it here, before deploying.
+          for name in FREE_PLAN_EVALUATIONS_PER_MONTH FREE_PLAN_ASSISTS_PER_MONTH PRO_PLAN_EVALUATIONS_PER_MONTH PRO_PLAN_ASSISTS_PER_MONTH; do
+            value="${!name}"
+            if [ -n "$value" ] && { ! [[ "$value" =~ ^[0-9]{1,7}$ ]] || [ "$((10#$value))" -gt 1000000 ]; }; then
+              echo "::error::$name must be a whole number from 0 to 1000000, or unset for the default."
+              exit 1
+            fi
+          done
           if [ "$BEHIND_CLOUDFLARE" = "true" ] && [ -z "$CUSTOM_DOMAIN" ]; then
             echo "::error::BEHIND_CLOUDFLARE is true but CUSTOM_DOMAIN is not set. Cloudflare proxies the custom domain."
             exit 1
@@ -168,6 +180,10 @@ jobs:
             --arg admins "$ADMIN_EMAILS" \
             --arg emailFrom "$EMAIL_FROM" \
             --arg cap "$FREE_PLAN_DAILY_AI_CAP" \
+            --arg freeEvals "$FREE_PLAN_EVALUATIONS_PER_MONTH" \
+            --arg freeAssists "$FREE_PLAN_ASSISTS_PER_MONTH" \
+            --arg proEvals "$PRO_PLAN_EVALUATIONS_PER_MONTH" \
+            --arg proAssists "$PRO_PLAN_ASSISTS_PER_MONTH" \
             --arg op "$SITE_OPERATOR" \
             --arg sup "$SUPPORT_EMAIL" \
             --arg jur "$SITE_JURISDICTION" \
@@ -205,6 +221,10 @@ jobs:
                 "adminEmails": { "value": $admins },
                 "emailFrom": { "value": $emailFrom },
                 "freePlanDailyAiCap": { "value": $cap },
+                "freePlanEvaluationsPerMonth": { "value": $freeEvals },
+                "freePlanAssistsPerMonth": { "value": $freeAssists },
+                "proPlanEvaluationsPerMonth": { "value": $proEvals },
+                "proPlanAssistsPerMonth": { "value": $proAssists },
                 "siteOperator": { "value": $op },
                 "supportEmail": { "value": $sup },
                 "siteJurisdiction": { "value": $jur }

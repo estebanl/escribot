@@ -404,14 +404,14 @@ public class AiEndpointTests
     [Fact]
     public async Task Concurrent_requests_cannot_bypass_free_monthly_quota_or_daily_cap()
     {
-        // 1. Concurrent evaluations cannot bypass the Free monthly evaluation quota (5).
+        // 1. Concurrent evaluations cannot bypass the Free monthly evaluation quota (3).
         var evalGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var inFlightEvalCalls = 0;
         var evalProvider = new FakeChatClientFactory(async (_, userPrompt, _) =>
         {
             if (userPrompt.Contains("taTrBand", StringComparison.Ordinal))
             {
-                if (Interlocked.Increment(ref inFlightEvalCalls) >= 5)
+                if (Interlocked.Increment(ref inFlightEvalCalls) >= 3)
                 {
                     evalGate.TrySetResult();
                 }
@@ -447,11 +447,11 @@ public class AiEndpointTests
             var responses = await Task.WhenAll(tasks);
             try
             {
-                Assert.Equal(5, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
-                Assert.Equal(5, responses.Count(r => r.StatusCode == HttpStatusCode.TooManyRequests));
+                Assert.Equal(3, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
+                Assert.Equal(7, responses.Count(r => r.StatusCode == HttpStatusCode.TooManyRequests));
                 var monthStart = new DateTimeOffset(factory.Clock.GetUtcNow().Year, factory.Clock.GetUtcNow().Month, 1, 0, 0, 0, TimeSpan.Zero);
                 var recorded = await ((IAiUsageRepository)factory.Data).CountAsync(userId, monthStart, Api.UsageService.EvaluationFeatures, "platform");
-                Assert.Equal(5, recorded);
+                Assert.Equal(3, recorded);
             }
             finally
             {

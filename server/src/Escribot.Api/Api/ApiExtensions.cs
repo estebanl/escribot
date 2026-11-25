@@ -7,6 +7,16 @@ namespace Escribot.Api.Api;
 
 internal static class ApiExtensions
 {
+    /// <summary>
+    /// Reads the plan allowance settings now, so a bad value stops the app at startup
+    /// instead of failing the first AI request.
+    /// </summary>
+    public static WebApplication EnsurePlansConfigured(this WebApplication app)
+    {
+        _ = app.Services.GetRequiredService<PlanCatalog>();
+        return app;
+    }
+
     /// <summary>Registers what the data endpoints are built from.</summary>
     public static IHostApplicationBuilder AddDataApi(this IHostApplicationBuilder builder)
     {
@@ -14,6 +24,7 @@ internal static class ApiExtensions
         builder.Services.AddSingleton<ApiKeyProtector>();
         builder.Services.AddSingleton<OpenRouterCatalogCache>();
         builder.Services.AddSingleton<PlanResolver>();
+        builder.Services.AddSingleton<PlanCatalog>();
         builder.Services.AddSingleton<UsageService>();
         builder.Services.AddSingleton<ImageStore>();
         builder.Services.AddSingleton<ErrorReporter>();

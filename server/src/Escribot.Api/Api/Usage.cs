@@ -175,7 +175,8 @@ public sealed record UsageSummary(
     UsageCount Evaluations,
     UsageCount Assists,
     bool VerificationRequired,
-    string ResetsAt);
+    string ResetsAt,
+    int? ProEvaluationsPerMonth);
 
 /// <summary>
 /// How much of this month's AI allowance a user has spent, for the Settings page.
@@ -184,6 +185,7 @@ public sealed record UsageSummary(
 public sealed class UsageService(
     IAiUsageRepository usage,
     PlanResolver plans,
+    PlanCatalog catalog,
     ApiKeyProtector protector,
     AuthSettings auth,
     IConfiguration configuration,
@@ -207,7 +209,7 @@ public sealed class UsageService(
     public async Task<UsageSummary> GetSummaryAsync(UserAccount account, UserSettings settings, CancellationToken cancellationToken = default)
     {
         var plan = await plans.GetPlanAsync(account, cancellationToken);
-        var limits = Plans.Limits[plan];
+        var limits = catalog[plan];
 
         // A user's own key always beats spending the platform's budget.
         var keySource = settings.EncryptedApiKeys.Values.Any(v => protector.Decrypt(v) is not null) ? "user"
@@ -229,6 +231,7 @@ public sealed class UsageService(
             new UsageCount(evaluations, limits.EvaluationsPerMonth),
             new UsageCount(assists, limits.AssistsPerMonth),
             VerificationRequired: plan == Plans.Free && keySource == "platform" && !trusted,
-            Wire.Time(monthStart.AddMonths(1)));
+            Wire.Time(monthStart.AddMonths(1)),
+            catalog[Plans.Pro].EvaluationsPerMonth);
     }
 }

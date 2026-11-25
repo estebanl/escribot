@@ -5,7 +5,7 @@ import type { PromptRecord } from "@/components/PromptModals";
 import { StudioHomeClient } from "@/components/StudioHomeClient";
 import { getViewer, loadJson } from "@/lib/api";
 import { computeDaysUntilExam } from "@/lib/ielts-utils";
-import { PLANS } from "@/lib/plans";
+import { canTransformSvg, loadPlans, type PlanCatalog } from "@/lib/plans";
 
 interface StudioData {
   prompts: PromptRecord[];
@@ -33,18 +33,18 @@ interface StudioData {
 /** Signed-out visitors get the marketing page; signed-in users the studio. */
 export async function loader({ request }: { request: Request }) {
   const user = await getViewer(request);
-  if (!user) return { user: null, studio: null };
+  if (!user) return { user: null, studio: null, plans: await loadPlans(request) };
   if (!user.onboarded) throw redirect("/welcome");
   const studio = await loadJson<StudioData>("/api/pages/studio", request);
-  return { user, studio };
+  return { user, studio, plans: null as PlanCatalog | null };
 }
 
 export function HomePage() {
-  const { user, studio } = useLoaderData<typeof loader>();
+  const { user, studio, plans } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
 
   if (!user || !studio) {
-    return <LandingPage deleted={searchParams.get("deleted") === "1"} />;
+    return plans ? <LandingPage plans={plans} deleted={searchParams.get("deleted") === "1"} /> : null;
   }
 
   const { examDate, ...summary } = studio.settingsSummary;
@@ -54,7 +54,7 @@ export function HomePage() {
         initialPrompts={studio.prompts}
         recentSessions={studio.recentSessions}
         settingsSummary={{ ...summary, daysUntilExam: computeDaysUntilExam(examDate) }}
-        canTransformSvg={PLANS[user.plan].canTransformSvg}
+        canTransformSvg={canTransformSvg(user.plan)}
       />
     </AppShell>
   );

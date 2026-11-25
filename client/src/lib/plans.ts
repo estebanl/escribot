@@ -1,3 +1,5 @@
+import { loadJson } from "@/lib/api";
+
 /**
  * Plans decide how much of the platform's AI budget an account may use.
  * Limits only apply to requests paid for by the platform's API keys; a user
@@ -19,30 +21,20 @@ export interface PlanLimits {
   storageBytes: number | null;
 }
 
-export const PLANS: Record<PlanId, PlanLimits> = {
-  free: {
-    label: "Free",
-    evaluationsPerMonth: 5,
-    assistsPerMonth: 60,
-    canChooseModels: false,
-    canTransformSvg: false,
-    storageBytes: 25 * 1024 * 1024,
-  },
-  pro: {
-    label: "Pro",
-    evaluationsPerMonth: 100,
-    assistsPerMonth: 1500,
-    canChooseModels: true,
-    canTransformSvg: true,
-    storageBytes: 250 * 1024 * 1024,
-  },
-  // The deployment owner (OWNER_EMAIL) pays for the platform keys.
-  owner: {
-    label: "Owner",
-    evaluationsPerMonth: null,
-    assistsPerMonth: null,
-    canChooseModels: true,
-    canTransformSvg: true,
-    storageBytes: null,
-  },
-};
+/** Every plan's limits, keyed by plan. */
+export type PlanCatalog = Record<PlanId, PlanLimits>;
+
+/**
+ * The limits in force, from the server's public config (GET /api/config). The monthly
+ * allowances are set per deployment, so they are never hard-coded here; the server
+ * enforces them whatever this page shows.
+ */
+export async function loadPlans(request: Request): Promise<PlanCatalog> {
+  const config = await loadJson<{ plans: PlanCatalog }>("/api/config", request);
+  return config.plans;
+}
+
+/** Plans that can transform Task 1 images into SVGs. Fixed per plan, so it needs no request. */
+export function canTransformSvg(plan: PlanId): boolean {
+  return plan !== "free";
+}

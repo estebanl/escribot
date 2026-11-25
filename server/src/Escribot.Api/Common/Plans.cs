@@ -1,3 +1,4 @@
+using System.Globalization;
 using Escribot.Api.Auth;
 using Escribot.Api.Data;
 using Escribot.Api.Data.Models;
@@ -28,9 +29,14 @@ public static class Plans
 
     private const long Megabyte = 1024 * 1024;
 
-    public static readonly IReadOnlyDictionary<string, PlanLimits> Limits = new Dictionary<string, PlanLimits>
+    /// <summary>
+    /// The built-in limits. The monthly AI allowances of Free and Pro can be overridden by
+    /// deployment settings, so read them through <see cref="PlanCatalog"/>; only the
+    /// feature flags and storage here are fixed.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, PlanLimits> Defaults = new Dictionary<string, PlanLimits>
     {
-        [Free] = new("Free", 5, 60, false, false, 25 * Megabyte),
+        [Free] = new("Free", 3, 30, false, false, 25 * Megabyte),
         [Pro] = new("Pro", 100, 1500, true, true, 250 * Megabyte),
         // The deployment owner pays for the platform keys.
         [Owner] = new("Owner", null, null, true, true, null),
@@ -74,4 +80,69 @@ public sealed class PlanResolver(ISettingsRepository settings, ISubscriptionRepo
     /// <param name="storedPlan">The manual override in the user's settings; "pro" is complimentary Pro.</param>
     public static string Resolve(string? storedPlan, bool isOwner, bool hasPaidPro) =>
         isOwner ? Plans.Owner : hasPaidPro || storedPlan == Plans.Pro ? Plans.Pro : Plans.Free;
+}
+
+/// <summary>
+/// The limits in force for each plan: <see cref="Plans.Defaults"/> with the monthly AI
+/// allowances of Free and Pro taken from deployment settings where they are set.
+/// </summary>
+/// <remarks>
+/// Only server configuration (environment variables, app settings, Key Vault) is read, never
+/// anything a request carries, and the values are fixed when the app starts. A setting must
+/// be a whole number from 0 to <see cref="MaxMonthlyAllowance"/>; anything else stops the app
+/// from starting rather than silently falling back, so a typo can never turn into
+/// "unlimited". The Owner plan has no settings and stays unlimited.
+/// </remarks>
+public sealed class PlanCatalog
+{
+    /// <summary>The largest monthly allowance a setting may give.</summary>
+    public const int MaxMonthlyAllowance = 1_000_000;
+
+    /// <summary>The settings that override each plan's monthly allowances.</summary>
+    public static readonly IReadOnlyList<(string Plan, string Evaluations, string Assists)> Settings =
+    [
+        (Plans.Free, "FREE_PLAN_EVALUATIONS_PER_MONTH", "FREE_PLAN_ASSISTS_PER_MONTH"),
+        (Plans.Pro, "PRO_PLAN_EVALUATIONS_PER_MONTH", "PRO_PLAN_ASSISTS_PER_MONTH"),
+    ];
+
+    private readonly Dictionary<string, PlanLimits> _limits;
+
+    public PlanCatalog(IConfiguration configuration)
+    {
+        _limits = new Dictionary<string, PlanLimits>(Plans.Defaults);
+        foreach (var (plan, evaluations, assists) in Settings)
+        {
+            var defaults = Plans.Defaults[plan];
+            _limits[plan] = defaults with
+            {
+                EvaluationsPerMonth = Read(configuration, evaluations, defaults.EvaluationsPerMonth),
+                AssistsPerMonth = Read(configuration, assists, defaults.AssistsPerMonth),
+            };
+        }
+    }
+
+    /// <summary>The limits of a plan. An unknown plan gets Free's, the most restrictive.</summary>
+    public PlanLimits Get(string plan) => _limits.TryGetValue(plan, out var limits) ? limits : _limits[Plans.Free];
+
+    public PlanLimits this[string plan] => Get(plan);
+
+    private static int? Read(IConfiguration configuration, string name, int? fallback)
+    {
+        var raw = configuration[name]?.Trim();
+        if (string.IsNullOrEmpty(raw))
+        {
+            return fallback;
+        }
+
+        // Digits only: no sign, decimals, exponents or thousands separators.
+        if (raw.All(char.IsAsciiDigit)
+            && int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var value)
+            && value <= MaxMonthlyAllowance)
+        {
+            return value;
+        }
+
+        throw new InvalidOperationException(
+            $"{name} must be a whole number from 0 to {MaxMonthlyAllowance.ToString("N0", CultureInfo.InvariantCulture)}, or unset for the default ({fallback}).");
+    }
 }
