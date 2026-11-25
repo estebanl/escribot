@@ -34,10 +34,10 @@ export function ModelAnswer({
       {open && (
         <div className="mt-3 rounded-xl border border-line bg-subtle p-4">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-ink-muted">
+            <span className="text-xs font-mono uppercase tracking-wider text-ink-muted">
               Model Answer · {countEssayWords(answer)} words
             </span>
-            <span className="text-[11px] text-ink-muted">
+            <span className="text-xs text-ink-muted">
               One possible high-band response, not the only valid one
             </span>
           </div>

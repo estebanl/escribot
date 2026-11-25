@@ -87,7 +87,7 @@ export function AnalyticsClient({
       {/* Top Key Metrics Row */}
       <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="editorial-surface rounded-2xl p-5">
-          <span className="text-[11px] font-mono uppercase text-ink-muted">
+          <span className="text-xs font-mono uppercase text-ink-muted">
             Mean Band Score
           </span>
           <p className="font-mono text-2xl font-bold text-ink mt-1 tabular-nums">
@@ -99,7 +99,7 @@ export function AnalyticsClient({
         </div>
 
         <div className="editorial-surface rounded-2xl p-5">
-          <span className="text-[11px] font-mono uppercase text-ink-muted">
+          <span className="text-xs font-mono uppercase text-ink-muted">
             Graded Drafts
           </span>
           <p className="font-mono text-2xl font-bold text-ink mt-1 tabular-nums">
@@ -109,7 +109,7 @@ export function AnalyticsClient({
         </div>
 
         <div className="editorial-surface rounded-2xl p-5">
-          <span className="text-[11px] font-mono uppercase text-ink-muted">
+          <span className="text-xs font-mono uppercase text-ink-muted">
             Words Written
           </span>
           <p className="font-mono text-2xl font-bold text-ink mt-1 tabular-nums">
@@ -119,7 +119,7 @@ export function AnalyticsClient({
         </div>
 
         <div className="editorial-surface rounded-2xl p-5">
-          <span className="text-[11px] font-mono uppercase text-ink-muted">
+          <span className="text-xs font-mono uppercase text-ink-muted">
             AI Spend (This Month)
           </span>
           <p className="font-mono text-2xl font-bold text-ink mt-1 tabular-nums">
@@ -132,7 +132,7 @@ export function AnalyticsClient({
 
         <div className="editorial-surface rounded-2xl p-5 flex flex-col justify-between col-span-2 sm:col-span-1">
           <div>
-            <span className="text-[11px] font-mono uppercase text-warm font-semibold">
+            <span className="text-xs font-mono uppercase text-warm font-semibold">
               Primary Bottleneck
             </span>
             <p className="font-sans text-sm font-bold text-ink mt-1 truncate">
@@ -150,7 +150,7 @@ export function AnalyticsClient({
       </section>
 
       {Object.keys(featureSpend).length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-muted px-1">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted px-1">
           <span className="font-mono uppercase text-ink-secondary font-semibold">
             Month by feature:
           </span>
@@ -300,7 +300,7 @@ export function AnalyticsClient({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs sm:text-sm tabular-nums">
               <thead>
-                <tr className="border-b border-line text-ink-muted font-mono text-[11px] uppercase">
+                <tr className="border-b border-line text-ink-muted font-mono text-xs uppercase">
                   <th className="py-2.5 pr-4">Date</th>
                   <th className="py-2.5 px-3">Mode</th>
                   <th className="py-2.5 px-3">Prompt</th>

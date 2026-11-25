@@ -7,7 +7,8 @@ import {
   Sparkles,
   ArrowUpRight,
   SlidersHorizontal,
-  CheckCircle2,
+  ArrowRight,
+  ChevronDown,
   AlertTriangle,
   Layers,
   Loader2,
@@ -47,6 +48,12 @@ const CATEGORY_LABELS: Record<string, string> = {
   two_part: "Two-Part Question",
 };
 
+function modeLabel(mode: string) {
+  if (mode === "coach") return "Coach";
+  if (mode === "simulator_full_60m") return "Full mock exam";
+  return "Timed test";
+}
+
 export function StudioHomeClient({
   initialPrompts,
   recentSessions,
@@ -70,7 +77,7 @@ export function StudioHomeClient({
   const [prompts, setPrompts] = useState<PromptRecord[]>(initialPrompts);
   const [activeTab, setActiveTab] = useState<"all" | "task1" | "task2">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [previewPromptId, setPreviewPromptId] = useState<string | null>(null);
+  const [openPromptId, setOpenPromptId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
@@ -117,78 +124,73 @@ export function StudioHomeClient({
   });
 
   const daysUntilExam = settingsSummary.daysUntilExam;
+  const resumeSession = recentSessions.find((s) => s.status !== "completed") ?? null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-7 space-y-8">
-      {/* Studio Editorial Masthead */}
-      <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-6 border-b-[3px] border-double border-line-strong">
-        <div className="space-y-2 max-w-2xl">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-ink-secondary">
+      {/* Masthead */}
+      <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-6 border-b border-line">
+        <div className="space-y-3 max-w-2xl">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-secondary">
             <span>
-              CALIBRATION: BAND {settingsSummary.currentBand.toFixed(1)} →{" "}
-              <strong className="text-accent font-semibold">
+              Band{" "}
+              <span className="font-mono text-ink">{settingsSummary.currentBand.toFixed(1)}</span>{" "}
+              → target{" "}
+              <span className="font-mono font-semibold text-accent">
                 {settingsSummary.targetBand.toFixed(1)}
-              </strong>
-            </span>
-            <span>·</span>
-            <span>
-              {settingsSummary.l1CoachingEnabled
-                ? `L1 LENS: ${settingsSummary.nativeLanguage.toUpperCase()} → EN`
-                : "L1 NEUTRAL"}
+              </span>
             </span>
             {daysUntilExam !== null && (
               <>
-                <span>·</span>
-                <span className="text-warm font-semibold">
-                  {daysUntilExam} DAYS TO EXAM
+                <span aria-hidden className="text-line-strong">|</span>
+                <span className="text-warm font-medium">
+                  {daysUntilExam} {daysUntilExam === 1 ? "day" : "days"} to your exam
                 </span>
               </>
             )}
           </div>
           <h1 className="font-serif text-4xl sm:text-5xl font-semibold tracking-tight text-ink leading-[1.05]">
-            Academic Writing <em className="italic text-accent">Studio</em>
+            Writing <em className="italic text-accent">Studio</em>
           </h1>
-          <p className="text-sm sm:text-base text-ink-secondary leading-relaxed">
-            Build Band {settingsSummary.targetBand.toFixed(1)}+ precision with 5-minute
-            outline checks in <strong>Coach Mode</strong>, or test exam-day stamina inside
-            an authentic <strong>Inspera Computer-Delivered IELTS</strong> replica.
+          <p className="text-base text-ink-secondary leading-relaxed">
+            Write with the coach, who checks your outline before you start, or sit a timed
+            task under test-day conditions.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             id="open-full-mock-btn"
             type="button"
             onClick={() => setMockOpen(!mockOpen)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-accent-fg text-sm font-medium transition cursor-pointer"
+            aria-expanded={mockOpen}
+            className="btn btn-primary"
           >
             <Layers className="w-4 h-4" />
-            <span>60m Full Mock Exam</span>
+            <span>Full mock exam</span>
           </button>
-
           <button
             id="open-ai-generator-btn"
             type="button"
             onClick={() => setGenerateOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-line-strong bg-surface hover:bg-subtle text-sm font-medium text-ink transition cursor-pointer"
+            className="btn btn-secondary"
           >
             <Sparkles className="w-4 h-4 text-accent" />
-            <span>AI Prompt</span>
+            <span>New prompt</span>
           </button>
-
           <button
             id="open-custom-upload-btn"
             type="button"
             onClick={() => setUploadOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-line-strong bg-surface hover:bg-subtle text-sm font-medium text-ink transition cursor-pointer"
+            className="btn btn-secondary"
           >
             <Upload className="w-4 h-4 text-ink-secondary" />
-            <span>Upload Task / Chart</span>
+            <span>Upload a task</span>
           </button>
         </div>
       </section>
 
-      {/* AI Provider Readiness Strip */}
+      {/* AI provider readiness */}
       {!settingsSummary.activeProviderReady && (
         <div
           id="ai-key-setup-banner"
@@ -197,53 +199,36 @@ export function StudioHomeClient({
         >
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-4 h-4 text-warm shrink-0 mt-0.5" />
-            <div className="text-xs sm:text-sm text-ink-secondary">
-              <strong className="text-ink font-semibold">
-                Local Diagnostic Preview Active:
-              </strong>{" "}
-              Connect your{" "}
-              <span className="font-mono uppercase">
-                {settingsSummary.activeProvider}
-              </span>{" "}
-              API key in Settings to activate live{" "}
-              <code className="font-mono">deepseek-v4-pro</code> rubric grading, Band 8+
-              rewrites, and <code className="font-mono">deepseek-flash</code> chart vision.
-            </div>
+            <p className="text-sm text-ink-secondary">
+              <strong className="text-ink font-semibold">Grading isn't connected yet.</strong>{" "}
+              Add your AI key in Settings to get band scores, rewrites and chart reading.
+            </p>
           </div>
-          <Link
-            to="/settings"
-            className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-subtle hover:bg-line text-xs font-semibold text-ink transition"
-          >
+          <Link to="/settings" className="btn btn-sm btn-secondary shrink-0">
             <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span>Configure AI Key</span>
+            <span>Open Settings</span>
           </Link>
         </div>
       )}
 
-      {/* 60-Minute Combined Mock Exam Drawer */}
+      {/* 60-minute full mock exam */}
       {mockOpen && (
-        <section className="editorial-surface rounded-2xl p-6 space-y-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <span className="text-[11px] font-mono uppercase tracking-wider text-accent font-semibold">
-                Authentic Inspera Computer-Delivered Exam · 1:2 Weighted Band
-              </span>
-              <h2 className="font-serif text-xl font-semibold text-ink mt-0.5">
-                Configure 60-Minute Full Writing Test
-              </h2>
-              <p className="text-xs text-ink-secondary mt-1">
-                Both tasks run under a single shared 60:00 clock with Part 1 &amp; Part 2
-                bottom switcher tabs—mirroring real test-day time management.
-              </p>
-            </div>
+        <section className="editorial-surface rounded-2xl p-6 space-y-5">
+          <div>
+            <h2 className="font-serif text-xl font-semibold text-ink">Full mock exam</h2>
+            <p className="text-sm text-ink-secondary mt-1">
+              Both tasks share one 60-minute clock, as on test day. Task 2 counts for two
+              thirds of your band.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-ink-secondary mb-1.5">
-                Part 1 — Academic Task 1 (150+ words · 1/3 weight)
+              <label htmlFor="mock-t1" className="block text-sm font-medium text-ink-secondary mb-1.5">
+                Task 1 · 150+ words
               </label>
               <select
+                id="mock-t1"
                 value={selectedMockT1}
                 onChange={(e) => setSelectedMockT1(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-lg bg-canvas border border-line-strong text-sm text-ink"
@@ -255,12 +240,12 @@ export function StudioHomeClient({
                 ))}
               </select>
             </div>
-
             <div>
-              <label className="block text-xs font-semibold text-ink-secondary mb-1.5">
-                Part 2 — Academic Task 2 (250+ words · 2/3 weight)
+              <label htmlFor="mock-t2" className="block text-sm font-medium text-ink-secondary mb-1.5">
+                Task 2 · 250+ words
               </label>
               <select
+                id="mock-t2"
                 value={selectedMockT2}
                 onChange={(e) => setSelectedMockT2(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-lg bg-canvas border border-line-strong text-sm text-ink"
@@ -274,269 +259,256 @@ export function StudioHomeClient({
             </div>
           </div>
 
-          <div className="flex justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={() => setMockOpen(false)}
-              className="px-4 py-2 rounded-lg border border-line text-xs font-medium text-ink-secondary cursor-pointer"
-            >
-              Close
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setMockOpen(false)} className="btn btn-ghost">
+              Cancel
             </button>
             <button
               id="launch-60m-mock-btn"
               type="button"
               disabled={!selectedMockT1 || !selectedMockT2 || Boolean(launchingId)}
-              onClick={() =>
-                startSession("simulator_full_60m", selectedMockT1, selectedMockT2)
-              }
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold cursor-pointer"
+              onClick={() => startSession("simulator_full_60m", selectedMockT1, selectedMockT2)}
+              className="btn btn-primary"
             >
               {launchingId?.startsWith("simulator_full_60m") ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Clock className="w-4 h-4" />
               )}
-              <span>Begin 60:00 Inspera Exam</span>
+              <span>Start 60-minute exam</span>
             </button>
           </div>
         </section>
       )}
 
-      {/* Main Two-Column Layout: Prompt Bank (Left 8 cols) + Recent Drafts (Right 4 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
-        <div className="lg:col-span-8 space-y-5">
+        <div className="lg:col-span-8 space-y-5 min-w-0">
+          {resumeSession && (
+            <Link
+              to={`/write/${resumeSession.id}`}
+              id="resume-session-card"
+              className="group editorial-surface rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-line-strong transition"
+            >
+              <div className="min-w-0">
+                <p className="text-sm text-ink-muted">Pick up where you left off</p>
+                <p className="font-serif text-lg font-semibold text-ink sm:truncate">
+                  {resumeSession.task2Title || resumeSession.task1Title || "Writing practice"}
+                </p>
+                <p className="text-sm text-ink-secondary">{modeLabel(resumeSession.mode)}</p>
+              </div>
+              <span className="btn btn-primary shrink-0 self-start sm:self-auto">
+                <span>Continue</span>
+                <ArrowRight className="w-4 h-4" />
+              </span>
+            </Link>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex p-1 rounded-xl bg-subtle">
+            <div className="inline-flex p-1 rounded-xl bg-subtle max-w-full overflow-x-auto">
               {(
                 [
-                  { id: "all", label: `All Tasks (${prompts.length})` },
-                  { id: "task1", label: `Task 1 Visuals (${task1Prompts.length})` },
-                  { id: "task2", label: `Task 2 Essays (${task2Prompts.length})` },
+                  { id: "all", label: "All", count: prompts.length },
+                  { id: "task1", label: "Task 1", count: task1Prompts.length },
+                  { id: "task2", label: "Task 2", count: task2Prompts.length },
                 ] as const
               ).map((tab) => (
                 <button
                   key={tab.id}
                   id={`filter-tab-${tab.id}`}
                   type="button"
+                  aria-pressed={activeTab === tab.id}
                   onClick={() => {
                     setActiveTab(tab.id);
                     setCategoryFilter("all");
                   }}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  className={`px-3.5 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition cursor-pointer ${
                     activeTab === tab.id
                       ? "bg-surface text-ink shadow-xs"
                       : "text-ink-secondary hover:text-ink"
                   }`}
                 >
-                  {tab.label}
+                  {tab.label} <span className="text-ink-muted font-mono">{tab.count}</span>
                 </button>
               ))}
             </div>
 
             <select
-              aria-label="Filter by archetype"
+              aria-label="Filter by question type"
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-surface border border-line text-xs text-ink-secondary"
+              className="h-9 px-3 rounded-lg bg-surface border border-line text-sm text-ink-secondary"
             >
-              <option value="all">All Archetypes</option>
-              {Object.entries(CATEGORY_LABELS).map(([val, label]) => (
-                <option key={val} value={val}>
-                  {label}
-                </option>
-              ))}
+              <option value="all">All question types</option>
+              {Object.entries(CATEGORY_LABELS)
+                .filter(([val]) =>
+                  activeTab === "all"
+                    ? true
+                    : prompts.some((p) => p.taskType === activeTab && p.category === val)
+                )
+                .map(([val, label]) => (
+                  <option key={val} value={val}>
+                    {label}
+                  </option>
+                ))}
             </select>
           </div>
 
-          <div className="space-y-4">
-            {visiblePrompts.map((prompt) => {
-              const isTask1 = prompt.taskType === "task1";
-              const isPreviewing = previewPromptId === prompt.id;
-              const simMode: SessionMode = isTask1 ? "simulator_t1" : "simulator_t2";
+          {visiblePrompts.length === 0 ? (
+            <p className="editorial-surface rounded-2xl p-6 text-sm text-ink-secondary">
+              No prompts of this type yet. Generate one or upload a task from your prep book.
+            </p>
+          ) : (
+            <ul className="editorial-surface rounded-2xl divide-y divide-line">
+              {visiblePrompts.map((prompt) => {
+                const isTask1 = prompt.taskType === "task1";
+                const isOpen = openPromptId === prompt.id;
+                const simMode: SessionMode = isTask1 ? "simulator_t1" : "simulator_t2";
 
-              return (
-                <article
-                  key={prompt.id}
-                  className="editorial-surface rounded-2xl p-5 sm:p-6 transition hover:border-line-strong"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold uppercase ${
-                          isTask1
-                            ? "bg-accent-soft text-accent"
-                            : "bg-warm-soft text-warm"
-                        }`}
+                return (
+                  <li key={prompt.id} className="p-4 sm:p-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5">
+                      <button
+                        type="button"
+                        onClick={() => setOpenPromptId(isOpen ? null : prompt.id)}
+                        aria-expanded={isOpen}
+                        className="flex-1 min-w-0 text-left cursor-pointer group"
                       >
-                        {isTask1 ? "Task 1 · 20m · 150w+" : "Task 2 · 40m · 250w+"}
-                      </span>
-                      <span className="px-2 py-0.5 rounded-md bg-subtle text-ink-secondary text-[11px] font-medium">
-                        {CATEGORY_LABELS[prompt.category] || prompt.category}
-                      </span>
-                      <span className="text-xs text-ink-muted">{prompt.topic}</span>
-                    </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+                          <span
+                            className={`font-semibold ${isTask1 ? "text-accent" : "text-warm"}`}
+                          >
+                            {isTask1 ? "Task 1" : "Task 2"}
+                          </span>
+                          <span aria-hidden>·</span>
+                          <span>{CATEGORY_LABELS[prompt.category] || prompt.category}</span>
+                          <span aria-hidden>·</span>
+                          <span>{prompt.topic}</span>
+                          {prompt.source !== "curated" && (
+                            <span className="px-1.5 py-px rounded border border-line">
+                              {prompt.source === "custom" ? "Uploaded" : "Generated"}
+                            </span>
+                          )}
+                        </div>
+                        <h2 className="font-serif text-lg font-semibold text-ink mt-0.5 flex items-start gap-1.5">
+                          <span className="group-hover:underline decoration-line-strong underline-offset-4">
+                            {prompt.title}
+                          </span>
+                          <ChevronDown
+                            className={`w-4 h-4 mt-1.5 shrink-0 text-ink-muted transition-transform ${
+                              isOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </h2>
+                      </button>
 
-                    {prompt.source !== "curated" && (
-                      <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded border border-line text-ink-muted">
-                        {prompt.source === "custom" ? "Uploaded" : "AI Generated"}
-                      </span>
-                    )}
-                  </div>
-
-                  <h2 className="font-serif text-xl font-semibold text-ink">
-                    {prompt.title}
-                  </h2>
-
-                  <p className="text-sm text-ink-secondary mt-2 whitespace-pre-line line-clamp-3">
-                    {prompt.promptText}
-                  </p>
-
-                  {isPreviewing && isTask1 && (
-                    <TaskVisualRenderer
-                      chartSpecJson={prompt.chartSpecJson}
-                      imageDataUrl={prompt.imageDataUrl}
-                      compact
-                    />
-                  )}
-
-                  <ModelAnswer promptId={prompt.id} className="mt-3" />
-
-                  <div className="mt-4 pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      {isTask1 && (prompt.chartSpecJson || prompt.imageDataUrl) && (
+                      <div className="flex items-center gap-2 shrink-0">
                         <button
+                          id={`coach-btn-${prompt.id}`}
                           type="button"
+                          disabled={Boolean(launchingId)}
                           onClick={() =>
-                            setPreviewPromptId(isPreviewing ? null : prompt.id)
+                            startSession("coach", isTask1 ? prompt.id : null, !isTask1 ? prompt.id : null)
                           }
-                          className="text-xs font-medium text-accent hover:underline cursor-pointer"
+                          className="btn btn-sm btn-primary"
                         >
-                          {isPreviewing ? "Hide Visual Preview" : "Preview Chart / Diagram"}
+                          <Compass className="w-3.5 h-3.5" />
+                          <span>Coach</span>
                         </button>
-                      )}
+                        <button
+                          id={`sim-btn-${prompt.id}`}
+                          type="button"
+                          disabled={Boolean(launchingId)}
+                          onClick={() =>
+                            startSession(simMode, isTask1 ? prompt.id : null, !isTask1 ? prompt.id : null)
+                          }
+                          className="btn btn-sm btn-secondary"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-ink-secondary" />
+                          <span>{isTask1 ? "20 min test" : "40 min test"}</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        id={`coach-btn-${prompt.id}`}
-                        type="button"
-                        disabled={Boolean(launchingId)}
-                        onClick={() =>
-                          startSession(
-                            "coach",
-                            isTask1 ? prompt.id : null,
-                            !isTask1 ? prompt.id : null
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg text-xs font-semibold transition cursor-pointer disabled:opacity-50"
-                      >
-                        <Compass className="w-3.5 h-3.5" />
-                        <span>Coach Studio</span>
-                      </button>
-
-                      <button
-                        id={`sim-btn-${prompt.id}`}
-                        type="button"
-                        disabled={Boolean(launchingId)}
-                        onClick={() =>
-                          startSession(
-                            simMode,
-                            isTask1 ? prompt.id : null,
-                            !isTask1 ? prompt.id : null
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-line-strong bg-canvas hover:bg-subtle text-ink text-xs font-semibold transition cursor-pointer disabled:opacity-50"
-                      >
-                        <Clock className="w-3.5 h-3.5 text-ink-secondary" />
-                        <span>{isTask1 ? "20m Exam" : "40m Exam"}</span>
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+                    {isOpen && (
+                      <div className="mt-4 space-y-3">
+                        <p className="text-sm text-ink-secondary whitespace-pre-line leading-relaxed max-w-prose">
+                          {prompt.promptText}
+                        </p>
+                        {isTask1 && (prompt.chartSpecJson || prompt.imageDataUrl) && (
+                          <TaskVisualRenderer
+                            chartSpecJson={prompt.chartSpecJson}
+                            imageDataUrl={prompt.imageDataUrl}
+                            compact
+                          />
+                        )}
+                        <ModelAnswer promptId={prompt.id} />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
 
-        {/* Right Sidebar: Recent Sessions & Quick Study Actions */}
+        {/* Sidebar */}
         <aside className="lg:col-span-4 space-y-5">
           <div className="editorial-surface rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-serif text-lg font-semibold text-ink">
-                Recent Sessions
-              </h2>
-              <Link
-                to="/analytics"
-                className="text-xs font-medium text-accent hover:underline"
-              >
-                All History
+              <h2 className="font-serif text-lg font-semibold text-ink">Recent sessions</h2>
+              <Link to="/analytics" className="text-sm font-medium text-accent hover:underline">
+                See all
               </Link>
             </div>
 
             {recentSessions.length === 0 ? (
-              <p className="text-xs text-ink-muted leading-relaxed py-3">
-                No essays submitted yet. Pick any Task 1 or Task 2 prompt on the left to
-                start your first guided outline or timed simulation.
+              <p className="text-sm text-ink-muted leading-relaxed py-2">
+                Nothing yet. Pick a prompt to write your first essay.
               </p>
             ) : (
-              <div className="space-y-2.5">
+              <ul className="-mx-2">
                 {recentSessions.slice(0, 6).map((s) => {
                   const completed = s.status === "completed";
                   const href = completed ? `/session/${s.id}` : `/write/${s.id}`;
                   return (
-                    <Link
-                      key={s.id}
-                      to={href}
-                      className="block p-3 rounded-xl border border-line hover:border-line-strong bg-canvas transition"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-mono uppercase text-ink-muted">
-                          {s.mode === "coach"
-                            ? "Coach Studio"
-                            : s.mode === "simulator_full_60m"
-                            ? "60m Full Exam"
-                            : "Timed Exam"}
-                        </span>
+                    <li key={s.id}>
+                      <Link
+                        to={href}
+                        className="flex items-center justify-between gap-3 px-2 py-2.5 rounded-lg hover:bg-subtle transition"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-ink truncate">
+                            {s.task2Title || s.task1Title || "Writing practice"}
+                          </p>
+                          <p className="text-xs text-ink-muted">
+                            {modeLabel(s.mode)}
+                            {s.latestDraftVersion && s.latestDraftVersion > 1
+                              ? ` · draft ${s.latestDraftVersion}`
+                              : ""}
+                          </p>
+                        </div>
                         {completed && s.weightedBand !== null ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-accent-soft text-accent font-mono text-xs font-bold">
-                            <CheckCircle2 className="w-3 h-3" /> Band{" "}
+                          <span className="shrink-0 font-mono text-sm font-semibold text-ink">
                             {s.weightedBand.toFixed(1)}
                           </span>
                         ) : (
-                          <span className="text-[11px] font-mono text-warm">
-                            In Progress →
-                          </span>
+                          <span className="shrink-0 text-xs font-medium text-warm">In progress</span>
                         )}
-                      </div>
-                      <p className="text-xs font-semibold text-ink mt-1 truncate">
-                        {s.task2Title || s.task1Title || "Writing Practice"}
-                      </p>
-                      {s.latestDraftVersion && s.latestDraftVersion > 1 && (
-                        <p className="text-[11px] text-ink-muted mt-0.5">
-                          Redrafted through v{s.latestDraftVersion}
-                        </p>
-                      )}
-                    </Link>
+                      </Link>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             )}
           </div>
 
           <div className="editorial-surface rounded-2xl p-5 space-y-3">
-            <h3 className="font-serif text-base font-semibold text-ink">
-              Short on Time Today?
-            </h3>
-            <p className="text-xs text-ink-secondary leading-relaxed">
-              Run a 5-minute surgical micro-drill on Task 1 Overviews, mechanical linker
-              replacement, or Spanish → English clause accuracy.
+            <h3 className="font-serif text-base font-semibold text-ink">Short on time?</h3>
+            <p className="text-sm text-ink-secondary leading-relaxed">
+              Five-minute drills on Task 1 overviews, linking words and first-language slips.
             </p>
-            <Link
-              to="/drills"
-              id="sidebar-drills-cta"
-              className="w-full inline-flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-subtle hover:bg-line text-xs font-semibold text-ink transition"
-            >
-              <span>Open 5-Minute Micro-Drills</span>
+            <Link to="/drills" id="sidebar-drills-cta" className="btn btn-secondary w-full justify-between">
+              <span>Open drills</span>
               <ArrowUpRight className="w-4 h-4 text-accent" />
             </Link>
           </div>

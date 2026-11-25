@@ -205,7 +205,7 @@ export function VaultClient({
               </div>
             )}
 
-            <div className="text-[11px] font-mono text-ink-muted">
+            <div className="text-xs font-mono text-ink-muted">
               {flipped
                 ? "Rate your recall below to schedule next review"
                 : "Tap anywhere on card to flip"}
@@ -250,11 +250,11 @@ export function VaultClient({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold span-${item.criterion}`}
+                      className={`px-2 py-0.5 rounded text-xs font-mono font-bold span-${item.criterion}`}
                     >
                       {item.criterion.replace("_", "/")}
                     </span>
-                    <span className="text-[11px] font-mono text-ink-muted uppercase">
+                    <span className="text-xs font-mono text-ink-muted uppercase">
                       {item.itemType}
                     </span>
                   </div>
@@ -284,7 +284,7 @@ export function VaultClient({
               </div>
 
               <div className="pt-3 border-t border-line flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] text-ink-muted">
+                <span className="font-mono text-xs text-ink-muted">
                   Status: {MASTERY_LABELS[item.masteryLevel] || "New"}
                 </span>
                 <button

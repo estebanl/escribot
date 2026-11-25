@@ -356,7 +356,7 @@ export function CustomPromptModal({
                     <button
                       type="button"
                       onClick={() => setPreviewMode("svg")}
-                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                      className={`px-2 py-0.5 rounded-md text-xs font-medium transition cursor-pointer ${
                         previewMode === "svg"
                           ? "bg-surface text-ink shadow-xs"
                           : "text-ink-secondary hover:text-ink"
@@ -367,7 +367,7 @@ export function CustomPromptModal({
                     <button
                       type="button"
                       onClick={() => setPreviewMode("original")}
-                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                      className={`px-2 py-0.5 rounded-md text-xs font-medium transition cursor-pointer ${
                         previewMode === "original"
                           ? "bg-surface text-ink shadow-xs"
                           : "text-ink-secondary hover:text-ink"
@@ -403,7 +403,7 @@ export function CustomPromptModal({
 
                   {canTransformSvg && !isUploadedSvg && (
                     <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-                      <span className="text-[11px] text-ink-secondary">
+                      <span className="text-xs text-ink-secondary">
                         {usingGeneratedSvg
                           ? "Clean SVG selected — saving will store the SVG version."
                           : svgDataUrl

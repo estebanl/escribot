@@ -100,7 +100,7 @@ function RoleSelect({
           </optgroup>
         ))}
       </select>
-      <p className="text-[11px] text-ink-muted mt-1">{help}</p>
+      <p className="text-xs text-ink-muted mt-1">{help}</p>
     </div>
   );
 }
@@ -592,7 +592,7 @@ export function SettingsClient({
                   ))}
                 </select>
                 <p className="text-xs text-ink-muted mt-1.5 leading-relaxed">
-                  {L1_LANGUAGE_PROFILES[nativeLanguage]?.coachingFocus}
+                  Feedback will point out habits that often carry over from your first language, such as false friends, article use and run-on sentences.
                 </p>
               </div>
             )}
