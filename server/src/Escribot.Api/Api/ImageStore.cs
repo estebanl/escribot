@@ -23,7 +23,9 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
 
     public const string RoutePrefix = "/api/images/";
 
-    private static readonly HashSet<string> AllowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+    private static readonly HashSet<string> RasterTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+    public const string SvgContentType = "image/svg+xml";
 
     /// <summary>
     /// Stores an image given as a data URL and returns the address the app shows it from.
@@ -31,7 +33,7 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
     /// </summary>
     public async Task<string> StoreAsync(string userId, string plan, string dataUrl, CancellationToken cancellationToken = default)
     {
-        var (contentType, data) = ParseDataUrl(dataUrl);
+        var (contentType, data) = ParseDataUrl(dataUrl, allowSvg: true);
         if (data.Length > MaxImageBytes)
         {
             throw new ImageUploadException("Images must be 2 MB or smaller.", StatusCodes.Status413PayloadTooLarge);
@@ -49,7 +51,9 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         }
 
         var id = Guid.NewGuid().ToString();
-        var extension = contentType.Split('/')[1].Replace("jpeg", "jpg", StringComparison.Ordinal);
+        var extension = contentType == SvgContentType
+            ? "svg"
+            : contentType.Split('/')[1].Replace("jpeg", "jpg", StringComparison.Ordinal);
         var blobName = $"users/{userId}/images/{id}.{extension}";
 
         // The file first: a description without a file would be a broken image. If the
@@ -141,7 +145,7 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         return image is { } found ? $"data:{found.ContentType};base64,{Convert.ToBase64String(found.Data)}" : null;
     }
 
-    internal static (string ContentType, byte[] Data) ParseDataUrl(string dataUrl)
+    internal static (string ContentType, byte[] Data) ParseDataUrl(string dataUrl, bool allowSvg = true)
     {
         var match = DataUrl().Match(dataUrl);
         if (!match.Success)
@@ -150,9 +154,12 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         }
 
         var contentType = match.Groups[1].Value.ToLowerInvariant();
-        if (!AllowedTypes.Contains(contentType))
+        var isSvg = contentType == SvgContentType;
+        if (!RasterTypes.Contains(contentType) && !(allowSvg && isSvg))
         {
-            throw new ImageUploadException("Only PNG, JPEG, WebP or GIF images can be uploaded.");
+            throw new ImageUploadException(allowSvg
+                ? "Only PNG, JPEG, WebP, GIF or SVG images can be uploaded."
+                : "Only PNG, JPEG, WebP or GIF images can be transformed to SVG.");
         }
 
         byte[] data;
@@ -168,6 +175,14 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         if (data.Length == 0)
         {
             throw new ImageUploadException("The image is empty.");
+        }
+
+        if (isSvg)
+        {
+            var rawSvg = System.Text.Encoding.UTF8.GetString(data);
+            var sanitized = SvgSanitizer.Sanitize(rawSvg)
+                ?? throw new ImageUploadException("The SVG image is not valid.");
+            return (contentType, System.Text.Encoding.UTF8.GetBytes(sanitized));
         }
 
         if (!HasValidMagicBytes(contentType, data))

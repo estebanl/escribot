@@ -516,6 +516,11 @@ internal static class AccountEndpoints
         // Private to this browser. Ids never change what they point to, so caching is safe.
         context.Response.Headers.CacheControl = "private, max-age=86400, immutable";
         context.Response.Headers.XContentTypeOptions = "nosniff";
+        if (string.Equals(found.ContentType, ImageStore.SvgContentType, StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.Headers.ContentSecurityPolicy = Hosting.SecurityHeaders.UploadedSvgContentSecurityPolicy;
+        }
+
         return Results.Bytes(found.Data, found.ContentType);
     }
 

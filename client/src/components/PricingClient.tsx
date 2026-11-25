@@ -78,6 +78,7 @@ export function PricingClient({
     limitText(pro.assistsPerMonth, "coaching requests"),
     "Everything in Free",
     "Choose your examiner and coaching models",
+    "Transform uploaded Task 1 images into clean SVGs",
   ];
 
   let proAction: React.ReactNode;

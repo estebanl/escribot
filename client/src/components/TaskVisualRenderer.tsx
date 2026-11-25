@@ -538,7 +538,8 @@ export function TaskVisualRenderer({
 
   const isStaticSvg =
     typeof imageDataUrl === "string" &&
-    /\.svg(?:[?#].*)?$/i.test(imageDataUrl.trim());
+    (/\.svg(?:[?#].*)?$/i.test(imageDataUrl.trim()) ||
+      /^data:image\/svg\+xml[;,]/i.test(imageDataUrl.trim()));
   const imageAlt =
     spec?.title || "Academic IELTS Task 1 official prompt visual or diagram";
 

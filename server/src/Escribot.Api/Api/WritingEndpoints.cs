@@ -231,7 +231,10 @@ internal static class WritingEndpoints
         var category = body.Trimmed("category");
         var topic = body.Trimmed("topic");
         var title = body.Trimmed("title");
-        if (promptText.Length > MaxLongText || new[] { category, topic, title }.Any(t => t?.Length > MaxShortText))
+        var extractedVisualSpec = taskType == Ielts.Task1 ? body.Trimmed("extractedVisualSpec") : null;
+        if (promptText.Length > MaxLongText
+            || extractedVisualSpec?.Length > MaxLongText
+            || new[] { category, topic, title }.Any(t => t?.Length > MaxShortText))
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, "The prompt is too long.");
         }
@@ -260,6 +263,7 @@ internal static class WritingEndpoints
             Title = title ?? $"Custom {(taskType == Ielts.Task1 ? "Task 1 Visual" : "Task 2 Essay")}",
             PromptText = promptText,
             ImageUrl = imageUrl,
+            ExtractedVisualSpec = imageUrl is not null ? extractedVisualSpec : null,
             Source = "custom",
             CreatedAt = time.GetUtcNow(),
         };

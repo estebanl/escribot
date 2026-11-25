@@ -5,6 +5,7 @@ import type { PromptRecord } from "@/components/PromptModals";
 import { StudioHomeClient } from "@/components/StudioHomeClient";
 import { getViewer, loadJson } from "@/lib/api";
 import { computeDaysUntilExam } from "@/lib/ielts-utils";
+import { PLANS } from "@/lib/plans";
 
 interface StudioData {
   prompts: PromptRecord[];
@@ -53,6 +54,7 @@ export function HomePage() {
         initialPrompts={studio.prompts}
         recentSessions={studio.recentSessions}
         settingsSummary={{ ...summary, daysUntilExam: computeDaysUntilExam(examDate) }}
+        canTransformSvg={PLANS[user.plan].canTransformSvg}
       />
     </AppShell>
   );

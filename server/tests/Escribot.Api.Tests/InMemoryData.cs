@@ -257,8 +257,13 @@ public sealed class InMemoryData(TimeProvider time) :
 
     // ---- Images ----
 
-    Task<ImageMetadata?> IImageRepository.GetAsync(string userId, string imageId, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+    Task<ImageMetadata?> IImageRepository.GetAsync(string userId, string imageId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(Images.GetValueOrDefault(userId)?.FirstOrDefault(i => i.Id == imageId));
+        }
+    }
 
     Task<IReadOnlyList<ImageMetadata>> IImageRepository.ListAsync(string userId, CancellationToken cancellationToken)
     {
@@ -282,11 +287,21 @@ public sealed class InMemoryData(TimeProvider time) :
         }
     }
 
-    Task<bool> IImageRepository.DeleteAsync(string userId, string imageId, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+    Task<bool> IImageRepository.DeleteAsync(string userId, string imageId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(Images.GetValueOrDefault(userId)?.RemoveAll(i => i.Id == imageId) > 0);
+        }
+    }
 
-    Task<long> IImageRepository.GetTotalBytesAsync(string userId, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+    Task<long> IImageRepository.GetTotalBytesAsync(string userId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(Images.GetValueOrDefault(userId)?.Sum(i => i.Bytes) ?? 0L);
+        }
+    }
 
     // ---- Rate limits ----
 

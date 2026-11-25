@@ -7,8 +7,15 @@ namespace Escribot.Api.Common;
 /// <param name="EvaluationsPerMonth">Graded essays per calendar month (UTC). Null is unlimited.</param>
 /// <param name="AssistsPerMonth">Outline checks, toolkit runs, drills and prompt generation per month.</param>
 /// <param name="CanChooseModels">Whether the provider and model chosen in Settings are honoured on platform keys.</param>
+/// <param name="CanTransformSvg">Whether uploaded Task 1 images can be AI-transformed into clean SVGs.</param>
 /// <param name="StorageBytes">Total size of uploaded chart images. Null is unlimited.</param>
-public sealed record PlanLimits(string Label, int? EvaluationsPerMonth, int? AssistsPerMonth, bool CanChooseModels, long? StorageBytes);
+public sealed record PlanLimits(
+    string Label,
+    int? EvaluationsPerMonth,
+    int? AssistsPerMonth,
+    bool CanChooseModels,
+    bool CanTransformSvg,
+    long? StorageBytes);
 
 /// <summary>
 /// Plans decide how much of the platform's AI budget and storage an account may use.
@@ -23,10 +30,10 @@ public static class Plans
 
     public static readonly IReadOnlyDictionary<string, PlanLimits> Limits = new Dictionary<string, PlanLimits>
     {
-        [Free] = new("Free", 5, 60, false, 25 * Megabyte),
-        [Pro] = new("Pro", 100, 1500, true, 250 * Megabyte),
+        [Free] = new("Free", 5, 60, false, false, 25 * Megabyte),
+        [Pro] = new("Pro", 100, 1500, true, true, 250 * Megabyte),
         // The deployment owner pays for the platform keys.
-        [Owner] = new("Owner", null, null, true, null),
+        [Owner] = new("Owner", null, null, true, true, null),
     };
 
     /// <summary>

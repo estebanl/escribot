@@ -51,6 +51,7 @@ export function StudioHomeClient({
   initialPrompts,
   recentSessions,
   settingsSummary,
+  canTransformSvg = false,
 }: {
   initialPrompts: PromptRecord[];
   recentSessions: RecentSessionSummary[];
@@ -63,6 +64,7 @@ export function StudioHomeClient({
     activeProvider: string;
     activeProviderReady: boolean;
   };
+  canTransformSvg?: boolean;
 }) {
   const navigate = useNavigate();
   const [prompts, setPrompts] = useState<PromptRecord[]>(initialPrompts);
@@ -545,6 +547,7 @@ export function StudioHomeClient({
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         onCreated={(newP) => setPrompts((prev) => [newP, ...prev])}
+        canTransformSvg={canTransformSvg}
       />
 
       <GeneratePromptModal

@@ -144,8 +144,11 @@ public class DataApiTests(AppHostFixture fixture)
     {
         var (browser, userId, _) = await SignUpAsync();
 
-        var wrongType = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" }, HttpStatusCode.BadRequest);
-        Assert.Equal("Only PNG, JPEG, WebP or GIF images can be uploaded.", wrongType.GetProperty("error").GetString());
+        var wrongType = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = "data:image/bmp;base64,Qk0=" }, HttpStatusCode.BadRequest);
+        Assert.Equal("Only PNG, JPEG, WebP, GIF or SVG images can be uploaded.", wrongType.GetProperty("error").GetString());
+
+        var invalidSvg = await PostJsonAsync(browser, "/api/prompts", new { taskType = "task1", promptText = "x", imageDataUrl = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" }, HttpStatusCode.BadRequest);
+        Assert.Equal("The SVG image is not valid.", invalidSvg.GetProperty("error").GetString());
 
         var oversizedBytes = new byte[(2 * 1024 * 1024) + 1];
         ((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).CopyTo(oversizedBytes);
