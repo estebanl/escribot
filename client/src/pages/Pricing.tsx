@@ -5,7 +5,7 @@ import { PublicHeader } from "@/components/PublicHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { getViewer, loadJson } from "@/lib/api";
 import type { BillingInterval, PriceDisplay } from "@/lib/billing";
-import { PLANS, type PlanId } from "@/lib/plans";
+import { loadPlans, type PlanId } from "@/lib/plans";
 
 interface PricesData {
   billingEnabled: boolean;
@@ -15,21 +15,22 @@ interface PricesData {
 }
 
 export async function loader({ request }: { request: Request }) {
-  const [user, pricing] = await Promise.all([
+  const [user, pricing, plans] = await Promise.all([
     getViewer(request),
     loadJson<PricesData>("/api/billing/prices", request),
+    loadPlans(request),
   ]);
-  return { user, pricing };
+  return { user, pricing, plans };
 }
 
 export function PricingPage() {
-  const { user, pricing } = useLoaderData<typeof loader>();
+  const { user, pricing, plans } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
 
   const content = (
     <PricingClient
-      free={PLANS.free}
-      pro={PLANS.pro}
+      free={plans.free}
+      pro={plans.pro}
       prices={pricing.prices}
       viewer={pricing.viewer}
       billingEnabled={pricing.billingEnabled}

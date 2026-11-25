@@ -69,6 +69,10 @@ param allowedSignupEmails string = ''
 param adminEmails string = ''
 param emailFrom string = ''
 param freePlanDailyAiCap string = ''
+param freePlanEvaluationsPerMonth string = ''
+param freePlanAssistsPerMonth string = ''
+param proPlanEvaluationsPerMonth string = ''
+param proPlanAssistsPerMonth string = ''
 param siteOperator string = ''
 param supportEmail string = ''
 param siteJurisdiction string = ''
@@ -210,6 +214,10 @@ module api 'api/api-containerapp.bicep' = {
     adminEmails: adminEmails
     emailFrom: !empty(emailFrom) ? emailFrom : (!empty(effectiveEmailDomain) ? 'DoNotReply@${effectiveEmailDomain}' : '')
     freePlanDailyAiCap: freePlanDailyAiCap
+    freePlanEvaluationsPerMonth: freePlanEvaluationsPerMonth
+    freePlanAssistsPerMonth: freePlanAssistsPerMonth
+    proPlanEvaluationsPerMonth: proPlanEvaluationsPerMonth
+    proPlanAssistsPerMonth: proPlanAssistsPerMonth
     siteOperator: siteOperator
     supportEmail: supportEmail
     siteJurisdiction: siteJurisdiction

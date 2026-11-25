@@ -104,8 +104,8 @@ sent `provider.data_collection: "deny"`. The Gemini client tries the fallbacks o
    stored usage and compares stored usage plus units in flight with the limits:
    - the Free daily cap across all accounts (`FREE_PLAN_DAILY_AI_CAP`, unset means no cap):
      429 `free_capacity_reached`;
-   - the monthly quota for the kind (`Plans.Limits`: Free 5 evaluations and 60 assists, Pro 100
-     and 1,500, owner unlimited; months are UTC): 429 `quota_exceeded`, with `upgradeUrl` when
+   - the monthly quota for the kind (`PlanCatalog`: by default Free 3 evaluations and 30 assists, Pro 100
+     and 1,500, owner unlimited, overridable by the `*_PLAN_*_PER_MONTH` settings; months are UTC): 429 `quota_exceeded`, with `upgradeUrl` when
      a Free user can upgrade.
 
    The reservation is held until the response is finished, the end of the stream for

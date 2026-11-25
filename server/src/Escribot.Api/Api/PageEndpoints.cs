@@ -77,7 +77,7 @@ internal static class PageEndpoints
     }
 
     /// <summary>The operator details the legal pages show: <c>SITE_OPERATOR</c>, <c>SUPPORT_EMAIL</c> and <c>SITE_JURISDICTION</c>.</summary>
-    private static IResult GetPublicConfig(IConfiguration configuration) => Results.Json(new JsonObject
+    private static IResult GetPublicConfig(IConfiguration configuration, PlanCatalog catalog) => Results.Json(new JsonObject
     {
         ["site"] = new JsonObject
         {
@@ -85,7 +85,25 @@ internal static class PageEndpoints
             ["supportEmail"] = Setting(configuration, "SUPPORT_EMAIL"),
             ["jurisdiction"] = Setting(configuration, "SITE_JURISDICTION"),
         },
+        // The allowances in force, for the landing, pricing and settings pages. Shown only;
+        // AiAccessGuard enforces them on the server.
+        ["plans"] = new JsonObject
+        {
+            [Plans.Free] = PlanJson(catalog[Plans.Free]),
+            [Plans.Pro] = PlanJson(catalog[Plans.Pro]),
+            [Plans.Owner] = PlanJson(catalog[Plans.Owner]),
+        },
     });
+
+    private static JsonObject PlanJson(PlanLimits limits) => new()
+    {
+        ["label"] = limits.Label,
+        ["evaluationsPerMonth"] = limits.EvaluationsPerMonth,
+        ["assistsPerMonth"] = limits.AssistsPerMonth,
+        ["canChooseModels"] = limits.CanChooseModels,
+        ["canTransformSvg"] = limits.CanTransformSvg,
+        ["storageBytes"] = limits.StorageBytes,
+    };
 
     private static string? Setting(IConfiguration configuration, string name) =>
         configuration[name]?.Trim() is { Length: > 0 } value ? value : null;

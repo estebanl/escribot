@@ -38,6 +38,11 @@ param allowedSignupEmails string = ''
 param adminEmails string = ''
 param emailFrom string = ''
 param freePlanDailyAiCap string = ''
+@description('Monthly AI allowances per plan. Empty keeps the built-in default (server/src/Escribot.Api/Common/Plans.cs).')
+param freePlanEvaluationsPerMonth string = ''
+param freePlanAssistsPerMonth string = ''
+param proPlanEvaluationsPerMonth string = ''
+param proPlanAssistsPerMonth string = ''
 param siteOperator string = ''
 param supportEmail string = ''
 param siteJurisdiction string = ''
@@ -178,6 +183,10 @@ var containerEnv = concat(
   !empty(adminEmails) ? [{ name: 'ADMIN_EMAILS', value: adminEmails }] : [],
   !empty(emailFrom) ? [{ name: 'EMAIL_FROM', value: emailFrom }] : [],
   !empty(freePlanDailyAiCap) ? [{ name: 'FREE_PLAN_DAILY_AI_CAP', value: freePlanDailyAiCap }] : [],
+  !empty(freePlanEvaluationsPerMonth) ? [{ name: 'FREE_PLAN_EVALUATIONS_PER_MONTH', value: freePlanEvaluationsPerMonth }] : [],
+  !empty(freePlanAssistsPerMonth) ? [{ name: 'FREE_PLAN_ASSISTS_PER_MONTH', value: freePlanAssistsPerMonth }] : [],
+  !empty(proPlanEvaluationsPerMonth) ? [{ name: 'PRO_PLAN_EVALUATIONS_PER_MONTH', value: proPlanEvaluationsPerMonth }] : [],
+  !empty(proPlanAssistsPerMonth) ? [{ name: 'PRO_PLAN_ASSISTS_PER_MONTH', value: proPlanAssistsPerMonth }] : [],
   !empty(siteOperator) ? [{ name: 'SITE_OPERATOR', value: siteOperator }] : [],
   !empty(supportEmail) ? [{ name: 'SUPPORT_EMAIL', value: supportEmail }] : [],
   !empty(siteJurisdiction) ? [{ name: 'SITE_JURISDICTION', value: siteJurisdiction }] : []

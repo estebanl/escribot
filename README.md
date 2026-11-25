@@ -41,7 +41,7 @@ More detail: [architecture overview](docs/architecture.md), [sign-in](server/doc
 
 ### Plans, quotas & rate limits
 
-- **Platform keys are metered.** Requests paid for by the deployment's keys count toward the account's plan (`server/src/Escribot.Api/Common/Plans.cs`): Free = 5 graded essays + 60 coaching requests per month, Pro = 100 + 1,500. Limits reset on the 1st (UTC). The `OWNER_EMAIL` account is unlimited.
+- **Platform keys are metered.** Requests paid for by the deployment's keys count toward the account's plan (`server/src/Escribot.Api/Common/Plans.cs`): by default Free = 3 graded essays + 30 coaching requests per month, Pro = 100 + 1,500. Set `FREE_PLAN_EVALUATIONS_PER_MONTH`, `FREE_PLAN_ASSISTS_PER_MONTH`, `PRO_PLAN_EVALUATIONS_PER_MONTH` or `PRO_PLAN_ASSISTS_PER_MONTH` to change them; each must be a whole number from 0 to 1,000,000, and the app refuses to start on any other value rather than fall back. They are read only from server configuration, never from a request, and the landing, pricing and Settings pages show the values in force. Limits reset on the 1st (UTC). The `OWNER_EMAIL` account is unlimited.
 - **Own key = no limits.** A user who saves their own provider key in Settings pays for their own usage and is never metered.
 - **Model choice is plan-gated.** On platform keys, Free accounts always use the default provider and models; Pro and own-key users can choose.
 - **Free AI needs a real address.** In production, Free accounts can use the platform keys only once their email is verified (or they signed in with Google, or are listed in `ALLOWED_SIGNUP_EMAILS`), so throwaway sign-ups cannot multiply the allowance. Set `FREE_PLAN_DAILY_AI_CAP` (e.g. `500`) to also cap total Free usage per day across all accounts.
@@ -210,7 +210,7 @@ The `.NET 11` app deploys to Azure Container Apps from the infrastructure defini
 4. **GitHub environment variables** (`production` environment):
    - `AZURE_RESOURCE_GROUP` — target resource group name.
    - `AZURE_LOCATION` — Azure region (e.g. `eastus2`).
-   - Optional variables: `CUSTOM_DOMAIN`, `ENABLE_CUSTOM_DOMAIN_CERT` (`false` until DNS is added), `BEHIND_CLOUDFLARE` (`false` until the domain is proxied; see [Cloudflare proxy](#cloudflare-proxy)), `EMAIL_DOMAIN` (defaults to `CUSTOM_DOMAIN`), `APP_PUBLIC_URL`, `ACS_DATA_LOCATION` (defaults to `United States`), `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS`, `EMAIL_FROM`, `FREE_PLAN_DAILY_AI_CAP`, `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION`.
+   - Optional variables: `CUSTOM_DOMAIN`, `ENABLE_CUSTOM_DOMAIN_CERT` (`false` until DNS is added), `BEHIND_CLOUDFLARE` (`false` until the domain is proxied; see [Cloudflare proxy](#cloudflare-proxy)), `EMAIL_DOMAIN` (defaults to `CUSTOM_DOMAIN`), `APP_PUBLIC_URL`, `ACS_DATA_LOCATION` (defaults to `United States`), `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_YEARLY`, `OWNER_EMAIL`, `ALLOWED_SIGNUP_EMAILS`, `ADMIN_EMAILS`, `EMAIL_FROM`, `FREE_PLAN_DAILY_AI_CAP`, `FREE_PLAN_EVALUATIONS_PER_MONTH`, `FREE_PLAN_ASSISTS_PER_MONTH`, `PRO_PLAN_EVALUATIONS_PER_MONTH`, `PRO_PLAN_ASSISTS_PER_MONTH`, `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION`.
 5. **Public GHCR package**: after the first `build` job pushes `ghcr.io/<owner>/<repo>`, ensure the package visibility is **Public** in GitHub Packages so Container Apps can pull without credentials.
 6. **Custom domain & free managed certificate**:
    - Run the first deploy with `ENABLE_CUSTOM_DOMAIN_CERT=false` to provision the environment and read `apiFqdn` and `customDomainVerificationId` from the deployment outputs.
@@ -284,6 +284,10 @@ If a new range is missing, visitors routed through it get `403` from the ingress
 | `OPENAI_API_KEY` | Yes | No | Platform OpenAI API key. |
 | `ANTHROPIC_API_KEY` | Yes | No | Platform Anthropic API key. |
 | `FREE_PLAN_DAILY_AI_CAP` | No | No | Daily ceiling on Free-plan AI requests across all accounts. |
+| `FREE_PLAN_EVALUATIONS_PER_MONTH` | No | No | Free graded essays per month (default 3). |
+| `FREE_PLAN_ASSISTS_PER_MONTH` | No | No | Free coaching requests per month (default 30). |
+| `PRO_PLAN_EVALUATIONS_PER_MONTH` | No | No | Pro graded essays per month (default 100). |
+| `PRO_PLAN_ASSISTS_PER_MONTH` | No | No | Pro coaching requests per month (default 1,500). |
 | `SITE_OPERATOR` | No | No | Operator name shown on Terms and Privacy pages. |
 | `SUPPORT_EMAIL` | No | No | Support email shown on Terms and Privacy pages. |
 | `SITE_JURISDICTION` | No | No | Governing jurisdiction shown on Terms and Privacy pages. |

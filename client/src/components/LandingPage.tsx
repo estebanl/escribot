@@ -8,7 +8,7 @@ import {
   Timer,
   Zap,
 } from "lucide-react";
-import { PLANS } from "@/lib/plans";
+import type { PlanCatalog } from "@/lib/plans";
 import { PublicHeader } from "@/components/PublicHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 
@@ -51,9 +51,9 @@ const STEPS = [
   { title: "Get marked, then redraft", body: "See exactly what held the score back and fix it in the next draft." },
 ];
 
-export function LandingPage({ deleted = false }: { deleted?: boolean }) {
-  const free = PLANS.free;
-  const pro = PLANS.pro;
+export function LandingPage({ plans, deleted = false }: { plans: PlanCatalog; deleted?: boolean }) {
+  const free = plans.free;
+  const pro = plans.pro;
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas text-ink">

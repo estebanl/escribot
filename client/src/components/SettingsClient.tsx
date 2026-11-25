@@ -10,7 +10,6 @@ import {
 import { ModelProvidersDialog } from "@/components/ModelProvidersDialog";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { L1_LANGUAGE_PROFILES } from "@/lib/ielts-utils";
-import { PLANS } from "@/lib/plans";
 import type {
   AIProviderId,
   ModelRef,
@@ -113,6 +112,8 @@ interface UsageSummary {
   assists: { used: number; limit: number | null };
   verificationRequired: boolean;
   resetsAt: string;
+  /** Pro's monthly graded essays, for the upgrade line. null = unlimited. */
+  proEvaluationsPerMonth: number | null;
 }
 
 function UsageMeter({
@@ -468,7 +469,9 @@ export function SettingsClient({
             <div className="pt-4 border-t border-line flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <p id="subscription-status" className="text-sm text-ink-secondary">
                 {describeSubscription(billing) ??
-                  `Upgrade to Pro for ${PLANS.pro.evaluationsPerMonth} graded essays a month and your choice of examiner model.`}
+                  (usage.proEvaluationsPerMonth === null
+                    ? "Upgrade to Pro for unlimited graded essays and your choice of examiner model."
+                    : `Upgrade to Pro for ${usage.proEvaluationsPerMonth.toLocaleString()} graded essays a month and your choice of examiner model.`)}
               </p>
               {billing.hasSubscription ? (
                 <button

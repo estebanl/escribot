@@ -334,9 +334,9 @@ public class DataApiUnitTests
     [Fact]
     public void Storage_allowances_are_25_mb_250_mb_and_unlimited()
     {
-        Assert.Equal(25L * 1024 * 1024, Plans.Limits["free"].StorageBytes);
-        Assert.Equal(250L * 1024 * 1024, Plans.Limits["pro"].StorageBytes);
-        Assert.Null(Plans.Limits["owner"].StorageBytes);
+        Assert.Equal(25L * 1024 * 1024, Plans.Defaults["free"].StorageBytes);
+        Assert.Equal(250L * 1024 * 1024, Plans.Defaults["pro"].StorageBytes);
+        Assert.Null(Plans.Defaults["owner"].StorageBytes);
     }
 
     [Theory]

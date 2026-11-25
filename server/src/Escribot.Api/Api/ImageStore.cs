@@ -39,7 +39,7 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
     /// </summary>
     public async Task<string> StoreAsync(string userId, string plan, string dataUrl, CancellationToken cancellationToken = default)
     {
-        var allowSvg = Plans.Limits[plan].CanTransformSvg;
+        var allowSvg = Plans.Defaults[plan].CanTransformSvg;
         if (!allowSvg && IsSvgDataUrl(dataUrl))
         {
             throw new ImageUploadException(
@@ -54,7 +54,7 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
             throw new ImageUploadException("Images must be 2 MB or smaller.", StatusCodes.Status413PayloadTooLarge);
         }
 
-        if (Plans.Limits[plan].StorageBytes is { } allowance)
+        if (Plans.Defaults[plan].StorageBytes is { } allowance)
         {
             var used = await images.GetTotalBytesAsync(userId, cancellationToken);
             if (used + data.Length > allowance)

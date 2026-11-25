@@ -370,11 +370,11 @@ public class DataApiTests(AppHostFixture fixture)
         Assert.Equal(6, providers[0].GetProperty("suggestedModels").GetArrayLength());
 
         var usage = response.GetProperty("usage");
-        Assert.Equal(["plan", "planLabel", "keySource", "canChooseModels", "evaluations", "assists", "verificationRequired", "resetsAt"], Names(usage));
+        Assert.Equal(["plan", "planLabel", "keySource", "canChooseModels", "evaluations", "assists", "verificationRequired", "resetsAt", "proEvaluationsPerMonth"], Names(usage));
         Assert.Equal("free", usage.GetProperty("plan").GetString());
         Assert.Equal("none", usage.GetProperty("keySource").GetString());
-        Assert.Equal("""{"used":0,"limit":5}""", usage.GetProperty("evaluations").GetRawText());
-        Assert.Equal("""{"used":0,"limit":60}""", usage.GetProperty("assists").GetRawText());
+        Assert.Equal("""{"used":0,"limit":3}""", usage.GetProperty("evaluations").GetRawText());
+        Assert.Equal("""{"used":0,"limit":30}""", usage.GetProperty("assists").GetRawText());
         var nextMonth = new DateTimeOffset(DateTimeOffset.UtcNow.Year, DateTimeOffset.UtcNow.Month, 1, 0, 0, 0, TimeSpan.Zero).AddMonths(1);
         Assert.Equal(nextMonth, usage.GetProperty("resetsAt").GetDateTimeOffset());
 

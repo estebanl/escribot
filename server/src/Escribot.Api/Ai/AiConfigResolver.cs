@@ -57,7 +57,7 @@ public sealed class AiConfigResolver(
         var plan = account is not null
             ? await planResolver.GetPlanAsync(account, cancellationToken)
             : Plans.Free;
-        var canChooseModels = Plans.Limits[plan].CanChooseModels;
+        var canChooseModels = Plans.Defaults[plan].CanChooseModels;
 
         // Any own key beats spending the platform's budget.
         var ownFallback = AiProviders.Ids.FirstOrDefault(storedKeys.ContainsKey);

@@ -662,7 +662,7 @@ internal static class AiEndpoints
     {
         var account = context.GetSession()!.Account;
         var plan = await planResolver.GetPlanAsync(account, cancellationToken);
-        if (!Plans.Limits[plan].CanTransformSvg)
+        if (!Plans.Defaults[plan].CanTransformSvg)
         {
             return Results.Json(
                 new JsonObject
