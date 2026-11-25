@@ -230,6 +230,7 @@ flowchart TB
     id -->|blob data role| st
     id -->|Secrets User| kv
     ks -->|stops| app
+    acs -.->|delivery logs| env
 ```
 
 | Bicep module (`infra/`) | Creates |
@@ -238,7 +239,7 @@ flowchart TB
 | `aca/` | The Container Apps environment, Log Analytics, the Aspire dashboard |
 | `api/api-containerapp.bicep` | The `api` Container App: image, environment, probes, scaling, ingress rules |
 | `api-identity/`, `api-roles-*` | The API's managed identity and its role assignments on Cosmos DB, Storage and Key Vault |
-| `cosmos/`, `storage/`, `vault/`, `acs/` | The data stores, the vault and email |
+| `cosmos/`, `storage/`, `vault/`, `acs/` | The data stores, the vault and email (with its send and delivery logs sent to Log Analytics) |
 | `budget-killswitch/` | The Logic App that stops the app when the budget is reached |
 
 `ci.yml` runs on every pull request and every push to `main`. It has three jobs:
