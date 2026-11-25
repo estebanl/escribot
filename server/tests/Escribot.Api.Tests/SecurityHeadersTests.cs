@@ -1,8 +1,12 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Escribot.Api.Common;
+using Escribot.Api.Data;
 using Escribot.Api.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Escribot.Api.Tests;
 
@@ -91,6 +95,88 @@ public sealed class SecurityHeadersTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, signedIn.StatusCode);
         AssertSecurityHeaders(signedIn, "strict-origin-when-cross-origin");
     }
+
+    /// <summary>
+    /// Every page address in the browser app's router, with route parameters filled in,
+    /// plus an unknown address for the not-found page.
+    /// </summary>
+    public static TheoryData<string> ClientRoutes()
+    {
+        var router = File.ReadAllText(Path.Combine(RepositoryRoot(), "client", "src", "router.tsx"));
+        var paths = Regex.Matches(router, @"path:\s*""(/[^""]*)""")
+            .Select(m => Regex.Replace(m.Groups[1].Value, @":\w+", "0f8fad5b-d9cb-469f-a165-70867728950e"))
+            .Append("/no-such-page")
+            .Distinct()
+            .ToList();
+        Assert.Contains("/", paths);
+        return new TheoryData<string>(paths);
+    }
+
+    [Theory]
+    [MemberData(nameof(ClientRoutes))]
+    public async Task Every_html_page_keeps_the_strict_app_csp(string path)
+    {
+        // Endpoints may set their own CSP (uploaded SVGs do), and the middleware keeps it.
+        // No page of the browser app may end up with anything but the app's policy. Signed in,
+        // so every address answers with the page (signed out, most redirect to /login).
+        await using var factory = CreateFactory();
+        var browser = factory.CreateBrowser();
+        using var signUp = await AuthEndpointTests.SignUpAsync(
+            browser,
+            $"csp-{Guid.NewGuid():N}@example.test",
+            $"pw-{TestSecrets.NewSecret()}",
+            "CSP Tester");
+        Assert.Equal(HttpStatusCode.OK, signUp.StatusCode);
+
+        using var response = await browser.GetAsync(path);
+
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(SecurityHeaders.ContentSecurityPolicy, Header(response, "Content-Security-Policy"));
+    }
+
+    [Fact]
+    public async Task Only_uploaded_svgs_get_the_sandbox_csp()
+    {
+        await using var factory = CreateFactory();
+        var browser = factory.CreateBrowser();
+        using var signUp = await AuthEndpointTests.SignUpAsync(
+            browser,
+            $"csp-{Guid.NewGuid():N}@example.test",
+            $"pw-{TestSecrets.NewSecret()}",
+            "CSP Tester");
+        Assert.Equal(HttpStatusCode.OK, signUp.StatusCode);
+        var userId = (await AuthEndpointTests.Json(signUp)).GetProperty("user").GetProperty("id").GetString()!;
+        // SVG uploads are a Pro feature.
+        await factory.Services.GetRequiredService<ISettingsRepository>().UpdateAsync(userId, s => s with { Plan = Plans.Pro });
+
+        async Task<HttpResponseMessage> UploadAndFetchAsync(string imageDataUrl)
+        {
+            using var created = await browser.PostAsJsonAsync("/api/prompts", new
+            {
+                taskType = "task1",
+                category = "bar",
+                promptText = "Summarise the chart.",
+                imageDataUrl,
+            });
+            Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+            var imageUrl = (await AuthEndpointTests.Json(created)).GetProperty("prompt").GetProperty("imageDataUrl").GetString()!;
+            return await browser.GetAsync(imageUrl);
+        }
+
+        const string svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect width='10' height='10'/></svg>";
+        using (var svgResponse = await UploadAndFetchAsync($"data:image/svg+xml;base64,{Convert.ToBase64String(Encoding.UTF8.GetBytes(svg))}"))
+        {
+            Assert.Equal("image/svg+xml", svgResponse.Content.Headers.ContentType?.MediaType);
+            Assert.Equal(SecurityHeaders.UploadedSvgContentSecurityPolicy, Header(svgResponse, "Content-Security-Policy"));
+        }
+
+        using var pngResponse = await UploadAndFetchAsync($"data:image/png;base64,{OnePixelPng}");
+        Assert.Equal("image/png", pngResponse.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(SecurityHeaders.ContentSecurityPolicy, Header(pngResponse, "Content-Security-Policy"));
+    }
+
+    private const string OnePixelPng =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
     [Fact]
     public void Csp_allows_the_inline_theme_script_in_index_html_by_its_hash()

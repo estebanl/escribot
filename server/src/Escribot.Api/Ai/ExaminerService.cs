@@ -69,6 +69,135 @@ public sealed partial class ExaminerService(
         }
     }
 
+    public async Task<SvgTransformResult> TransformImageToSvgAsync(
+        string imageDataUrl,
+        string? category,
+        string? promptText,
+        string userId,
+        ResolvedAiConfig? config = null,
+        CancellationToken cancellationToken = default)
+    {
+        var cfg = config ?? await configResolver.ResolveAsync(userId, cancellationToken);
+        var vision = cfg.Vision;
+        if (string.IsNullOrEmpty(vision.ApiKey))
+        {
+            throw new InvalidOperationException("No AI provider API key is configured for vision.");
+        }
+
+        var defaults = AiProviders.Defaults.GetValueOrDefault(vision.Provider);
+
+        var hintParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            hintParts.Add($"Task 1 visual archetype hint: {category.Trim()}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(promptText))
+        {
+            hintParts.Add($"Accompanying prompt instructions:\n{promptText.Trim()}");
+        }
+
+        var hintsBlock = hintParts.Count > 0 ? string.Join("\n\n", hintParts) + "\n\n" : string.Empty;
+
+        var (parsed, _) = await ai.CallLlmAndParseAsync(
+            new LlmCompletionRequest
+            {
+                UserId = cfg.UserId,
+                KeySource = vision.KeySource,
+                Plan = cfg.Plan,
+                Provider = vision.Provider,
+                ApiKey = vision.ApiKey,
+                Model = vision.Model,
+                FallbackModels = defaults?.FastFallbacks,
+                Feature = "svg_transform",
+                AgentName = "SvgTransformAgent",
+                ImageDataUrl = imageDataUrl,
+                JsonMode = true,
+                ThinkingMode = "disabled",
+                MaxTokens = 8192,
+                TimeoutMs = 90_000,
+                SystemPrompt =
+                    """
+                    You are a specialist Academic IELTS Task 1 technical illustrator and data analyst.
+                    Your job is to redraw an uploaded photo or low-quality screenshot of an IELTS Academic Task 1 visual (line graph, bar chart, pie chart, data table, mixed chart, process/lifecycle diagram, or comparison map) into a publication-grade, crystal-clear, self-contained SVG graphic.
+
+                    Visual fidelity rules (CRITICAL):
+                    - Preserve EVERY title, subtitle, axis label, unit, tick mark, legend item, data value, bar height, line trajectory, pie percentage, table cell, process stage, arrow direction, compass/scale, and map landmark accurately from the source image. Do not invent or drop data.
+                    - Correct perspective skew, camera shadows, glare, smudges, and low-resolution blur from phone photos so the result looks like a crisp digital exam paper.
+
+                    SVG design rules:
+                    - Root element MUST be `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 960 600' width='960' height='600'>` (adjust aspect ratio cleanly if the source is wide or tall, keeping viewBox explicit and crisp).
+                    - Draw a clean `#ffffff` rounded background `<rect>` covering the full viewBox.
+                    - Use Escribot's clean Oxford editorial palette: primary ink `#0f172a`, secondary slate `#475569`, subtle borders/gridlines `#e2e8f0` / `#cbd5e1`, and series/accent fills `#16656e` (Oxford teal), `#c55e1b` (terracotta), `#2b7a52` (emerald), `#9a6b25` (ochre), `#9e3a2b` (crimson), `#334155` (slate).
+                    - Use clean `system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif` typography with generous padding and spacing so NO labels overlap or clip outside the viewBox.
+                    - Keep the SVG clean and concise: use simple geometric primitives, rounded coordinates, and shared CSS classes rather than verbose inline styles.
+                    - Use single quotes (`'`) for XML attributes inside the SVG string so JSON stays compact and valid.
+                    - NEVER include `<script>`, `<foreignObject>`, `<image>`, `<a>`, event handlers (`on*`), or external URLs. Use pure vector shapes, paths, markers, and `<text>`.
+                    """,
+                UserPrompt =
+                    $$"""
+                    {{hintsBlock}}Redraw the attached IELTS Task 1 image as a clean, publication-grade SVG and extract its objective visual data for IELTS Task Achievement grading.
+
+                    Return a single JSON object with exactly two keys:
+                    - "svg": string containing the complete, self-contained `<svg ...>...</svg>` markup.
+                    - "visualSpec": object with:
+                      - "visualType": string (e.g., "line graph", "bar chart", "pie charts", "table", "process diagram", "comparison map")
+                      - "unitsAndAxes": string
+                      - "macroOverviewTrends": string[] (2-4 overarching trends, extremes, or transformations)
+                      - "exactFiguresAndStages": string[] (comprehensive list of exact numbers, years, rankings, or process/map stages visible in the source image)
+                    """,
+            },
+            ParseSvgTransformResponse,
+            cancellationToken);
+
+        return parsed;
+    }
+
+    internal static SvgTransformResult ParseSvgTransformResponse(string rawContent)
+    {
+        string? rawSvg = null;
+        string? visualSpecJson = null;
+
+        try
+        {
+            var root = JsonExtractor.ExtractJsonObject<JsonElement>(rawContent);
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (root.TryGetProperty("svg", out var svgEl) && svgEl.ValueKind == JsonValueKind.String)
+                {
+                    rawSvg = svgEl.GetString();
+                }
+
+                if (root.TryGetProperty("visualSpec", out var specEl)
+                    && specEl.ValueKind is JsonValueKind.Object or JsonValueKind.String)
+                {
+                    visualSpecJson = specEl.ValueKind == JsonValueKind.String
+                        ? specEl.GetString()
+                        : specEl.GetRawText();
+                }
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            // Fall back to direct <svg>...</svg> extraction if the model emitted raw SVG or unescaped quotes.
+        }
+
+        var sanitizedSvg = SvgSanitizer.Sanitize(rawSvg) ?? SvgSanitizer.ExtractAndSanitize(rawContent);
+        if (string.IsNullOrEmpty(sanitizedSvg))
+        {
+            throw new InvalidOperationException("The model did not return a valid SVG.");
+        }
+
+        var svgDataUrl = $"data:{ImageStore.SvgContentType};base64,{Convert.ToBase64String(Encoding.UTF8.GetBytes(sanitizedSvg))}";
+        var trimmedSpec = string.IsNullOrWhiteSpace(visualSpecJson) ? null : visualSpecJson.Trim();
+        if (trimmedSpec?.Length > 20_000)
+        {
+            trimmedSpec = trimmedSpec[..20_000];
+        }
+
+        return new SvgTransformResult(svgDataUrl, trimmedSpec);
+    }
+
     /* ============================================================================
      * 2. DEEP 4-CRITERION RUBRIC EVALUATION + INLINE ANNOTATIONS + BAND 8+ REWRITE
      * ============================================================================ */

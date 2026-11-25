@@ -192,7 +192,7 @@ public sealed class UsageService(
 {
     // The usage features that mark one billable unit of each kind.
     public static readonly string[] EvaluationFeatures = ["rubric_score", "rubric_score_fallback"];
-    public static readonly string[] AssistFeatures = ["outline_check", "toolkit", "prompt_generation", "drill_generate", "drill_score"];
+    public static readonly string[] AssistFeatures = ["outline_check", "toolkit", "prompt_generation", "drill_generate", "drill_score", "svg_transform"];
 
     /// <summary>
     /// Free AI on the platform's keys needs an account tied to a real address: verified

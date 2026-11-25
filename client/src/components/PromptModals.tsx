@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { X, Upload, Sparkles, Image as ImageIcon, Loader2 } from "lucide-react";
+import {
+  X,
+  Upload,
+  Sparkles,
+  Image as ImageIcon,
+  Loader2,
+  Wand2,
+  RefreshCw,
+} from "lucide-react";
 import { safePostJson } from "@/lib/client-evaluate";
 import type { PromptCategory, TaskType } from "@/lib/types";
 import { TEXT_LIMITS } from "@/lib/limits";
@@ -78,14 +86,25 @@ async function compressImageFileToWebP(
   });
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read image file."));
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(file);
+  });
+}
+
 export function CustomPromptModal({
   open,
   onClose,
   onCreated,
+  canTransformSvg = false,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (prompt: PromptRecord) => void;
+  canTransformSvg?: boolean;
 }) {
   const [taskType, setTaskType] = useState<TaskType>("task1");
   const [category, setCategory] = useState<PromptCategory>("line");
@@ -93,17 +112,41 @@ export function CustomPromptModal({
   const [topic, setTopic] = useState("");
   const [promptText, setPromptText] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [svgDataUrl, setSvgDataUrl] = useState<string | null>(null);
+  const [extractedVisualSpec, setExtractedVisualSpec] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<"original" | "svg">("original");
+  const [transforming, setTransforming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
+  const isUploadedSvg = Boolean(
+    imageDataUrl?.startsWith("data:image/svg+xml;")
+  );
+  const usingGeneratedSvg = previewMode === "svg" && Boolean(svgDataUrl);
+  const activePreviewUrl = usingGeneratedSvg ? svgDataUrl : imageDataUrl;
+
+  function clearImageState() {
+    setImageDataUrl(null);
+    setSvgDataUrl(null);
+    setExtractedVisualSpec(null);
+    setPreviewMode("original");
+  }
+
   async function handleFileSelect(file: File | undefined | null) {
     if (!file) return;
     setError(null);
     try {
-      const compressed = await compressImageFileToWebP(file);
-      setImageDataUrl(compressed);
+      // SVGs are stored as SVGs on Pro; on Free they are drawn into a WebP like any image.
+      const processed =
+        canTransformSvg && file.type === "image/svg+xml"
+          ? await readFileAsDataUrl(file)
+          : await compressImageFileToWebP(file);
+      setImageDataUrl(processed);
+      setSvgDataUrl(null);
+      setExtractedVisualSpec(null);
+      setPreviewMode("original");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not process image.");
     }
@@ -122,11 +165,49 @@ export function CustomPromptModal({
     }
   }
 
+  async function handleTransformToSvg() {
+    if (!imageDataUrl || isUploadedSvg || transforming) return;
+    setTransforming(true);
+    setError(null);
+    try {
+      const outcome = await safePostJson<{
+        svgDataUrl: string;
+        extractedVisualSpec?: string | null;
+      }>(
+        "/api/ai/transform-svg",
+        {
+          imageDataUrl,
+          category,
+          promptText: promptText.trim() || undefined,
+        },
+        "transforming your image into SVG"
+      );
+      if (!outcome.ok) {
+        setError(outcome.error);
+        return;
+      }
+      setSvgDataUrl(outcome.data.svgDataUrl);
+      setExtractedVisualSpec(outcome.data.extractedVisualSpec ?? null);
+      setPreviewMode("svg");
+    } finally {
+      setTransforming(false);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError(null);
     try {
+      const finalImageUrl =
+        taskType === "task1"
+          ? usingGeneratedSvg
+            ? svgDataUrl
+            : imageDataUrl
+          : null;
+      const finalVisualSpec =
+        taskType === "task1" && usingGeneratedSvg ? extractedVisualSpec : null;
+
       const res = await fetch("/api/prompts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -136,7 +217,8 @@ export function CustomPromptModal({
           title,
           topic,
           promptText,
-          imageDataUrl: taskType === "task1" ? imageDataUrl : null,
+          imageDataUrl: finalImageUrl,
+          extractedVisualSpec: finalVisualSpec,
         }),
       });
       const data = await res.json();
@@ -145,6 +227,10 @@ export function CustomPromptModal({
         setSaving(false);
         return;
       }
+      setTitle("");
+      setTopic("");
+      setPromptText("");
+      clearImageState();
       onCreated(data.prompt);
       onClose();
     } catch {
@@ -258,24 +344,96 @@ export function CustomPromptModal({
           </div>
 
           {taskType === "task1" && (
-            <div>
-              <label className="block text-xs font-medium text-ink-secondary mb-1.5">
-                Chart / Diagram / Map Screenshot (WebP Compressed)
-              </label>
-              {imageDataUrl ? (
-                <div className="relative rounded-xl border border-line-strong bg-white p-3">
-                  <img
-                    src={imageDataUrl}
-                    alt="Task 1 screenshot preview"
-                    className="max-h-48 mx-auto object-contain rounded"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setImageDataUrl(null)}
-                    className="absolute top-2 right-2 px-2 py-1 rounded bg-slate-900/80 text-white text-xs cursor-pointer"
-                  >
-                    Remove
-                  </button>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="block text-xs font-medium text-ink-secondary">
+                  {`Chart / Diagram / Map Screenshot (${
+                    isUploadedSvg || usingGeneratedSvg ? "SVG" : "WebP Compressed"
+                  })`}
+                </label>
+                {canTransformSvg && imageDataUrl && !isUploadedSvg && svgDataUrl && (
+                  <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-subtle border border-line">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewMode("svg")}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                        previewMode === "svg"
+                          ? "bg-surface text-ink shadow-xs"
+                          : "text-ink-secondary hover:text-ink"
+                      }`}
+                    >
+                      SVG
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewMode("original")}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                        previewMode === "original"
+                          ? "bg-surface text-ink shadow-xs"
+                          : "text-ink-secondary hover:text-ink"
+                      }`}
+                    >
+                      Original
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {activePreviewUrl ? (
+                <div className="space-y-2">
+                  <div className="relative rounded-xl border border-line-strong bg-white p-3">
+                    <img
+                      src={activePreviewUrl}
+                      alt={
+                        usingGeneratedSvg
+                          ? "Task 1 generated SVG preview"
+                          : "Task 1 screenshot preview"
+                      }
+                      className="max-h-56 mx-auto object-contain rounded"
+                    />
+                    <button
+                      type="button"
+                      disabled={transforming}
+                      onClick={clearImageState}
+                      className="absolute top-2 right-2 px-2 py-1 rounded bg-slate-900/80 text-white text-xs cursor-pointer disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  {canTransformSvg && !isUploadedSvg && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                      <span className="text-[11px] text-ink-secondary">
+                        {usingGeneratedSvg
+                          ? "Clean SVG selected — saving will store the SVG version."
+                          : svgDataUrl
+                          ? "Original image selected — saving will store the original image."
+                          : "Redraw photos or blurry screenshots into a crisp vector SVG."}
+                      </span>
+                      <button
+                        id="transform-to-svg-btn"
+                        type="button"
+                        disabled={transforming || saving}
+                        onClick={handleTransformToSvg}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line-strong bg-surface hover:bg-subtle text-xs font-medium text-ink disabled:opacity-50 transition cursor-pointer"
+                      >
+                        {transforming ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+                        ) : svgDataUrl ? (
+                          <RefreshCw className="w-3.5 h-3.5 text-accent" />
+                        ) : (
+                          <Wand2 className="w-3.5 h-3.5 text-accent" />
+                        )}
+                        <span>
+                          {transforming
+                            ? "Transforming..."
+                            : svgDataUrl
+                            ? "Regenerate"
+                            : "Transform to SVG"}
+                        </span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <label className="flex flex-col items-center justify-center gap-2 py-6 px-4 rounded-xl border border-dashed border-line-strong bg-canvas hover:bg-subtle transition cursor-pointer text-center">
@@ -326,7 +484,7 @@ export function CustomPromptModal({
             <button
               id="save-custom-prompt-btn"
               type="submit"
-              disabled={saving || !promptText.trim()}
+              disabled={saving || transforming || !promptText.trim()}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg text-sm font-medium disabled:opacity-50 cursor-pointer"
             >
               {saving ? (

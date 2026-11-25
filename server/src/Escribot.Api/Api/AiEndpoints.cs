@@ -31,6 +31,7 @@ internal static class AiEndpoints
         api.MapPost("/ai/outline-check", OutlineCheckAsync).OnFailure("Outline validation failed.");
         api.MapPost("/ai/toolkit", ToolkitAsync).OnFailure("Toolkit check failed.");
         api.MapPost("/ai/generate-prompt", GeneratePromptAsync).OnFailure("Failed to generate prompt.");
+        api.MapPost("/ai/transform-svg", TransformSvgAsync).OnFailure("Failed to transform image to SVG.");
         api.MapGet("/ai/models", GetModelsAsync).OnFailure("Failed to fetch models");
         api.MapPost("/drills", DrillsActionAsync).OnFailure("Micro-drill request failed.");
 
@@ -189,20 +190,27 @@ internal static class AiEndpoints
                             var imageForAi = await imageStore.ResolveAsDataUrlAsync(userId, prompt.ImageUrl, ct);
                             if (!string.IsNullOrEmpty(imageForAi))
                             {
-                                sendEvent(new JsonObject
+                                if (TryDecodeSvgVisualContext(imageForAi) is { } svgContext)
                                 {
-                                    ["type"] = "progress",
-                                    ["stage"] = $"{taskPrefix}Extracting chart data from uploaded image...",
-                                });
-                                var extracted = await examiner.ExtractVisualSpecFromImageAsync(imageForAi, prompt.PromptText, userId, resolvedConfig, ct);
-                                if (!string.IsNullOrEmpty(extracted))
-                                {
-                                    visualContext = extracted;
-                                    await prompts.SaveAsync(userId, prompt with { ExtractedVisualSpec = extracted }, ct);
+                                    visualContext = svgContext;
                                 }
                                 else
                                 {
-                                    visualContext = "Uploaded visual chart/diagram screenshot (verify internal factual consistency against prompt instructions).";
+                                    sendEvent(new JsonObject
+                                    {
+                                        ["type"] = "progress",
+                                        ["stage"] = $"{taskPrefix}Extracting chart data from uploaded image...",
+                                    });
+                                    var extracted = await examiner.ExtractVisualSpecFromImageAsync(imageForAi, prompt.PromptText, userId, resolvedConfig, ct);
+                                    if (!string.IsNullOrEmpty(extracted))
+                                    {
+                                        visualContext = extracted;
+                                        await prompts.SaveAsync(userId, prompt with { ExtractedVisualSpec = extracted }, ct);
+                                    }
+                                    else
+                                    {
+                                        visualContext = "Uploaded visual chart/diagram screenshot (verify internal factual consistency against prompt instructions).";
+                                    }
                                 }
                             }
                         }
@@ -516,11 +524,18 @@ internal static class AiEndpoints
                     var imageForAi = await imageStore.ResolveAsDataUrlAsync(account.Id, prompt.ImageUrl, cancellationToken);
                     if (!string.IsNullOrEmpty(imageForAi))
                     {
-                        var extracted = await examiner.ExtractVisualSpecFromImageAsync(imageForAi, prompt.PromptText, account.Id, guard.Config, cancellationToken);
-                        if (!string.IsNullOrEmpty(extracted))
+                        if (TryDecodeSvgVisualContext(imageForAi) is { } svgContext)
                         {
-                            visualContext = extracted;
-                            await prompts.SaveAsync(account.Id, prompt with { ExtractedVisualSpec = extracted }, cancellationToken);
+                            visualContext = svgContext;
+                        }
+                        else
+                        {
+                            var extracted = await examiner.ExtractVisualSpecFromImageAsync(imageForAi, prompt.PromptText, account.Id, guard.Config, cancellationToken);
+                            if (!string.IsNullOrEmpty(extracted))
+                            {
+                                visualContext = extracted;
+                                await prompts.SaveAsync(account.Id, prompt with { ExtractedVisualSpec = extracted }, cancellationToken);
+                            }
                         }
                     }
                 }
@@ -635,6 +650,135 @@ internal static class AiEndpoints
 
         await prompts.SaveAsync(account.Id, record, cancellationToken);
         return Results.Json(new JsonObject { ["prompt"] = Wire.Prompt(record) });
+    }
+
+    private static async Task<IResult> TransformSvgAsync(
+        JsonElement json,
+        HttpContext context,
+        PlanResolver planResolver,
+        AiAccessGuard accessGuard,
+        ExaminerService examiner,
+        CancellationToken cancellationToken)
+    {
+        var account = context.GetSession()!.Account;
+        var plan = await planResolver.GetPlanAsync(account, cancellationToken);
+        if (!Plans.Limits[plan].CanTransformSvg)
+        {
+            return Results.Json(
+                new JsonObject
+                {
+                    ["error"] = "Transforming images to SVG is available on the Pro plan.",
+                    ["code"] = "upgrade_required",
+                },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var body = new Body(json);
+        var imageDataUrl = body.String("imageDataUrl");
+        if (string.IsNullOrWhiteSpace(imageDataUrl))
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Upload or paste a Task 1 image first.");
+        }
+
+        try
+        {
+            var (_, data) = ImageStore.ParseDataUrl(imageDataUrl, allowSvg: false);
+            if (data.Length > ImageStore.MaxImageBytes)
+            {
+                return ApiResults.Error(StatusCodes.Status413PayloadTooLarge, "Images must be 2 MB or smaller.");
+            }
+        }
+        catch (ImageUploadException ex)
+        {
+            return ApiResults.Error(ex.StatusCode, ex.Message);
+        }
+
+        var category = body.Trimmed("category");
+        var promptText = body.Trimmed("promptText");
+        if (category?.Length > MaxCategoryLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Category exceeds the maximum allowed length.");
+        }
+
+        if (promptText?.Length > MaxPromptTextLength)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Prompt text exceeds the maximum allowed length.");
+        }
+
+        using var guard = await accessGuard.GuardWithConfigAsync(account, AiRequestKind.Assist, 1, cancellationToken);
+        if (guard.Blocked is { } blocked)
+        {
+            return blocked;
+        }
+
+        if (string.IsNullOrEmpty(guard.Config?.Vision.ApiKey))
+        {
+            return Results.Json(
+                new JsonObject
+                {
+                    ["error"] = "Configure an AI provider key in Settings to transform images into SVG.",
+                    ["code"] = "ai_not_configured",
+                },
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        try
+        {
+            var result = await examiner.TransformImageToSvgAsync(
+                imageDataUrl,
+                category,
+                promptText,
+                account.Id,
+                guard.Config,
+                cancellationToken);
+
+            return Results.Json(new JsonObject
+            {
+                ["svgDataUrl"] = result.SvgDataUrl,
+                ["extractedVisualSpec"] = result.ExtractedVisualSpec,
+            });
+        }
+        catch (TimeoutException)
+        {
+            return ApiResults.Error(StatusCodes.Status504GatewayTimeout, "SVG conversion timed out. Please try again.");
+        }
+        catch (UnsupportedAiProviderException)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Choose a supported AI provider in Settings to convert images to SVG.");
+        }
+        catch (InvalidOperationException)
+        {
+            return ApiResults.Error(StatusCodes.Status502BadGateway, "Could not generate a clean SVG from this image. Please try again or keep the original image.");
+        }
+        catch (HttpRequestException)
+        {
+            return ApiResults.Error(StatusCodes.Status502BadGateway, "The AI provider could not complete the SVG conversion. Please try again.");
+        }
+    }
+
+    private static string? TryDecodeSvgVisualContext(string imageDataUrl)
+    {
+        const string prefix = $"data:{ImageStore.SvgContentType};base64,";
+        if (!imageDataUrl.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(imageDataUrl[prefix.Length..]);
+            var svgXml = Encoding.UTF8.GetString(bytes);
+            if (svgXml.Length > MaxPromptTextLength)
+            {
+                svgXml = svgXml[..MaxPromptTextLength];
+            }
+
+            return $"Task 1 SVG visual source:\n{svgXml}";
+        }
+        catch (FormatException)
+        {
+            return "Task 1 uploaded SVG visual diagram (verify internal factual consistency against prompt instructions).";
+        }
     }
 
     private static async Task<IResult> GetModelsAsync(

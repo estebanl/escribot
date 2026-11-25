@@ -61,6 +61,7 @@ public class AiEndpointTests
             (HttpMethod.Post, "/api/ai/outline-check"),
             (HttpMethod.Post, "/api/ai/toolkit"),
             (HttpMethod.Post, "/api/ai/generate-prompt"),
+            (HttpMethod.Post, "/api/ai/transform-svg"),
             (HttpMethod.Get, "/api/ai/models"),
             (HttpMethod.Post, "/api/drills"),
         })

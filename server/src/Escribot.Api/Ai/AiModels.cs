@@ -365,6 +365,10 @@ public sealed record GeneratedPromptResult(
     string PromptText,
     JsonObject? ChartSpec);
 
+public sealed record SvgTransformResult(
+    string SvgDataUrl,
+    string? ExtractedVisualSpec);
+
 public sealed record OpenRouterModelInfo(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("name")] string Name,

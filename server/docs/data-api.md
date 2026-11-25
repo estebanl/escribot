@@ -12,13 +12,13 @@ stored documents in [data-model.md](data-model.md).
 | `POST /api/sessions` | `mode`, `task1PromptId?`, `task2PromptId?`. 404 for a prompt the user cannot see |
 | `GET /api/sessions/{id}` | 404 for a session that is not the user's |
 | `GET /api/prompts` | The curated bank plus the user's own; `?taskType=` filters |
-| `POST /api/prompts` | A custom prompt; a Task 1 prompt may carry `imageDataUrl` |
+| `POST /api/prompts` | A custom prompt; a Task 1 prompt may carry `imageDataUrl` and optional `extractedVisualSpec`. An SVG image on Free is a 403 `upgrade_required` |
 | `GET` `POST` `PATCH` `DELETE /api/vault` | As before; `DELETE` takes `?id=` |
 | `GET /api/drills` | The 20 most recent. Generating and scoring come with the AI endpoints |
 | `GET` `PUT /api/settings` | `GET` lists every provider (`providers`: whether it is configured, meaning AI requests can use it (the user saved a key for it, or the platform has a key for it and the user has no key of their own), its masked saved key, whether the platform has a key, its models and suggested models), the model each role uses (`settings.models.{grader,fast,vision}` as `{provider, model}`), usage and billing status. `PUT` takes `models` in the same shape; it still accepts the older `activeProvider`, `graderModel`/`fastModel`/`visionModel` and `apiKeysToUpdate` |
 | `PUT` `DELETE /api/settings/providers/{id}` | `PUT {apiKey?, models?}` adds a provider or changes its key or model list and answers the provider as `GET /api/settings` lists it. Adding one needs a key unless the platform has its own and the user has no key of their own; without `models` a new provider starts with the `starting` list of its models route when that list was loaded in the last hour, else its suggested models. `DELETE` (204) removes the key and the list. After either, every role on a provider that is no longer configured moves to a configured one (the provider just saved, for `PUT`), and every role whose model its provider no longer lists moves to one it does: the model picked for the role (see the models route), else its first model. An unknown provider is a 404 |
 | `POST /api/settings/providers/{id}/models` | `{apiKey?}` answers `{models: [{id, name}], starting, roles: {grader, fast, vision}}`: the models the provider offers now, newest first, from its own list-models API (OpenAI, Anthropic, Gemini and DeepSeek, filtered to chat models) or OpenRouter's public catalogue. It lists with `apiKey` when given (the setup form sends the key it is about to save), else the user's saved key for the provider, else the platform's. Lists are cached on the server for an hour per provider and key. No key is a 400, a key the provider rejects is a 400, a provider that fails is a 502, more than 30 calls in 10 minutes is a 429, and an unknown provider is a 404. It is a `POST` so a pasted key never appears in a URL. `roles` are picked automatically (`Ai/ModelPicker.cs`) by price, from OpenRouter's public catalogue, among the eight newest models: `fast` is the newest cheap one (within 1.5× of the cheapest), `grader` the newest above that and at most the median price, `vision` the newest cheap one that reads images. `starting` is those, then the newest, up to five. With too few prices to pick (offline, or model names OpenRouter does not use, as with DeepSeek) the configured defaults are used where the provider still offers them, else its newest model; OpenRouter itself always uses its configured defaults. A provider's `suggestedModels` are the fallback when the live list cannot be loaded |
-| `GET /api/images/{id}` | Served to the owner only |
+| `GET /api/images/{id}` | Served to the owner only; uploaded SVGs are served with a restrictive sandbox CSP |
 | `GET` `POST /api/backup` | Download and restore of the writing data; `POST` is limited to 5 an hour |
 | `GET /api/account/export` | Everything stored about the user; 5 an hour |
 | `POST /api/errors` | Browser error reports; public; 10 a minute per user or address |
@@ -61,9 +61,15 @@ the route then answers with its own message. On top of that:
 
 ## Images
 
-- Uploads arrive as data URLs: PNG, JPEG, WebP or GIF, at most 2 MB each. The bytes
-  must start with the declared format's signature; an empty image or one that does not
-  match its declared type is a 400.
+- Uploads arrive as data URLs: PNG, JPEG, WebP, GIF or, on Pro and for the owner, SVG
+  (`image/svg+xml`), at most 2 MB each. Raster bytes must start with the declared format's
+  signature; SVGs are validated and strictly allowlist-sanitized (`SvgSanitizer`) before
+  storage, and served with a sandbox CSP. An empty, mismatched or invalid image is a 400; an
+  SVG on Free is a 403 `upgrade_required`. The browser app turns an SVG a Free user picks into
+  a WebP before sending it, as it does every other image.
+- A backup restored on Free drops its SVG images like any other image that cannot be stored:
+  the prompt, and its `extractedVisualSpec`, are kept. Images already stored stay readable
+  after a downgrade.
 - The total per user is limited by plan: 25 MB on Free, 250 MB on Pro, unlimited for the owner.
 - The bytes go to the `files` blob container as `users/{userId}/images/{id}.{ext}`; the
   description is an `image` document in the user's partition. The AppHost declares the
@@ -95,6 +101,7 @@ rate limit or the allowance:
 - Outline check: `promptText` 20,000, each `outline` field 5,000.
 - Toolkit: `selectedText` 10,000, `promptText` and `fullEssayContext` 20,000.
 - Prompt generation: `topic` 300, `category` 100.
+- SVG transformation: raster `imageDataUrl` (PNG/JPEG/WebP/GIF) up to 2 MB, `category` 100, `promptText` 20,000.
 - Drills: `drillType` 100, `userResponse` 20,000.
 
 On the platform key, a request reserves its units (one per submission for evaluate) in

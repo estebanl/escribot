@@ -25,6 +25,13 @@ internal static class SecurityHeaders
         "form-action 'self'; " +
         "frame-ancestors 'none'";
 
+    /// <summary>
+    /// Restrictive CSP applied to user-owned SVGs served from <c>/api/images/{id}</c>,
+    /// preventing script execution or external fetches even if navigated to directly.
+    /// </summary>
+    internal const string UploadedSvgContentSecurityPolicy =
+        "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+
     internal const string PermissionsPolicy = "camera=(), microphone=(), geolocation=()";
 
     private static readonly PathString ResetPasswordPath = "/reset-password";
@@ -50,7 +57,10 @@ internal static class SecurityHeaders
                     ? "no-referrer"
                     : "strict-origin-when-cross-origin";
                 headers["Permissions-Policy"] = PermissionsPolicy;
-                headers.ContentSecurityPolicy = ContentSecurityPolicy;
+                if (string.IsNullOrEmpty(headers.ContentSecurityPolicy))
+                {
+                    headers.ContentSecurityPolicy = ContentSecurityPolicy;
+                }
 
                 return Task.CompletedTask;
             }, context);
