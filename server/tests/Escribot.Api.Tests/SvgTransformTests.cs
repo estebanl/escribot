@@ -319,7 +319,8 @@ public class SvgTransformTests
         });
 
         await using var factory = CreateFactory(fake);
-        var (browserA, _) = await SignUpAsync(factory, "svg-owner");
+        var (browserA, proId) = await SignUpAsync(factory, "svg-owner");
+        await factory.Services.GetRequiredService<ISettingsRepository>().UpdateAsync(proId, s => s with { Plan = Plans.Pro });
         var (browserB, _) = await SignUpAsync(factory, "svg-other");
 
         // Save custom prompt with SVG and NO extractedVisualSpec to verify fallback text context works too.
@@ -376,7 +377,8 @@ public class SvgTransformTests
     public async Task Create_prompt_persists_extractedVisualSpec_when_supplied_with_svg()
     {
         await using var factory = CreateFactory();
-        var (browser, _) = await SignUpAsync(factory, "spec-save");
+        var (browser, proId) = await SignUpAsync(factory, "spec-save");
+        await factory.Services.GetRequiredService<ISettingsRepository>().UpdateAsync(proId, s => s with { Plan = Plans.Pro });
 
         const string spec = """{"visualType":"bar chart","exactFiguresAndStages":["2020: 45%"]}""";
         using var res = await browser.PostAsJsonAsync("/api/prompts", new
@@ -391,5 +393,89 @@ public class SvgTransformTests
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var prompt = (await AuthEndpointTests.Json(res)).GetProperty("prompt");
         Assert.Equal(spec, prompt.GetProperty("extractedVisualSpec").GetString());
+    }
+
+    [Fact]
+    public async Task Free_users_cannot_upload_svg_prompts()
+    {
+        await using var factory = CreateFactory();
+        var (browser, _) = await SignUpAsync(factory, "free-svg");
+
+        using var res = await browser.PostAsJsonAsync("/api/prompts", new
+        {
+            taskType = "task1",
+            category = "bar",
+            promptText = "Summarise the bar chart.",
+            imageDataUrl = SampleSvgDataUrl(),
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        var body = await AuthEndpointTests.Json(res);
+        Assert.Equal("upgrade_required", body.GetProperty("code").GetString());
+
+        // Nothing was saved: no custom prompt and no stored image.
+        using var list = await browser.GetAsync("/api/prompts");
+        var prompts = (await AuthEndpointTests.Json(list)).GetProperty("prompts").EnumerateArray();
+        Assert.DoesNotContain(prompts, p => p.GetProperty("source").GetString() == "custom");
+        Assert.Empty(factory.Files.Saved);
+
+        // Raster uploads stay open to Free.
+        using var png = await browser.PostAsJsonAsync("/api/prompts", new
+        {
+            taskType = "task1",
+            category = "bar",
+            promptText = "Summarise the bar chart.",
+            imageDataUrl = SamplePngDataUrl,
+        });
+        Assert.Equal(HttpStatusCode.OK, png.StatusCode);
+    }
+
+    [Fact]
+    public async Task Restoring_a_backup_on_free_drops_svg_images_but_keeps_the_prompts()
+    {
+        // A backup made on Pro (prompts carry their images inline), restored on Free.
+        await using var factory = CreateFactory();
+        var (free, _) = await SignUpAsync(factory, "backup-free");
+        const string spec = """{"visualType":"bar chart","exactFiguresAndStages":["2020: 45%"]}""";
+        object Prompt(string id, string title, string imageDataUrl, string? extractedVisualSpec = null) => new
+        {
+            id,
+            taskType = "task1",
+            category = "bar",
+            topic = "Energy",
+            title,
+            promptText = "Summarise the bar chart.",
+            imageDataUrl,
+            extractedVisualSpec,
+            source = "custom",
+            createdAt = DateTimeOffset.UtcNow,
+        };
+        var backup = new
+        {
+            version = 2,
+            data = new
+            {
+                prompts = new[]
+                {
+                    Prompt("custom-svg", "SVG Chart", SampleSvgDataUrl(), spec),
+                    Prompt("custom-png", "PNG Chart", SamplePngDataUrl),
+                },
+            },
+        };
+
+        using var import = await free.PostAsJsonAsync("/api/backup", backup);
+        Assert.Equal(HttpStatusCode.OK, import.StatusCode);
+
+        using var list = await free.GetAsync("/api/prompts");
+        var restored = (await AuthEndpointTests.Json(list)).GetProperty("prompts").EnumerateArray()
+            .Where(p => p.GetProperty("source").GetString() == "custom")
+            .ToDictionary(p => p.GetProperty("title").GetString()!);
+
+        // The SVG is dropped like any image that cannot be stored; the prompt and its spec stay.
+        var svgPrompt = restored["SVG Chart"];
+        Assert.True(svgPrompt.GetProperty("imageDataUrl").ValueKind is JsonValueKind.Null);
+        Assert.Equal(spec, svgPrompt.GetProperty("extractedVisualSpec").GetString());
+        Assert.StartsWith("/api/images/", restored["PNG Chart"].GetProperty("imageDataUrl").GetString());
+        Assert.Single(factory.Files.Saved);
     }
 }

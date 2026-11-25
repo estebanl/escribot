@@ -249,7 +249,7 @@ internal static class WritingEndpoints
             }
             catch (ImageUploadException ex)
             {
-                return ApiResults.Error(ex.StatusCode, ex.Message);
+                return ApiResults.Error(ex.StatusCode, ex.Message, ex.Code);
             }
         }
 

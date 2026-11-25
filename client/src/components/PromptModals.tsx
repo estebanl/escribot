@@ -138,8 +138,9 @@ export function CustomPromptModal({
     if (!file) return;
     setError(null);
     try {
+      // SVGs are stored as SVGs on Pro; on Free they are drawn into a WebP like any image.
       const processed =
-        file.type === "image/svg+xml"
+        canTransformSvg && file.type === "image/svg+xml"
           ? await readFileAsDataUrl(file)
           : await compressImageFileToWebP(file);
       setImageDataUrl(processed);

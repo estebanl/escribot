@@ -6,10 +6,15 @@ using Escribot.Api.Storage;
 
 namespace Escribot.Api.Api;
 
-/// <summary>An upload that was refused, with the status to answer: 400, or 413 for size and allowance.</summary>
-public sealed class ImageUploadException(string message, int statusCode = StatusCodes.Status400BadRequest) : Exception(message)
+/// <summary>
+/// An upload that was refused, with the status to answer: 400, 413 for size and allowance,
+/// or 403 with <c>upgrade_required</c> for a type the plan does not include.
+/// </summary>
+public sealed class ImageUploadException(string message, int statusCode = StatusCodes.Status400BadRequest, string? code = null) : Exception(message)
 {
     public int StatusCode { get; } = statusCode;
+
+    public string? Code { get; } = code;
 }
 
 /// <summary>
@@ -29,11 +34,21 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
 
     /// <summary>
     /// Stores an image given as a data URL and returns the address the app shows it from.
-    /// Enforces the type, the size limit and the plan's storage allowance.
+    /// Enforces the type (SVGs only on plans with <see cref="PlanLimits.CanTransformSvg"/>),
+    /// the size limit and the plan's storage allowance.
     /// </summary>
     public async Task<string> StoreAsync(string userId, string plan, string dataUrl, CancellationToken cancellationToken = default)
     {
-        var (contentType, data) = ParseDataUrl(dataUrl, allowSvg: true);
+        var allowSvg = Plans.Limits[plan].CanTransformSvg;
+        if (!allowSvg && IsSvgDataUrl(dataUrl))
+        {
+            throw new ImageUploadException(
+                "Uploading SVG images is available on the Pro plan.",
+                StatusCodes.Status403Forbidden,
+                "upgrade_required");
+        }
+
+        var (contentType, data) = ParseDataUrl(dataUrl, allowSvg);
         if (data.Length > MaxImageBytes)
         {
             throw new ImageUploadException("Images must be 2 MB or smaller.", StatusCodes.Status413PayloadTooLarge);
@@ -205,6 +220,10 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         "image/webp" => data.Length >= 12 && data[..4].SequenceEqual("RIFF"u8) && data[8..12].SequenceEqual("WEBP"u8),
         _ => false,
     };
+
+    /// <summary>Whether a data URL declares an SVG; <see cref="DataUrl"/> needs <c>;base64,</c> right after the type.</summary>
+    private static bool IsSvgDataUrl(string dataUrl) =>
+        dataUrl.StartsWith($"data:{SvgContentType};", StringComparison.OrdinalIgnoreCase);
 
     [GeneratedRegex(@"^data:([a-z]+/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$", RegexOptions.IgnoreCase)]
     private static partial Regex DataUrl();

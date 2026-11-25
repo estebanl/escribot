@@ -3,7 +3,10 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Escribot.Api.Common;
+using Escribot.Api.Data;
 using Escribot.Api.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Escribot.Api.Tests;
 
@@ -142,6 +145,9 @@ public sealed class SecurityHeadersTests : IDisposable
             $"pw-{TestSecrets.NewSecret()}",
             "CSP Tester");
         Assert.Equal(HttpStatusCode.OK, signUp.StatusCode);
+        var userId = (await AuthEndpointTests.Json(signUp)).GetProperty("user").GetProperty("id").GetString()!;
+        // SVG uploads are a Pro feature.
+        await factory.Services.GetRequiredService<ISettingsRepository>().UpdateAsync(userId, s => s with { Plan = Plans.Pro });
 
         async Task<HttpResponseMessage> UploadAndFetchAsync(string imageDataUrl)
         {

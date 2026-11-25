@@ -12,7 +12,7 @@ stored documents in [data-model.md](data-model.md).
 | `POST /api/sessions` | `mode`, `task1PromptId?`, `task2PromptId?`. 404 for a prompt the user cannot see |
 | `GET /api/sessions/{id}` | 404 for a session that is not the user's |
 | `GET /api/prompts` | The curated bank plus the user's own; `?taskType=` filters |
-| `POST /api/prompts` | A custom prompt; a Task 1 prompt may carry `imageDataUrl` and optional `extractedVisualSpec` |
+| `POST /api/prompts` | A custom prompt; a Task 1 prompt may carry `imageDataUrl` and optional `extractedVisualSpec`. An SVG image on Free is a 403 `upgrade_required` |
 | `GET` `POST` `PATCH` `DELETE /api/vault` | As before; `DELETE` takes `?id=` |
 | `GET /api/drills` | The 20 most recent. Generating and scoring come with the AI endpoints |
 | `GET` `PUT /api/settings` | `GET` lists every provider (`providers`: whether it is configured, meaning AI requests can use it (the user saved a key for it, or the platform has a key for it and the user has no key of their own), its masked saved key, whether the platform has a key, its models and suggested models), the model each role uses (`settings.models.{grader,fast,vision}` as `{provider, model}`), usage and billing status. `PUT` takes `models` in the same shape; it still accepts the older `activeProvider`, `graderModel`/`fastModel`/`visionModel` and `apiKeysToUpdate` |
@@ -61,10 +61,15 @@ the route then answers with its own message. On top of that:
 
 ## Images
 
-- Uploads arrive as data URLs: PNG, JPEG, WebP, GIF or SVG (`image/svg+xml`), at most 2 MB
-  each. Raster bytes must start with the declared format's signature; SVGs are validated and
-  strictly allowlist-sanitized (`SvgSanitizer`) before storage, and served with a sandbox CSP.
-  An empty, mismatched or invalid image is a 400.
+- Uploads arrive as data URLs: PNG, JPEG, WebP, GIF or, on Pro and for the owner, SVG
+  (`image/svg+xml`), at most 2 MB each. Raster bytes must start with the declared format's
+  signature; SVGs are validated and strictly allowlist-sanitized (`SvgSanitizer`) before
+  storage, and served with a sandbox CSP. An empty, mismatched or invalid image is a 400; an
+  SVG on Free is a 403 `upgrade_required`. The browser app turns an SVG a Free user picks into
+  a WebP before sending it, as it does every other image.
+- A backup restored on Free drops its SVG images like any other image that cannot be stored:
+  the prompt, and its `extractedVisualSpec`, are kept. Images already stored stay readable
+  after a downgrade.
 - The total per user is limited by plan: 25 MB on Free, 250 MB on Pro, unlimited for the owner.
 - The bytes go to the `files` blob container as `users/{userId}/images/{id}.{ext}`; the
   description is an `image` document in the user's partition. The AppHost declares the

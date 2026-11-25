@@ -7,7 +7,7 @@ namespace Escribot.Api.Common;
 /// <param name="EvaluationsPerMonth">Graded essays per calendar month (UTC). Null is unlimited.</param>
 /// <param name="AssistsPerMonth">Outline checks, toolkit runs, drills and prompt generation per month.</param>
 /// <param name="CanChooseModels">Whether the provider and model chosen in Settings are honoured on platform keys.</param>
-/// <param name="CanTransformSvg">Whether uploaded Task 1 images can be AI-transformed into clean SVGs.</param>
+/// <param name="CanTransformSvg">Whether uploaded Task 1 images can be AI-transformed into clean SVGs, and SVG images uploaded at all.</param>
 /// <param name="StorageBytes">Total size of uploaded chart images. Null is unlimited.</param>
 public sealed record PlanLimits(
     string Label,

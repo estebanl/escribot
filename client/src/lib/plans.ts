@@ -13,7 +13,7 @@ export interface PlanLimits {
   assistsPerMonth: number | null;
   /** Whether the provider/model chosen in Settings is honoured on platform keys. */
   canChooseModels: boolean;
-  /** Whether uploaded Task 1 images can be AI-transformed into clean SVGs. */
+  /** Whether Task 1 images can be AI-transformed into clean SVGs, and SVGs uploaded as SVGs. */
   canTransformSvg: boolean;
   /** Total size of uploaded chart images. null = unlimited. */
   storageBytes: number | null;
