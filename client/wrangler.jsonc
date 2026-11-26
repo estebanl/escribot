@@ -1,0 +1,20 @@
+// Cloudflare serves the browser app (the Vite build in dist/) from its edge, so a page loads
+// at once even while the API, which scales to zero, is starting. Static asset requests are
+// free and unlimited on the Workers free plan, and this Worker has no script: nothing runs
+// per request.
+//
+// Deployed by .github/workflows/deploy.yml, which adds the custom domain's route and copies
+// cloudflare/_headers into dist/. That workflow also keeps /api/*, /alive and /health on
+// routes with no Worker, so those requests go straight to the API on Azure as before.
+{
+  "name": "escribot-web",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    // index.html for every page address, as the API does, so the app's router takes over.
+    "not_found_handling": "single-page-application"
+  },
+  // Only the custom domain serves the app.
+  "workers_dev": false,
+  "preview_urls": false
+}

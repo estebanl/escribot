@@ -309,3 +309,96 @@ jobs:
             echo ""
           fi
           echo "Health check passed."
+
+  web:
+    # Cloudflare serves the browser app from its edge (client/wrangler.jsonc), so a page loads
+    # at once while the API is starting from zero. Static asset requests are free and
+    # unlimited on the Workers free plan. Skipped until the Cloudflare secrets are set; the
+    # API keeps serving the app either way.
+    needs: deploy
+    if: github.ref == 'refs/heads/main' && vars.BEHIND_CLOUDFLARE == 'true' && vars.CUSTOM_DOMAIN != ''
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: client
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
+      WRANGLER_VERSION: 4.160.0
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - name: Skip without Cloudflare credentials
+        id: creds
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; the API keeps serving the browser app."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Build the browser app
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          npm ci
+          npm run build
+          cp cloudflare/_headers dist/_headers
+
+      - name: Keep the API's addresses off the Worker
+        # Routes with no Worker: Cloudflare passes these straight to the API on Azure, as
+        # before, so the Worker never sees API traffic (sign-in, Stripe webhooks, rate limits
+        # on CF-Connecting-IP) or the health checks. A more specific route wins over the
+        # Worker's "<domain>/*". Created before the Worker's route, so the API is never
+        # answered by the Worker.
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4"
+          auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json")
+
+          # The zone is the longest suffix of the domain that the token can see.
+          zone_id=""
+          name="$CUSTOM_DOMAIN"
+          while [ -z "$zone_id" ] && [[ "$name" == *.* ]]; do
+            zone_id=$(curl -sfS "${auth[@]}" "${api}/zones?name=${name}" | jq -r '.result[0].id // empty')
+            [ -n "$zone_id" ] || name="${name#*.}"
+          done
+          if [ -z "$zone_id" ]; then
+            echo "::error::No Cloudflare zone for ${CUSTOM_DOMAIN} is visible to CLOUDFLARE_API_TOKEN (it needs Zone: Read)."
+            exit 1
+          fi
+
+          routes=$(curl -sfS "${auth[@]}" "${api}/zones/${zone_id}/workers/routes" | jq '.result')
+          for pattern in "${CUSTOM_DOMAIN}/api/*" "${CUSTOM_DOMAIN}/alive" "${CUSTOM_DOMAIN}/health"; do
+            route_id=$(jq -r --arg p "$pattern" '.[] | select(.pattern == $p) | .id' <<<"$routes")
+            body=$(jq -n --arg p "$pattern" '{pattern: $p}')
+            if [ -z "$route_id" ]; then
+              curl -sfS -o /dev/null "${auth[@]}" -X POST --data "$body" "${api}/zones/${zone_id}/workers/routes"
+              echo "Added ${pattern} with no Worker."
+            else
+              # Replacing the route without a script detaches any Worker from it.
+              curl -sfS -o /dev/null "${auth[@]}" -X PUT --data "$body" "${api}/zones/${zone_id}/workers/routes/${route_id}"
+              echo "${pattern} has no Worker."
+            fi
+          done
+
+      - name: Deploy the browser app to Cloudflare
+        if: steps.creds.outputs.ready == 'true'
+        run: npx --yes "wrangler@${WRANGLER_VERSION}" deploy --routes "${CUSTOM_DOMAIN}/*"
+

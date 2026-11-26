@@ -87,3 +87,6 @@ dist/
 
 # the browser app copied next to the API to serve it without the Vite dev server
 server/src/Escribot.Api/wwwroot/
+
+# Wrangler (Cloudflare) local state
+.wrangler/
