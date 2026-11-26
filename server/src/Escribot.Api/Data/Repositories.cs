@@ -105,6 +105,21 @@ public interface IPromptRepository
 
     /// <summary>Deletes one of the user's own prompts. Returns false if there was none.</summary>
     Task<bool> DeleteAsync(string userId, string promptId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies <paramref name="change"/> to one of the user's own prompts and writes the result
+    /// only if nobody wrote the prompt in between; otherwise applies it again to the newer
+    /// version. <paramref name="change"/> returns null to leave the prompt as it is. Returns the
+    /// version the change was applied to and the result, or null if there is no such prompt:
+    /// a prompt deleted meanwhile is never written back.
+    /// </summary>
+    Task<(Prompt Before, Prompt After)?> UpdateAsync(string userId, string promptId, Func<Prompt, Prompt?> change, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes one of the user's own prompts if <paramref name="condition"/> holds for the
+    /// version deleted, and returns that version; null if there was none or it did not hold.
+    /// </summary>
+    Task<Prompt?> DeleteIfAsync(string userId, string promptId, Func<Prompt, bool> condition, CancellationToken cancellationToken = default);
 }
 
 /// <summary>The shared curated prompt bank. Written only by the startup seeding.</summary>

@@ -682,7 +682,7 @@ internal static class AiEndpoints
         if (string.IsNullOrWhiteSpace(imageDataUrl) && body.Trimmed("promptId") is { } promptId)
         {
             var prompt = await prompts.GetVisibleAsync(account.Id, promptId, cancellationToken);
-            if (prompt is null || prompt.UserId != account.Id)
+            if (prompt is null || prompt.UserId != account.Id || prompt.ArchivedAt is not null)
             {
                 return ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
             }

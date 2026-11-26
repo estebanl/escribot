@@ -5,6 +5,7 @@ using Escribot.Api.Ai;
 using Escribot.Api.Api;
 using Escribot.Api.Common;
 using Escribot.Api.Data;
+using Escribot.Api.Data.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -20,21 +21,70 @@ public class PromptEditingTests
     private const string Png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     private const string OtherPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
-    private static ApiFactory CreateFactory(FakeChatClientFactory? chatFactory = null) => new()
+    private static ApiFactory CreateFactory(FakeChatClientFactory? chatFactory = null, Action<IServiceCollection>? configure = null)
     {
-        Settings = new Dictionary<string, string?>
+        ApiFactory? factory = null;
+        factory = new ApiFactory
         {
-            ["OPENROUTER_API_KEY"] = chatFactory is null ? null : "or-test-key",
-        },
-        ConfigureServices = services =>
-        {
-            if (chatFactory is not null)
+            Settings = new Dictionary<string, string?>
             {
-                services.RemoveAll<IAiChatClientFactory>();
-                services.AddSingleton<IAiChatClientFactory>(chatFactory);
+                ["OPENROUTER_API_KEY"] = chatFactory is null ? null : "or-test-key",
+            },
+            ConfigureServices = services =>
+            {
+                services.AddSingleton(new InMemoryDataAccessor(() => factory!.Data));
+                if (chatFactory is not null)
+                {
+                    services.RemoveAll<IAiChatClientFactory>();
+                    services.AddSingleton<IAiChatClientFactory>(chatFactory);
+                }
+
+                configure?.Invoke(services);
+            },
+        };
+        return factory;
+    }
+
+    /// <summary>Hands the fake storage to services the test registers.</summary>
+    private sealed class InMemoryDataAccessor(Func<InMemoryData> data)
+    {
+        public IPromptRepository Data => data();
+    }
+
+    /// <summary>
+    /// The prompt repository, with a hook that runs once right after the next read, as if
+    /// another tab wrote the prompt between an endpoint's read and its write.
+    /// </summary>
+    private sealed class PromptRaceRepository(IPromptRepository inner) : IPromptRepository
+    {
+        public IPromptRepository Inner => inner;
+
+        public Func<Task>? AfterNextRead { get; set; }
+
+        public async Task<Prompt?> GetVisibleAsync(string userId, string promptId, CancellationToken cancellationToken = default)
+        {
+            var prompt = await inner.GetVisibleAsync(userId, promptId, cancellationToken);
+            if (AfterNextRead is { } hook)
+            {
+                AfterNextRead = null;
+                await hook();
             }
-        },
-    };
+
+            return prompt;
+        }
+
+        public Task<IReadOnlyList<Prompt>> ListVisibleAsync(string userId, CancellationToken cancellationToken = default) => inner.ListVisibleAsync(userId, cancellationToken);
+
+        public Task SaveAsync(string userId, Prompt prompt, CancellationToken cancellationToken = default) => inner.SaveAsync(userId, prompt, cancellationToken);
+
+        public Task<bool> DeleteAsync(string userId, string promptId, CancellationToken cancellationToken = default) => inner.DeleteAsync(userId, promptId, cancellationToken);
+
+        public Task<(Prompt Before, Prompt After)?> UpdateAsync(string userId, string promptId, Func<Prompt, Prompt?> change, CancellationToken cancellationToken = default) =>
+            inner.UpdateAsync(userId, promptId, change, cancellationToken);
+
+        public Task<Prompt?> DeleteIfAsync(string userId, string promptId, Func<Prompt, bool> condition, CancellationToken cancellationToken = default) =>
+            inner.DeleteIfAsync(userId, promptId, condition, cancellationToken);
+    }
 
     private static T Service<T>(ApiFactory factory)
         where T : notnull => factory.Services.GetRequiredService<T>();
@@ -208,20 +258,141 @@ public class PromptEditingTests
     }
 
     [Fact]
-    public async Task Deleting_a_prompt_removes_its_image_and_keeps_its_sessions()
+    public async Task Deleting_an_unused_prompt_removes_it_and_its_image()
     {
         await using var factory = CreateFactory();
         var (browser, userId) = await SignUpAsync(factory);
         var created = await CreateAsync(browser, new { taskType = "task1", promptText = "Describe the chart.", imageDataUrl = Png });
-        var session = (await SendAsync(browser, HttpMethod.Post, "/api/sessions", new { mode = "coach", task1PromptId = Id(created) })).GetProperty("session");
 
         var deleted = await SendAsync(browser, HttpMethod.Delete, $"/api/prompts/{Id(created)}");
         Assert.True(deleted.GetProperty("ok").GetBoolean());
+        Assert.False(deleted.GetProperty("archived").GetBoolean());
 
         Assert.Null(await Service<IPromptRepository>(factory).GetVisibleAsync(userId, Id(created)));
         Assert.Empty(await Service<IImageRepository>(factory).ListAsync(userId));
-        await SendAsync(browser, HttpMethod.Get, $"/api/sessions/{session.GetProperty("id").GetString()}");
         await SendAsync(browser, HttpMethod.Delete, $"/api/prompts/{Id(created)}", expected: HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Deleting_a_prompt_that_sessions_use_keeps_it_for_them_but_out_of_the_library()
+    {
+        await using var factory = CreateFactory();
+        var (browser, userId) = await SignUpAsync(factory);
+        var created = await CreateAsync(browser, new { taskType = "task1", promptText = "Describe the chart.", imageDataUrl = Png });
+        var sessionId = (await SendAsync(browser, HttpMethod.Post, "/api/sessions", new { mode = "coach", task1PromptId = Id(created) })).GetProperty("session").GetProperty("id").GetString()!;
+
+        var deleted = await SendAsync(browser, HttpMethod.Delete, $"/api/prompts/{Id(created)}");
+        Assert.True(deleted.GetProperty("archived").GetBoolean());
+
+        // Out of the library, the studio and new sessions, and no longer editable.
+        Assert.DoesNotContain((await SendAsync(browser, HttpMethod.Get, "/api/prompts")).GetProperty("prompts").EnumerateArray(), p => Id(p) == Id(created));
+        var studio = await SendAsync(browser, HttpMethod.Get, "/api/pages/studio");
+        Assert.DoesNotContain(studio.GetProperty("prompts").EnumerateArray(), p => Id(p) == Id(created));
+        Assert.False(studio.GetProperty("promptUsage").TryGetProperty(Id(created), out _));
+        await SendAsync(browser, HttpMethod.Post, "/api/sessions", new { mode = "coach", task1PromptId = Id(created) }, HttpStatusCode.NotFound);
+        await PatchAsync(browser, Id(created), new { promptText = "x" }, HttpStatusCode.NotFound);
+        await SendAsync(browser, HttpMethod.Delete, $"/api/prompts/{Id(created)}", expected: HttpStatusCode.NotFound);
+
+        // The session still opens with its task and image.
+        var coach = (await SendAsync(browser, HttpMethod.Get, $"/api/pages/write/{sessionId}")).GetProperty("coach");
+        Assert.Equal("Describe the chart.", coach.GetProperty("prompt").GetProperty("promptText").GetString());
+        Assert.Equal(ImageUrl(created), ImageUrl(coach.GetProperty("prompt")));
+        Assert.Single(await Service<IImageRepository>(factory).ListAsync(userId));
+    }
+
+    [Fact]
+    public async Task An_unfinished_mock_exam_resumes_both_parts_after_one_of_its_prompts_is_deleted()
+    {
+        await using var factory = CreateFactory();
+        var (browser, userId) = await SignUpAsync(factory);
+        var task1 = await CreateAsync(browser, new { taskType = "task1", promptText = "Describe the chart." });
+        var task2 = await CreateAsync(browser, new { taskType = "task2", promptText = "Discuss both views." });
+        var sessionId = (await SendAsync(browser, HttpMethod.Post, "/api/sessions", new { mode = "simulator_full_60m", task1PromptId = Id(task1), task2PromptId = Id(task2) }))
+            .GetProperty("session").GetProperty("id").GetString()!;
+        var writing = Service<IWritingRepository>(factory);
+        await writing.SaveDraftAsync(userId, TestData.Draft("draft-t1", sessionId) with { PromptId = Id(task1), TaskType = "task1", EssayText = "The chart shows a rise.", SecondsSpent = 600 });
+        await writing.SaveDraftAsync(userId, TestData.Draft("draft-t2", sessionId) with { PromptId = Id(task2), TaskType = "task2", EssayText = "Some people argue.", SecondsSpent = 900 });
+
+        await SendAsync(browser, HttpMethod.Delete, $"/api/prompts/{Id(task1)}");
+
+        var simulator = (await SendAsync(browser, HttpMethod.Get, $"/api/pages/write/{sessionId}")).GetProperty("simulator");
+        Assert.Equal(Id(task1), simulator.GetProperty("task1Prompt").GetProperty("id").GetString());
+        var part1 = simulator.GetProperty("initialDrafts").GetProperty("task1");
+        Assert.Equal("The chart shows a rise.", part1.GetProperty("essayText").GetString());
+        Assert.Equal(600, part1.GetProperty("secondsSpent").GetInt32());
+        Assert.Equal("Some people argue.", simulator.GetProperty("initialDrafts").GetProperty("task2").GetProperty("essayText").GetString());
+    }
+
+    [Fact]
+    public async Task A_session_takes_each_prompt_only_for_its_own_task()
+    {
+        await using var factory = CreateFactory();
+        var (browser, _) = await SignUpAsync(factory);
+        var task1 = await CreateAsync(browser, new { taskType = "task1", promptText = "Describe the chart." });
+        var task2 = await CreateAsync(browser, new { taskType = "task2", promptText = "Discuss both views." });
+
+        await SendAsync(browser, HttpMethod.Post, "/api/sessions", new { mode = "simulator_full_60m", task1PromptId = Id(task2), task2PromptId = Id(task1) }, HttpStatusCode.BadRequest);
+        await SendAsync(browser, HttpMethod.Post, "/api/sessions", new { mode = "coach", task2PromptId = Id(task1) }, HttpStatusCode.BadRequest);
+        await SendAsync(browser, HttpMethod.Post, "/api/sessions", new { mode = "simulator_full_60m", task1PromptId = Id(task1), task2PromptId = Id(task2) });
+    }
+
+    [Fact]
+    public async Task A_text_edit_keeps_an_image_another_tab_replaced_meanwhile()
+    {
+        PromptRaceRepository? race = null;
+        await using var factory = CreateFactory(configure: services =>
+        {
+            services.RemoveAll<IPromptRepository>();
+            services.AddSingleton<IPromptRepository>(s => race = new PromptRaceRepository(s.GetRequiredService<InMemoryDataAccessor>().Data));
+        });
+        var (browser, userId) = await SignUpAsync(factory);
+        var created = await CreateAsync(browser, new { taskType = "task1", promptText = "Describe the chart.", imageDataUrl = Png });
+
+        // The other tab replaces the image after this request has read the prompt.
+        var r = race!;
+        string? otherTabImage = null;
+        r.AfterNextRead = async () =>
+        {
+            var store = Service<ImageStore>(factory);
+            otherTabImage = await store.StoreAsync(userId, Plans.Free, OtherPng);
+            await r.Inner.UpdateAsync(userId, Id(created), p => p with { ImageUrl = otherTabImage });
+            await store.DiscardAsync(userId, ImageUrl(created));
+        };
+
+        var edited = (await PatchAsync(browser, Id(created), new { promptText = "Describe the chart in detail." })).GetProperty("prompt");
+
+        Assert.Equal("Describe the chart in detail.", edited.GetProperty("promptText").GetString());
+        Assert.Equal(otherTabImage, ImageUrl(edited));
+        var stored = await r.Inner.GetVisibleAsync(userId, Id(created));
+        Assert.Equal(otherTabImage, stored!.ImageUrl);
+        Assert.Equal(otherTabImage, $"{ImageStore.RoutePrefix}{Assert.Single(await Service<IImageRepository>(factory).ListAsync(userId)).Id}");
+    }
+
+    [Fact]
+    public async Task An_edit_does_not_bring_back_a_prompt_deleted_meanwhile()
+    {
+        PromptRaceRepository? race = null;
+        await using var factory = CreateFactory(configure: services =>
+        {
+            services.RemoveAll<IPromptRepository>();
+            services.AddSingleton<IPromptRepository>(s => race = new PromptRaceRepository(s.GetRequiredService<InMemoryDataAccessor>().Data));
+        });
+        var (browser, userId) = await SignUpAsync(factory);
+        var created = await CreateAsync(browser, new { taskType = "task1", promptText = "Describe the chart.", imageDataUrl = Png });
+
+        // Another tab deletes the prompt after this request has read it.
+        var r = race!;
+        r.AfterNextRead = async () =>
+        {
+            var deleted = await r.Inner.DeleteIfAsync(userId, Id(created), _ => true);
+            await Service<ImageStore>(factory).DiscardAsync(userId, deleted!.ImageUrl);
+        };
+
+        await PatchAsync(browser, Id(created), new { promptText = "Changed", imageDataUrl = OtherPng }, HttpStatusCode.NotFound);
+
+        Assert.Null(await r.Inner.GetVisibleAsync(userId, Id(created)));
+        // The image stored for the edit is not left behind.
+        Assert.Empty(await Service<IImageRepository>(factory).ListAsync(userId));
     }
 
     [Fact]

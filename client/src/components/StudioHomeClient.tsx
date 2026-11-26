@@ -94,8 +94,16 @@ export function StudioHomeClient({
   const [mockOpen, setMockOpen] = useState(false);
   const task1Prompts = prompts.filter((p) => p.taskType === "task1");
   const task2Prompts = prompts.filter((p) => p.taskType === "task2");
-  const [selectedMockT1, setSelectedMockT1] = useState(task1Prompts[0]?.id || "");
-  const [selectedMockT2, setSelectedMockT2] = useState(task2Prompts[0]?.id || "");
+  const [pickedMockT1, setSelectedMockT1] = useState(task1Prompts[0]?.id || "");
+  const [pickedMockT2, setSelectedMockT2] = useState(task2Prompts[0]?.id || "");
+  // A pick stays valid only while its prompt is still listed for that task: one deleted or
+  // edited into the other task falls back to the first prompt of the right task.
+  const selectedMockT1 = task1Prompts.some((p) => p.id === pickedMockT1)
+    ? pickedMockT1
+    : task1Prompts[0]?.id || "";
+  const selectedMockT2 = task2Prompts.some((p) => p.id === pickedMockT2)
+    ? pickedMockT2
+    : task2Prompts[0]?.id || "";
 
   async function startSession(
     mode: SessionMode,
@@ -576,8 +584,6 @@ export function StudioHomeClient({
           onDeleted={(id) => {
             setPrompts((prev) => prev.filter((p) => p.id !== id));
             if (openPromptId === id) setOpenPromptId(null);
-            if (selectedMockT1 === id) setSelectedMockT1("");
-            if (selectedMockT2 === id) setSelectedMockT2("");
           }}
         />
       )}

@@ -613,11 +613,13 @@ export function DeletePromptDialog({
           Delete this task?
         </h2>
         <p className="text-sm text-ink-secondary">
-          &ldquo;{prompt.title}&rdquo; and its image will be removed from your library.
-          {usageCount > 0 &&
-            ` You have practised it ${usageCount === 1 ? "once" : `${usageCount} times`}; ${
-              usageCount === 1 ? "that session stays" : "those sessions stay"
-            } in your history, but can no longer be reopened.`}
+          {usageCount > 0
+            ? `“${prompt.title}” will be removed from your library. You have practised it ${
+                usageCount === 1 ? "once" : `${usageCount} times`
+              }, so ${
+                usageCount === 1 ? "that session keeps" : "those sessions keep"
+              } the task and its image, to resume or review.`
+            : `“${prompt.title}” and its image will be removed from your library.`}
         </p>
         {error && <p className="text-xs text-red-600">{error}</p>}
         <div className="flex items-center justify-end gap-2.5">

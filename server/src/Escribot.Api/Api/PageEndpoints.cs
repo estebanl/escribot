@@ -130,7 +130,7 @@ internal static class PageEndpoints
 
         // How many sessions use each of the user's uploaded prompts, for the edit window's notice.
         var promptUsage = new JsonObject();
-        foreach (var prompt in visible.Where(p => p.UserId == userId && p.Source == "custom"))
+        foreach (var prompt in visible.Where(p => p.UserId == userId && p.Source == "custom" && p.ArchivedAt is null))
         {
             promptUsage[prompt.Id] = allSessions.Count(s => s.Task1PromptId == prompt.Id || s.Task2PromptId == prompt.Id);
         }
@@ -152,7 +152,8 @@ internal static class PageEndpoints
 
         return Results.Json(new JsonObject
         {
-            ["prompts"] = Wire.Array(visible.Select(Wire.Prompt)),
+            // Deleted prompts that sessions still use stay out of the library.
+            ["prompts"] = Wire.Array(visible.Where(p => p.ArchivedAt is null).Select(Wire.Prompt)),
             ["recentSessions"] = new JsonArray([.. recentSessions]),
             ["promptUsage"] = promptUsage,
             ["settingsSummary"] = new JsonObject
