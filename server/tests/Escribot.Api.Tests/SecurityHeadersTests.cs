@@ -219,6 +219,8 @@ public sealed class SecurityHeadersTests : IDisposable
         Assert.Equal("strict-origin-when-cross-origin", all["Referrer-Policy"]);
         Assert.Equal("nosniff", all["X-Content-Type-Options"]);
         Assert.Equal("DENY", all["X-Frame-Options"]);
+        // UseHsts with its defaults, as outside Development.
+        Assert.Equal("max-age=2592000", all["Strict-Transport-Security"]);
         Assert.Equal("no-cache", all["Cache-Control"]);
         Assert.Equal("public, max-age=31536000, immutable", rules["/assets/*"]["Cache-Control"]);
         Assert.Equal("no-referrer", rules["/reset-password"]["Referrer-Policy"]);
