@@ -125,7 +125,16 @@ internal static class PageEndpoints
 
         var visible = (await prompts.ListVisibleAsync(userId, cancellationToken)).OrderByDescending(p => p.CreatedAt).ToList();
         var promptsById = visible.ToDictionary(p => p.Id);
-        var sessions = (await writing.ListSessionsAsync(userId, cancellationToken)).Take(RecentSessionLimit);
+        var allSessions = await writing.ListSessionsAsync(userId, cancellationToken);
+        var sessions = allSessions.Take(RecentSessionLimit);
+
+        // How many sessions use each of the user's uploaded prompts, for the edit window's notice.
+        var promptUsage = new JsonObject();
+        foreach (var prompt in visible.Where(p => p.UserId == userId && p.Source == "custom"))
+        {
+            promptUsage[prompt.Id] = allSessions.Count(s => s.Task1PromptId == prompt.Id || s.Task2PromptId == prompt.Id);
+        }
+
         var drafts = await writing.ListDraftsAsync(userId, cancellationToken);
         var evaluatedDraftIds = (await writing.ListEvaluationsAsync(userId, cancellationToken)).Select(e => e.DraftId).ToHashSet();
 
@@ -145,6 +154,7 @@ internal static class PageEndpoints
         {
             ["prompts"] = Wire.Array(visible.Select(Wire.Prompt)),
             ["recentSessions"] = new JsonArray([.. recentSessions]),
+            ["promptUsage"] = promptUsage,
             ["settingsSummary"] = new JsonObject
             {
                 ["currentBand"] = config.CurrentBand,

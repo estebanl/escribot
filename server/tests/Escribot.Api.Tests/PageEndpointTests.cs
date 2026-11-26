@@ -113,6 +113,8 @@ public class PageEndpointTests
 
         var session = Assert.Single(studio.GetProperty("recentSessions").EnumerateArray());
         Assert.Equal("sess-a", session.GetProperty("id").GetString());
+        // How many sessions use each uploaded prompt, for the edit window.
+        Assert.Equal(1, studio.GetProperty("promptUsage").GetProperty("custom-a").GetInt32());
         Assert.Equal("Chart A", session.GetProperty("task1Title").GetString());
         Assert.Equal(JsonValueKind.Null, session.GetProperty("task2Title").ValueKind);
         // Only graded drafts count: version 2 has no evaluation yet.

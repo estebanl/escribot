@@ -60,7 +60,7 @@ public class DataApiTests(AppHostFixture fixture)
         var created = (await PostJsonAsync(browser, "/api/prompts", new { taskType = "task2", promptText = "  Some people think synthetic tests are useful. Discuss.  " })).GetProperty("prompt");
 
         Assert.Equal(
-            ["id", "userId", "taskType", "category", "topic", "title", "promptText", "chartSpecJson", "imageDataUrl", "extractedVisualSpec", "source", "createdAt"],
+            ["id", "userId", "taskType", "category", "topic", "title", "promptText", "chartSpecJson", "imageDataUrl", "extractedVisualSpec", "source", "createdAt", "updatedAt"],
             Names(created));
         Assert.StartsWith("custom-", created.GetProperty("id").GetString());
         Assert.Equal(userId, created.GetProperty("userId").GetString());

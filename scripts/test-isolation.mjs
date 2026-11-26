@@ -145,6 +145,9 @@ async function main() {
   console.log("\nUser B cannot change A's data");
   check("PATCH A's Vault item → 404", (await b.patch("/api/vault", { id: vaultItem?.id, masteryLevel: 3 })).status === 404);
   await b.del(`/api/vault?id=${encodeURIComponent(vaultItem?.id ?? "")}`);
+  check("PATCH A's prompt → 404", (await b.patch(`/api/prompts/${prompt?.id}`, { promptText: "hijack" })).status === 404);
+  check("DELETE A's prompt → 404", (await b.del(`/api/prompts/${prompt?.id}`)).status === 404);
+  check("POST /api/ai/transform-svg on A's prompt → 404 or 403", [403, 404].includes((await b.post("/api/ai/transform-svg", { promptId: prompt?.id })).status));
   check("POST /api/sessions using A's prompt → 404", (await b.post("/api/sessions", { mode: "coach", task1PromptId: prompt?.id })).status === 404);
   check(
     "POST /api/ai/evaluate on A's session → 404",
@@ -160,12 +163,15 @@ async function main() {
   const aItem = aVault.find((i) => i.id === vaultItem?.id);
   check("A's Vault item still exists and is unchanged", Boolean(aItem) && aItem.masteryLevel === 0);
   check("A can still load their own image", (await a.get(`/api/images/${imageId}`)).status === 200);
+  const aPrompt = ((await a.get("/api/prompts")).json?.prompts ?? []).find((p) => p.id === prompt?.id);
+  check("A's prompt still exists and is unchanged", Boolean(aPrompt) && aPrompt.promptText === prompt?.promptText);
 
   // ---------- signed out ----------
   console.log("\nSigned-out requests are refused");
   for (const [method, path] of [
     ["GET", "/api/sessions"], ["POST", "/api/sessions"], ["GET", `/api/sessions/${session?.id}`],
-    ["GET", "/api/prompts"], ["POST", "/api/prompts"], ["GET", "/api/vault"], ["GET", "/api/drills"],
+    ["GET", "/api/prompts"], ["POST", "/api/prompts"], ["PATCH", `/api/prompts/${prompt?.id}`],
+    ["DELETE", `/api/prompts/${prompt?.id}`], ["GET", "/api/vault"], ["GET", "/api/drills"],
     ["GET", "/api/settings"], ["PUT", "/api/settings"], ["GET", "/api/backup"], ["POST", "/api/backup"],
     ["GET", "/api/account/export"], ["GET", `/api/images/${imageId}`], ["POST", "/api/ai/evaluate"],
     ["POST", "/api/ai/toolkit"], ["POST", "/api/ai/outline-check"], ["POST", "/api/ai/generate-prompt"],

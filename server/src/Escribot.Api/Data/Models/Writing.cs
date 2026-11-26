@@ -34,6 +34,9 @@ public sealed record Prompt
     public string Source { get; init; } = "custom";
 
     public DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>When the user last edited the prompt; null if never.</summary>
+    public DateTimeOffset? UpdatedAt { get; init; }
 }
 
 public sealed record WritingSession

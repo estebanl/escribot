@@ -61,6 +61,7 @@ internal static class Wire
         ["extractedVisualSpec"] = p.ExtractedVisualSpec,
         ["source"] = p.Source,
         ["createdAt"] = Time(p.CreatedAt),
+        ["updatedAt"] = p.UpdatedAt is { } updatedAt ? Time(updatedAt) : null,
     };
 
     public static JsonObject Session(WritingSession s, string userId) => new()

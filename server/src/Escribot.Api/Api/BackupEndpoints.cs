@@ -108,7 +108,7 @@ internal static class BackupEndpoints
             {
                 try
                 {
-                    imageUrl = await images.StoreAsync(account.Id, plan, prompt.ImageUrl, cancellationToken);
+                    imageUrl = await images.StoreAsync(account.Id, plan, prompt.ImageUrl, cancellationToken: cancellationToken);
                 }
                 catch (ImageUploadException)
                 {

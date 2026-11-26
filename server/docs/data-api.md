@@ -13,6 +13,8 @@ stored documents in [data-model.md](data-model.md).
 | `GET /api/sessions/{id}` | 404 for a session that is not the user's |
 | `GET /api/prompts` | The curated bank plus the user's own; `?taskType=` filters |
 | `POST /api/prompts` | A custom prompt; a Task 1 prompt may carry `imageDataUrl` and optional `extractedVisualSpec`. An SVG image on Free is a 403 `upgrade_required` |
+| `PATCH /api/prompts/{id}` | Edits one of the user's uploaded (`custom`) prompts and answers `{prompt}` with `updatedAt` set. A field left out keeps its value; a blank `title`, `topic` or `category` takes the default, as on create. `imageDataUrl` left out or sent back unchanged keeps the image, null or empty removes it, a data URL replaces it (checked as an upload; the replaced image's size is not counted against the allowance). The old image is deleted once the prompt is saved. A Task 2 prompt has no image. Changing `taskType` is a 409 `prompt_in_use` while a session uses the prompt. 404 for anyone else's prompt and for curated and AI-generated ones |
+| `DELETE /api/prompts/{id}` | Deletes one of the user's uploaded prompts and its image; `{ok: true}`. Sessions that used it stay, without the prompt. Same 404 rule as `PATCH` |
 | `GET` `POST` `PATCH` `DELETE /api/vault` | As before; `DELETE` takes `?id=` |
 | `GET /api/drills` | The 20 most recent. Generating and scoring come with the AI endpoints |
 | `GET` `PUT /api/settings` | `GET` lists every provider (`providers`: whether it is configured, meaning AI requests can use it (the user saved a key for it, or the platform has a key for it and the user has no key of their own), its masked saved key, whether the platform has a key, its models and suggested models), the model each role uses (`settings.models.{grader,fast,vision}` as `{provider, model}`), usage and billing status. `PUT` takes `models` in the same shape; it still accepts the older `activeProvider`, `graderModel`/`fastModel`/`visionModel` and `apiKeysToUpdate` |
@@ -26,7 +28,7 @@ stored documents in [data-model.md](data-model.md).
 | `GET /api/admin/overview`, `PATCH /api/admin/users/{id}` | Admins only; 404 for everyone else. See [billing.md](billing.md) |
 | `GET /api/viewer` | The signed-in person with plan, `canUpgrade`, `isAdmin` and `onboarded`, or `{ "user": null }`; public |
 | `GET /api/config` | `SITE_OPERATOR`, `SUPPORT_EMAIL`, `SITE_JURISDICTION` for the legal pages; public |
-| `GET /api/pages/studio`, `/write/{id}`, `/analytics`, `/settings`, `/drills` | The data of the browser app's pages, in the shape of the props its component takes. `/write/{id}` is 404 for a session that is not the user's |
+| `GET /api/pages/studio`, `/write/{id}`, `/analytics`, `/settings`, `/drills` | The data of the browser app's pages, in the shape of the props its component takes. The studio adds `promptUsage`, the number of sessions using each uploaded prompt, for the edit window. `/write/{id}` is 404 for a session that is not the user's |
 
 Every route needs a session except `/api/errors`, `/api/billing/prices`, `/api/viewer`,
 `/api/config` and `/api/stripe/webhook` (see `ApiGuard`). 
