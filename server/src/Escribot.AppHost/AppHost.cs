@@ -114,8 +114,11 @@ if (vault is not null)
         {
             ProbeType = ContainerAppProbeType.Readiness,
             HttpGet = new ContainerAppHttpRequestInfo { Path = "/health", Port = 8080 },
-            InitialDelaySeconds = 5,
+            InitialDelaySeconds = 1,
             PeriodSeconds = 30,
+            // /health calls Cosmos DB and Blob Storage, which can take longer than the default
+            // 1 second on a new replica. Matches the app's 5-second limit for each check.
+            TimeoutSeconds = 5,
         });
     });
 }
