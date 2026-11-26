@@ -15,7 +15,7 @@ import * as Vault from "@/pages/Vault";
 import * as Welcome from "@/pages/Welcome";
 import * as Write from "@/pages/Write";
 
-export const DEFAULT_TITLE = "Escribot — Academic IELTS Writing Studio & Exam Simulator";
+export const DEFAULT_TITLE = "Escribot: IELTS Writing practice with instant band scores";
 
 interface RouteHandle {
   title?: string;

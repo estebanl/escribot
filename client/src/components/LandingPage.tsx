@@ -15,40 +15,40 @@ import { SiteFooter } from "@/components/SiteFooter";
 const FEATURES = [
   {
     icon: ClipboardCheck,
-    title: "Examiner-style band scores",
-    body: "Every essay is marked on the four official criteria in half-band steps, with highlighted sentences and a rewrite at your target band.",
+    title: "Scored on the four official criteria",
+    body: "Task Response, Coherence, Lexical Resource and Grammar, each in half-band steps, with the sentences that cost you marks and a rewrite at your target band.",
   },
   {
     icon: BookOpen,
-    title: "Coach Studio",
-    body: "Check your Task 1 overview or Task 2 thesis in a five-minute outline step before you write, then redraft and watch the band move.",
+    title: "Plan before you write",
+    body: "Spend five minutes on your overview or thesis and get it checked before you start, then redraft and compare.",
   },
   {
     icon: Timer,
-    title: "Timed exam practice",
-    body: "Sit 20, 40 or 60-minute computer-based sessions with the on-screen tools you will have on test day.",
+    title: "Practise under exam conditions",
+    body: "20, 40 or 60-minute sessions on a computer-based exam screen, with the tools you’ll have on test day.",
   },
   {
     icon: Languages,
-    title: "First-language coaching",
-    body: "Catches false friends and grammar habits carried over from your first language, such as Spanish actualmente → ‘actually’.",
+    title: "Coaching that knows your first language",
+    body: "Spots false friends and habits carried over from your first language, like writing ‘actually’ when Spanish ‘actualmente’ means ‘currently’.",
   },
   {
     icon: Bookmark,
-    title: "Personal error Vault",
-    body: "Your recurring mistakes and stronger phrasings are saved automatically and come back as flashcards.",
+    title: "Your mistakes, turned into flashcards",
+    body: "Recurring errors and better phrasings are saved for you and come back as flashcards until they stick.",
   },
   {
     icon: Zap,
     title: "Five-minute drills",
-    body: "Short targeted exercises on overviews, cohesion, vocabulary and hedging, pitched at your current level.",
+    body: "Quick exercises on overviews, cohesion, vocabulary and hedging, pitched at your level.",
   },
 ];
 
 const STEPS = [
-  { title: "Tell us your band", body: "Set your current and target band and your first language." },
-  { title: "Write a task", body: "Pick from the prompt library, generate a new one, or upload a chart." },
-  { title: "Get marked, then redraft", body: "See exactly what held the score back and fix it in the next draft." },
+  { title: "Set your goal", body: "Your current band, your target and your first language. It takes a minute." },
+  { title: "Write an essay", body: "Choose from the prompt library, generate a new prompt, or upload your own Task 1 chart." },
+  { title: "Get marked, then redraft", body: "See what held the score back and fix it in the next draft." },
 ];
 
 export function LandingPage({ plans, deleted = false }: { plans: PlanCatalog; deleted?: boolean }) {
@@ -78,11 +78,12 @@ export function LandingPage({ plans, deleted = false }: { plans: PlanCatalog; de
               Academic IELTS Writing practice
             </p>
             <h1 className="font-serif text-4xl sm:text-5xl font-semibold tracking-tight leading-tight">
-              Get past Band 6.5 in IELTS Writing
+              Stuck at 6.5 in IELTS Writing? See exactly what’s holding you back.
             </h1>
             <p className="text-lg text-ink-secondary leading-relaxed max-w-xl">
-              Write Task 1 and Task 2 essays, get detailed band-score feedback in under a minute,
-              and turn every mistake into practice for the next draft.
+              Write a Task 1 or Task 2 essay and get it marked on all four criteria in under a
+              minute, with the weak sentences highlighted and rewritten. Then redraft and watch your
+              band move.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <Link
@@ -90,18 +91,18 @@ export function LandingPage({ plans, deleted = false }: { plans: PlanCatalog; de
                 to="/signup"
                 className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg font-medium transition"
               >
-                Start free
+                Mark my first essay free
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
                 to="/pricing"
                 className="inline-flex items-center justify-center px-5 py-3 rounded-lg border border-line-strong hover:bg-subtle text-ink font-medium transition"
               >
-                See pricing
+                Compare plans
               </Link>
             </div>
             <p className="text-sm text-ink-muted">
-              Free plan: {free.evaluationsPerMonth} marked essays a month. No card needed.
+              {free.evaluationsPerMonth} free marked essays every month. No card needed.
             </p>
           </div>
 
@@ -143,7 +144,7 @@ export function LandingPage({ plans, deleted = false }: { plans: PlanCatalog; de
         <section aria-labelledby="features-heading" className="bg-surface border-y border-line">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 py-16 space-y-10">
             <h2 id="features-heading" className="font-serif text-3xl font-semibold text-center">
-              Everything between you and a higher band
+              What moves you up a band
             </h2>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {FEATURES.map(({ icon: Icon, title, body }) => (
@@ -175,17 +176,17 @@ export function LandingPage({ plans, deleted = false }: { plans: PlanCatalog; de
         <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-20">
           <div className="editorial-surface rounded-2xl p-8 sm:p-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="space-y-2">
-              <h2 className="font-serif text-2xl font-semibold">Start on the Free plan</h2>
+              <h2 className="font-serif text-2xl font-semibold">Find out your band today</h2>
               <p className="text-ink-secondary">
-                {free.evaluationsPerMonth} marked essays a month for free. Pro raises that to{" "}
-                {pro.evaluationsPerMonth}, or bring your own AI key for no limits.
+                {free.evaluationsPerMonth} marked essays a month, free. Pro gives you{" "}
+                {pro.evaluationsPerMonth}, or bring your own AI key and write without limits.
               </p>
             </div>
             <Link
               to="/signup"
               className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg font-medium transition"
             >
-              Create your account
+              Start writing free
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
