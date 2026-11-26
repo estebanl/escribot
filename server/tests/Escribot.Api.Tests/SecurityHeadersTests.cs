@@ -190,6 +190,41 @@ public sealed class SecurityHeadersTests : IDisposable
     }
 
     [Fact]
+    public void Cloudflare_serves_the_browser_app_with_the_same_headers_as_the_api()
+    {
+        // client/cloudflare/_headers: a path line, then its headers indented below it.
+        var rules = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        Dictionary<string, string>? current = null;
+        foreach (var line in File.ReadAllLines(Path.Combine(RepositoryRoot(), "client", "cloudflare", "_headers")))
+        {
+            if (line.Length == 0 || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            if (!char.IsWhiteSpace(line[0]))
+            {
+                rules[line.Trim()] = current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+            else if (line.Trim() is var header && !header.StartsWith('!'))
+            {
+                var colon = header.IndexOf(':');
+                current![header[..colon].Trim()] = header[(colon + 1)..].Trim();
+            }
+        }
+
+        var all = rules["/*"];
+        Assert.Equal(SecurityHeaders.ContentSecurityPolicy, all["Content-Security-Policy"]);
+        Assert.Equal(SecurityHeaders.PermissionsPolicy, all["Permissions-Policy"]);
+        Assert.Equal("strict-origin-when-cross-origin", all["Referrer-Policy"]);
+        Assert.Equal("nosniff", all["X-Content-Type-Options"]);
+        Assert.Equal("DENY", all["X-Frame-Options"]);
+        Assert.Equal("no-cache", all["Cache-Control"]);
+        Assert.Equal("public, max-age=31536000, immutable", rules["/assets/*"]["Cache-Control"]);
+        Assert.Equal("no-referrer", rules["/reset-password"]["Referrer-Policy"]);
+    }
+
+    [Fact]
     public async Task Hsts_is_sent_when_the_proxy_reports_https()
     {
         // Container Apps ends TLS and passes the request on as plain HTTP, with the scheme the

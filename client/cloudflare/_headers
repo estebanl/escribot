@@ -1,0 +1,21 @@
+# Response headers for the browser app when Cloudflare serves it (see wrangler.jsonc).
+# They match what the API sends with the same files (server/src/Escribot.Api/Hosting/
+# SecurityHeaders.cs and ClientApp.cs); a server test checks the two agree.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-upih6A+uXQ5dbL9oYIK3nBm7LbAXckEBPcHNxPZHV68='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Cache-Control: no-cache
+
+# Hashed by Vite: a new build gets new names, so these never change.
+/assets/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+# The reset link's token is in the address; never send it on as a referrer.
+/reset-password
+  ! Referrer-Policy
+  Referrer-Policy: no-referrer

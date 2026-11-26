@@ -252,6 +252,11 @@ flowchart TB
 `deploy.yml` runs on `main` in the `production` environment, which needs a reviewer. It
 builds and pushes the image to GHCR. It then refuses to run while the kill switch has the
 app stopped, deploys the Bicep, rolls out the image and checks health.
+Behind Cloudflare, with the Cloudflare secrets set, its `web` job then deploys the browser
+app to Cloudflare as a Worker with only static assets (`client/wrangler.jsonc`) on
+`<domain>/*`. `<domain>/api/*`, `/alive` and `/health` are routes with no Worker, so they
+reach the Container App as before. The image still serves the app too: removing the
+Worker's route falls back to it.
 
 ## Testing
 
@@ -265,7 +270,11 @@ app stopped, deploys the Bicep, rolls out the image and checks health.
 ## Key decisions
 
 - **One image, one origin.** The API serves the browser app, so there is no CORS, the
-  session cookie stays first-party, and there is a single thing to deploy and scale.
+  session cookie stays first-party, and there is a single thing to deploy and scale. In
+  production Cloudflare serves the same files on the same domain, so the page loads at once
+  while the API starts from zero (about 30 seconds); `client/src/lib/server-wake.ts` shows
+  "Starting up" meanwhile. The API's page checks (redirects, 404 status codes) apply only
+  when it serves the page; the app makes the same checks in the browser either way.
 - **$0 when idle.** The app scales to zero on the Consumption plan and Cosmos DB is
   serverless. There is no container registry (GHCR is free) and no Front Door
   (Cloudflare's free plan absorbs floods). Log Analytics has an ingestion cap. A budget
