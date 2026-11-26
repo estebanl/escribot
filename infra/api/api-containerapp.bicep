@@ -240,15 +240,17 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
           }
           env: containerEnv
           probes: [
+            // A replica started from zero gets no traffic until these pass, so they check
+            // often while it starts. Checking every second keeps the same 60-second limit.
             {
               type: 'Startup'
               httpGet: {
                 path: '/alive'
                 port: 8080
               }
-              initialDelaySeconds: 2
-              periodSeconds: 5
-              failureThreshold: 12
+              initialDelaySeconds: 1
+              periodSeconds: 1
+              failureThreshold: 60
             }
             {
               type: 'Liveness'
@@ -265,8 +267,13 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
                 path: '/health'
                 port: 8080
               }
-              initialDelaySeconds: 5
+              initialDelaySeconds: 1
               periodSeconds: 30
+              // /health calls Cosmos DB and Blob Storage. A new replica's first call also gets
+              // a managed identity token, which can take longer than the default 1 second; a
+              // timeout then holds traffic back for another 30 seconds. The app's own
+              // limit for each check is 5 seconds.
+              timeoutSeconds: 5
             }
           ]
         }
