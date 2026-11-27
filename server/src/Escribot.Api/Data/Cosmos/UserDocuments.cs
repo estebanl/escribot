@@ -93,6 +93,28 @@ internal sealed class UserDocuments(CosmosStore store)
         return await CosmosStore.DeleteAsync(Container, userId, type.DocumentId(id), cancellationToken);
     }
 
+    /// <summary>
+    /// Deletes the document only if <paramref name="condition"/> holds for the version that is
+    /// deleted (see <see cref="CosmosStore.DeleteIfAsync"/>), and returns that version.
+    /// </summary>
+    public async Task<T?> DeleteIfAsync<T>(DocumentType<T> type, string userId, string? id, Func<T, bool> condition, CancellationToken cancellationToken)
+        where T : class
+    {
+        if (!DocumentId.IsValid(userId) || (!type.IsSingleton && !DocumentId.IsValid(id)))
+        {
+            return null;
+        }
+
+        T? deleted = null;
+        var done = await CosmosStore.DeleteIfAsync(Container, userId, type.DocumentId(id), document =>
+        {
+            deleted = FromDocument(type, document);
+            return condition(deleted);
+        }, cancellationToken);
+
+        return done ? deleted : null;
+    }
+
     /// <summary>See <see cref="CosmosStore.UpdateAsync"/>. Returning the same instance from <paramref name="change"/> skips the write.</summary>
     public async Task<T?> UpdateAsync<T>(DocumentType<T> type, string userId, string? id, Func<T, T> change, CancellationToken cancellationToken)
         where T : class

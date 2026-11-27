@@ -23,6 +23,8 @@ internal static class WritingEndpoints
 
         api.MapGet("/prompts", ListPromptsAsync).OnFailure("Failed to load prompts.");
         api.MapPost("/prompts", CreatePromptAsync).OnFailure("Failed to save custom prompt.");
+        api.MapPatch("/prompts/{id}", UpdatePromptAsync).OnFailure("Failed to save your changes to the prompt.");
+        api.MapDelete("/prompts/{id}", DeletePromptAsync).OnFailure("Failed to delete the prompt.");
 
         api.MapGet("/vault", ListVaultAsync).OnFailure("Failed to load Vault.");
         api.MapPost("/vault", AddVaultItemAsync).OnFailure("Failed to add Vault item.");
@@ -133,18 +135,29 @@ internal static class WritingEndpoints
         var task1PromptId = body.Trimmed("task1PromptId");
         var task2PromptId = body.Trimmed("task2PromptId");
 
-        // A session may only reference prompts this user can see.
-        foreach (var promptId in new[] { task1PromptId, task2PromptId })
+        // A session may only reference prompts this user can see and has not deleted, each for its own task.
+        foreach (var (promptId, slotTaskType) in new[] { (task1PromptId, Ielts.Task1), (task2PromptId, Ielts.Task2) })
         {
-            if (promptId is not null && await prompts.GetVisibleAsync(userId, promptId, cancellationToken) is null)
+            if (promptId is null)
+            {
+                continue;
+            }
+
+            var prompt = await prompts.GetVisibleAsync(userId, promptId, cancellationToken);
+            if (prompt is null || prompt.ArchivedAt is not null)
             {
                 return ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
+            }
+
+            if (prompt.TaskType != slotTaskType)
+            {
+                return ApiResults.Error(StatusCodes.Status400BadRequest, $"The {(slotTaskType == Ielts.Task1 ? "Task 1" : "Task 2")} prompt must be a {(slotTaskType == Ielts.Task1 ? "Task 1" : "Task 2")} task.");
             }
         }
 
         if (mode == "simulator_full_60m" && (task1PromptId is null || task2PromptId is null))
         {
-            var visible = await prompts.ListVisibleAsync(userId, cancellationToken);
+            var visible = (await prompts.ListVisibleAsync(userId, cancellationToken)).Where(p => p.ArchivedAt is null).ToList();
             task1PromptId ??= visible.FirstOrDefault(p => p.TaskType == Ielts.Task1)?.Id;
             task2PromptId ??= visible.FirstOrDefault(p => p.TaskType == Ielts.Task2)?.Id;
         }
@@ -203,7 +216,7 @@ internal static class WritingEndpoints
         var userId = context.GetSession()!.Account.Id;
         var visible = await prompts.ListVisibleAsync(userId, cancellationToken);
         var rows = visible
-            .Where(p => string.IsNullOrEmpty(taskType) || p.TaskType == taskType)
+            .Where(p => p.ArchivedAt is null && (string.IsNullOrEmpty(taskType) || p.TaskType == taskType))
             .OrderByDescending(p => p.CreatedAt)
             .Select(Wire.Prompt);
 
@@ -232,9 +245,7 @@ internal static class WritingEndpoints
         var topic = body.Trimmed("topic");
         var title = body.Trimmed("title");
         var extractedVisualSpec = taskType == Ielts.Task1 ? body.Trimmed("extractedVisualSpec") : null;
-        if (promptText.Length > MaxLongText
-            || extractedVisualSpec?.Length > MaxLongText
-            || new[] { category, topic, title }.Any(t => t?.Length > MaxShortText))
+        if (IsTooLong(promptText, extractedVisualSpec, category, topic, title))
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, "The prompt is too long.");
         }
@@ -245,7 +256,7 @@ internal static class WritingEndpoints
         {
             try
             {
-                imageUrl = await images.StoreAsync(account.Id, await plans.GetPlanAsync(account, cancellationToken), imageDataUrl, cancellationToken);
+                imageUrl = await images.StoreAsync(account.Id, await plans.GetPlanAsync(account, cancellationToken), imageDataUrl, cancellationToken: cancellationToken);
             }
             catch (ImageUploadException ex)
             {
@@ -258,9 +269,9 @@ internal static class WritingEndpoints
             Id = NewId("custom"),
             UserId = account.Id,
             TaskType = taskType,
-            Category = category ?? (taskType == Ielts.Task1 ? "line" : "opinion"),
-            Topic = topic ?? "Custom Practice",
-            Title = title ?? $"Custom {(taskType == Ielts.Task1 ? "Task 1 Visual" : "Task 2 Essay")}",
+            Category = category ?? DefaultCategory(taskType),
+            Topic = topic ?? DefaultTopic,
+            Title = title ?? DefaultTitle(taskType),
             PromptText = promptText,
             ImageUrl = imageUrl,
             ExtractedVisualSpec = imageUrl is not null ? extractedVisualSpec : null,
@@ -279,6 +290,207 @@ internal static class WritingEndpoints
         }
 
         return Results.Json(new JsonObject { ["prompt"] = Wire.Prompt(prompt) });
+    }
+
+    private const string DefaultTopic = "Custom Practice";
+
+    private static string DefaultCategory(string taskType) => taskType == Ielts.Task1 ? "line" : "opinion";
+
+    private static string DefaultTitle(string taskType) => $"Custom {(taskType == Ielts.Task1 ? "Task 1 Visual" : "Task 2 Essay")}";
+
+    private static bool IsTooLong(string promptText, string? extractedVisualSpec, string? category, string? topic, string? title) =>
+        promptText.Length > MaxLongText
+        || extractedVisualSpec?.Length > MaxLongText
+        || new[] { category, topic, title }.Any(t => t?.Length > MaxShortText);
+
+    /// <summary>Whether a prompt is one of the user's uploads that they can still edit or delete.</summary>
+    private static bool IsEditable(Prompt prompt, string userId) =>
+        prompt is { Source: "custom", ArchivedAt: null } && prompt.UserId == userId;
+
+    /// <summary>
+    /// The user's own uploaded prompt, or null. Curated and AI-generated prompts cannot be
+    /// edited or deleted, and another user's prompt is not found, as for any other document.
+    /// </summary>
+    private static async Task<Prompt?> GetEditablePromptAsync(IPromptRepository prompts, string userId, string promptId, CancellationToken cancellationToken) =>
+        await prompts.GetVisibleAsync(userId, promptId, cancellationToken) is { } prompt && IsEditable(prompt, userId) ? prompt : null;
+
+    private static async Task<bool> IsUsedBySessionAsync(IWritingRepository writing, string userId, string promptId, CancellationToken cancellationToken) =>
+        (await writing.ListSessionsAsync(userId, cancellationToken)).Any(s => s.Task1PromptId == promptId || s.Task2PromptId == promptId);
+
+    /// <summary>
+    /// Changes one of the user's uploaded prompts. A field left out keeps its value. For the
+    /// image, <c>imageDataUrl</c> left out (or sent back as its saved link) keeps it, null or
+    /// empty removes it, and a data URL replaces it. The task type cannot change while a session
+    /// uses the prompt, since its drafts are written for the old task.
+    /// The change is applied to the prompt as stored when it is written: an edit from another
+    /// tab in between is kept unless this one changes the same field, and a prompt deleted in
+    /// between is not written back. An image is discarded only once no saved version uses it.
+    /// </summary>
+    private static async Task<IResult> UpdatePromptAsync(
+        string id,
+        JsonElement json,
+        HttpContext context,
+        IPromptRepository prompts,
+        IWritingRepository writing,
+        ImageStore images,
+        PlanResolver plans,
+        TimeProvider time,
+        CancellationToken cancellationToken)
+    {
+        var account = context.GetSession()!.Account;
+        var existing = await GetEditablePromptAsync(prompts, account.Id, id, cancellationToken);
+        if (existing is null)
+        {
+            return ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
+        }
+
+        var body = new Body(json);
+        if (!body.IsObject)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "The request could not be read.");
+        }
+
+        var taskType = body.Has("taskType") ? body.String("taskType") : existing.TaskType;
+        var promptText = body.Has("promptText") ? body.Trimmed("promptText") : existing.PromptText;
+        if (taskType is not (Ielts.Task1 or Ielts.Task2) || promptText is null)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "Task type and prompt instructions are required.");
+        }
+
+        string newTaskType = taskType;
+        string newPromptText = promptText;
+
+        // What the request sets; anything it leaves out comes from the prompt as stored.
+        var hasCategory = body.Has("category");
+        var category = body.Trimmed("category");
+        var hasTopic = body.Has("topic");
+        var topic = body.Trimmed("topic");
+        var hasTitle = body.Has("title");
+        var title = body.Trimmed("title");
+        var hasPromptText = body.Has("promptText");
+        var hasVisualSpec = body.Has("extractedVisualSpec");
+        var visualSpec = body.Trimmed("extractedVisualSpec");
+
+        // The image and its visual spec belong to Task 1 only.
+        var imageField = body.Has("imageDataUrl") ? body.String("imageDataUrl") : null;
+        var newImageDataUrl = taskType == Ielts.Task1 && imageField is { Length: > 0 } && !imageField.StartsWith(ImageStore.RoutePrefix, StringComparison.Ordinal)
+            ? imageField
+            : null;
+        var removesImage = taskType != Ielts.Task1 || (body.Has("imageDataUrl") && string.IsNullOrEmpty(imageField));
+        if (IsTooLong(promptText, visualSpec, category, topic, title))
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "The prompt is too long.");
+        }
+
+        if (taskType != existing.TaskType && await IsUsedBySessionAsync(writing, account.Id, id, cancellationToken))
+        {
+            return ApiResults.Error(
+                StatusCodes.Status409Conflict,
+                "This task already has practice sessions, so its task type cannot change. Upload it again as a new task instead.",
+                "prompt_in_use");
+        }
+
+        string? storedImageUrl = null;
+        if (newImageDataUrl is not null)
+        {
+            try
+            {
+                storedImageUrl = await images.StoreAsync(
+                    account.Id,
+                    await plans.GetPlanAsync(account, cancellationToken),
+                    newImageDataUrl,
+                    replacingImageUrl: existing.ImageUrl,
+                    cancellationToken: cancellationToken);
+            }
+            catch (ImageUploadException ex)
+            {
+                return ApiResults.Error(ex.StatusCode, ex.Message, ex.Code);
+            }
+        }
+
+        var now = time.GetUtcNow();
+        (Prompt Before, Prompt After)? result;
+        try
+        {
+            result = await prompts.UpdateAsync(account.Id, id, current =>
+            {
+                if (!IsEditable(current, account.Id))
+                {
+                    return null;
+                }
+
+                var taskTypeChanged = newTaskType != current.TaskType;
+                var imageUrl = removesImage ? null : storedImageUrl ?? current.ImageUrl;
+                var extractedVisualSpec = imageUrl is null ? null
+                    : storedImageUrl is not null || hasVisualSpec ? visualSpec
+                    : current.ExtractedVisualSpec;
+                return current with
+                {
+                    TaskType = newTaskType,
+                    Category = (hasCategory ? category : taskTypeChanged ? null : current.Category) ?? DefaultCategory(newTaskType),
+                    Topic = (hasTopic ? topic : current.Topic) ?? DefaultTopic,
+                    Title = (hasTitle ? title : current.Title) ?? DefaultTitle(newTaskType),
+                    PromptText = hasPromptText ? newPromptText : current.PromptText,
+                    ImageUrl = imageUrl,
+                    ExtractedVisualSpec = extractedVisualSpec,
+                    UpdatedAt = now,
+                };
+            }, cancellationToken);
+        }
+        catch
+        {
+            // Nothing points at the new image.
+            await images.DiscardAsync(account.Id, storedImageUrl);
+            throw;
+        }
+
+        if (result is not { } written || !IsEditable(written.Before, account.Id))
+        {
+            // Deleted (or archived) in the meantime.
+            await images.DiscardAsync(account.Id, storedImageUrl);
+            return ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
+        }
+
+        // Only once the saved prompt no longer points at it.
+        if (written.Before.ImageUrl is { } oldImage && oldImage != written.After.ImageUrl)
+        {
+            await images.DiscardAsync(account.Id, oldImage);
+        }
+
+        return Results.Json(new JsonObject { ["prompt"] = Wire.Prompt(written.After) });
+    }
+
+    /// <summary>
+    /// Deletes one of the user's uploaded prompts and its image. A prompt that sessions use is
+    /// archived instead: it leaves the library, but those sessions can still be resumed and
+    /// reviewed with it, so it keeps its image too.
+    /// </summary>
+    private static async Task<IResult> DeletePromptAsync(string id, HttpContext context, IPromptRepository prompts, IWritingRepository writing, ImageStore images, TimeProvider time, CancellationToken cancellationToken)
+    {
+        var userId = context.GetSession()!.Account.Id;
+        if (await GetEditablePromptAsync(prompts, userId, id, cancellationToken) is null)
+        {
+            return ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
+        }
+
+        if (await IsUsedBySessionAsync(writing, userId, id, cancellationToken))
+        {
+            var now = time.GetUtcNow();
+            var archived = await prompts.UpdateAsync(userId, id, current => IsEditable(current, userId) ? current with { ArchivedAt = now } : null, cancellationToken);
+            return archived is { } a && IsEditable(a.Before, userId)
+                ? Results.Json(new JsonObject { ["ok"] = true, ["archived"] = true })
+                : ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
+        }
+
+        // Only the version read as editable, so a prompt archived meanwhile is not deleted.
+        var deleted = await prompts.DeleteIfAsync(userId, id, current => IsEditable(current, userId), cancellationToken);
+        if (deleted is null)
+        {
+            return ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
+        }
+
+        await images.DiscardAsync(userId, deleted.ImageUrl);
+        return Results.Json(new JsonObject { ["ok"] = true, ["archived"] = false });
     }
 
     // ---- Vault ----

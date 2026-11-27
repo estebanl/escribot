@@ -45,6 +45,12 @@ internal static class BackupEndpoints
         {
             var row = Wire.Prompt(prompt).WithoutOwner();
             row["imageDataUrl"] = await images.ResolveAsDataUrlAsync(userId, prompt.ImageUrl, cancellationToken);
+            if (prompt.ArchivedAt is { } archivedAt)
+            {
+                // A deleted prompt that sessions use: restored as deleted, so it stays out of the library.
+                row["archivedAt"] = Wire.Time(archivedAt);
+            }
+
             prompts.Add(row);
         }
 
@@ -108,7 +114,7 @@ internal static class BackupEndpoints
             {
                 try
                 {
-                    imageUrl = await images.StoreAsync(account.Id, plan, prompt.ImageUrl, cancellationToken);
+                    imageUrl = await images.StoreAsync(account.Id, plan, prompt.ImageUrl, cancellationToken: cancellationToken);
                 }
                 catch (ImageUploadException)
                 {
@@ -201,6 +207,8 @@ internal sealed record BackupFile(
                     // Anything else, "curated" included, becomes the user's own custom prompt.
                     Source = r.OptionalText("source", MaxShortText) == "ai_generated" ? "ai_generated" : "custom",
                     CreatedAt = r.Time("createdAt"),
+                    UpdatedAt = r.OptionalTime("updatedAt"),
+                    ArchivedAt = r.OptionalTime("archivedAt"),
                 }),
                 Rows(data, "sessions", ref remaining, r => new WritingSession
                 {

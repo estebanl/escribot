@@ -35,9 +35,11 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
     /// <summary>
     /// Stores an image given as a data URL and returns the address the app shows it from.
     /// Enforces the type (SVGs only on plans with <see cref="PlanLimits.CanTransformSvg"/>),
-    /// the size limit and the plan's storage allowance.
+    /// the size limit and the plan's storage allowance. When the image replaces one the user
+    /// already has (<paramref name="replacingImageUrl"/>), that image's size is not counted,
+    /// since the caller discards it once the replacement is saved.
     /// </summary>
-    public async Task<string> StoreAsync(string userId, string plan, string dataUrl, CancellationToken cancellationToken = default)
+    public async Task<string> StoreAsync(string userId, string plan, string dataUrl, string? replacingImageUrl = null, CancellationToken cancellationToken = default)
     {
         var allowSvg = Plans.Defaults[plan].CanTransformSvg;
         if (!allowSvg && IsSvgDataUrl(dataUrl))
@@ -57,6 +59,12 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
         if (Plans.Defaults[plan].StorageBytes is { } allowance)
         {
             var used = await images.GetTotalBytesAsync(userId, cancellationToken);
+            if (replacingImageUrl?.StartsWith(RoutePrefix, StringComparison.Ordinal) == true
+                && await images.GetAsync(userId, replacingImageUrl[RoutePrefix.Length..], cancellationToken) is { } replaced)
+            {
+                used -= replaced.Bytes;
+            }
+
             if (used + data.Length > allowance)
             {
                 throw new ImageUploadException(
@@ -93,9 +101,10 @@ public sealed partial class ImageStore(IImageRepository images, IFileStore files
     }
 
     /// <summary>
-    /// Removes an image that was just stored for something that then could not be saved,
-    /// so it does not stay behind unused and counted against the user's allowance.
-    /// It never throws: it runs while another failure is already being reported.
+    /// Removes an image nothing points at any more: one just stored for something that then
+    /// could not be saved, or the old image of a prompt that was edited or deleted, so it does
+    /// not stay behind unused and counted against the user's allowance. It never throws: it
+    /// runs while another failure is being reported, or after the change itself succeeded.
     /// </summary>
     public async Task DiscardAsync(string userId, string? imageUrl)
     {

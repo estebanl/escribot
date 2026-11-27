@@ -34,6 +34,15 @@ public sealed record Prompt
     public string Source { get; init; } = "custom";
 
     public DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>When the user last edited the prompt; null if never.</summary>
+    public DateTimeOffset? UpdatedAt { get; init; }
+
+    /// <summary>
+    /// When the user deleted a prompt that sessions still use. It is then left out of the
+    /// library and cannot be picked or edited, but the sessions keep it to resume and review.
+    /// </summary>
+    public DateTimeOffset? ArchivedAt { get; init; }
 }
 
 public sealed record WritingSession

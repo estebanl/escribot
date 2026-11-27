@@ -19,6 +19,8 @@ interface StudioData {
     task2Title: string | null;
     latestDraftVersion: number;
   }>;
+  /** Sessions per uploaded prompt id. */
+  promptUsage: Record<string, number>;
   settingsSummary: {
     currentBand: number;
     targetBand: number;
@@ -53,6 +55,7 @@ export function HomePage() {
       <StudioHomeClient
         initialPrompts={studio.prompts}
         recentSessions={studio.recentSessions}
+        promptUsage={studio.promptUsage}
         settingsSummary={{ ...summary, daysUntilExam: computeDaysUntilExam(examDate) }}
         canTransformSvg={canTransformSvg(user.plan)}
       />

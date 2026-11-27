@@ -34,7 +34,7 @@ All need a session (see [sign-in.md](sign-in.md)). Errors are `{ "error": "...",
 | `POST /api/ai/outline-check` | Assist | `{ outline, promptText, taskType, promptId? }` → `{ feedback }` |
 | `POST /api/ai/toolkit` | Assist | `{ tool, selectedText, promptText, taskType, fullEssayContext? }` → `{ result }` |
 | `POST /api/ai/generate-prompt` | Assist | `{ taskType, category?, topic? }` → `{ prompt }`, saved as the user's prompt with `source: "ai_generated"` |
-| `POST /api/ai/transform-svg` | Assist (Pro / Owner only) | `{ imageDataUrl, category?, promptText? }` → `{ svgDataUrl, extractedVisualSpec? }`. Redraws an uploaded Task 1 raster image into a sanitized SVG using the `vision` role. 403 `upgrade_required` on Free (even with a user API key) |
+| `POST /api/ai/transform-svg` | Assist (Pro / Owner only) | `{ imageDataUrl, category?, promptText? }` or `{ promptId, category?, promptText? }` → `{ svgDataUrl, extractedVisualSpec? }`. Redraws an uploaded Task 1 raster image into a sanitized SVG using the `vision` role. With `promptId` (and no `imageDataUrl`) the image is read from the user's saved prompt, so it is never sent back: 404 for a prompt that is not the user's own, 400 when it has no image or its image is already an SVG. Nothing is saved; the browser saves the SVG with `PATCH /api/prompts/{id}`. 403 `upgrade_required` on Free (even with a user API key) |
 | `POST /api/drills` | Assist | `action: "generate"` → `{ drillId, challenge }`; `action: "score"` → `{ score }`, saved on the drill when `drillId` is the user's |
 | `GET /api/ai/models` | None | OpenRouter's public catalogue; `?type=vision` keeps the models that read images |
 

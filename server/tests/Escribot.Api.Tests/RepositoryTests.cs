@@ -336,6 +336,33 @@ public class RepositoryTests(AppHostFixture fixture)
     }
 
     [Fact]
+    public async Task A_prompt_update_applies_to_the_stored_version_and_never_recreates_a_deleted_prompt()
+    {
+        var prompts = fixture.Get<IPromptRepository>();
+        var id = AppHostFixture.NewId("custom");
+        await prompts.SaveAsync(_userId, TestData.Prompt(id) with { Source = "custom", ImageUrl = "/api/images/a" });
+
+        var written = await prompts.UpdateAsync(_userId, id, p => p with { Title = "Edited" });
+        Assert.Equal("Synthetic chart", written!.Value.Before.Title);
+        Assert.Equal("Edited", written.Value.After.Title);
+        Assert.Equal("/api/images/a", written.Value.After.ImageUrl);
+        Assert.Equal("Edited", (await prompts.GetVisibleAsync(_userId, id))!.Title);
+
+        // Null leaves it as it is.
+        var unchanged = await prompts.UpdateAsync(_userId, id, _ => null);
+        Assert.Equal("Edited", unchanged!.Value.After.Title);
+
+        // A condition that does not hold keeps it; one that does deletes it and returns it.
+        Assert.Null(await prompts.DeleteIfAsync(_userId, id, p => p.Title == "Other"));
+        Assert.Equal("Edited", (await prompts.DeleteIfAsync(_userId, id, p => p.Title == "Edited"))!.Title);
+
+        // An update of a prompt that is gone does not write it back.
+        Assert.Null(await prompts.UpdateAsync(_userId, id, p => p with { Title = "Revived" }));
+        Assert.Null(await prompts.GetVisibleAsync(_userId, id));
+        Assert.Null(await prompts.DeleteIfAsync(_userId, id, _ => true));
+    }
+
+    [Fact]
     public async Task Users_cannot_write_curated_prompts()
     {
         await Assert.ThrowsAsync<ArgumentException>(() =>

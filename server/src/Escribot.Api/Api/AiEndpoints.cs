@@ -656,6 +656,8 @@ internal static class AiEndpoints
         JsonElement json,
         HttpContext context,
         PlanResolver planResolver,
+        IPromptRepository prompts,
+        ImageStore imageStore,
         AiAccessGuard accessGuard,
         ExaminerService examiner,
         CancellationToken cancellationToken)
@@ -675,6 +677,19 @@ internal static class AiEndpoints
 
         var body = new Body(json);
         var imageDataUrl = body.String("imageDataUrl");
+
+        // A saved prompt's image is read from storage, so the browser need not send it back.
+        if (string.IsNullOrWhiteSpace(imageDataUrl) && body.Trimmed("promptId") is { } promptId)
+        {
+            var prompt = await prompts.GetVisibleAsync(account.Id, promptId, cancellationToken);
+            if (prompt is null || prompt.UserId != account.Id || prompt.ArchivedAt is not null)
+            {
+                return ApiResults.Error(StatusCodes.Status404NotFound, "Prompt not found.");
+            }
+
+            imageDataUrl = await imageStore.ResolveAsDataUrlAsync(account.Id, prompt.ImageUrl, cancellationToken);
+        }
+
         if (string.IsNullOrWhiteSpace(imageDataUrl))
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, "Upload or paste a Task 1 image first.");

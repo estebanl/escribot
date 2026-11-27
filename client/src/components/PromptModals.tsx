@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   X,
   Upload,
@@ -7,6 +7,8 @@ import {
   Loader2,
   Wand2,
   RefreshCw,
+  Save,
+  Trash2,
 } from "lucide-react";
 import { safePostJson } from "@/lib/client-evaluate";
 import type { PromptCategory, TaskType } from "@/lib/types";
@@ -24,6 +26,7 @@ export interface PromptRecord {
   extractedVisualSpec?: string | null;
   source: string;
   createdAt: string;
+  updatedAt?: string | null;
 }
 
 const TASK1_CATEGORIES: Array<{ value: PromptCategory; label: string }> = [
@@ -95,23 +98,40 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+/**
+ * Uploads a custom or prep-book task, or, given `initialPrompt`, edits one the user
+ * uploaded before. Mount a fresh instance (a `key` per prompt) for each prompt edited.
+ */
 export function CustomPromptModal({
   open,
   onClose,
   onCreated,
   canTransformSvg = false,
+  initialPrompt = null,
+  usageCount = 0,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (prompt: PromptRecord) => void;
   canTransformSvg?: boolean;
+  initialPrompt?: PromptRecord | null;
+  /** Sessions that use `initialPrompt`; they will show the edited version. */
+  usageCount?: number;
 }) {
-  const [taskType, setTaskType] = useState<TaskType>("task1");
-  const [category, setCategory] = useState<PromptCategory>("line");
-  const [title, setTitle] = useState("");
-  const [topic, setTopic] = useState("");
-  const [promptText, setPromptText] = useState("");
-  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const editing = initialPrompt !== null;
+  const savedImageUrl = initialPrompt?.taskType === "task1" ? initialPrompt.imageDataUrl : null;
+  const [taskType, setTaskType] = useState<TaskType>(
+    (initialPrompt?.taskType as TaskType | undefined) ?? "task1"
+  );
+  const [category, setCategory] = useState<PromptCategory>(
+    (initialPrompt?.category as PromptCategory | undefined) ?? "line"
+  );
+  const [title, setTitle] = useState(initialPrompt?.title ?? "");
+  const [topic, setTopic] = useState(initialPrompt?.topic ?? "");
+  const [promptText, setPromptText] = useState(initialPrompt?.promptText ?? "");
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(savedImageUrl);
+  // A saved image is a link, so whether it is an SVG is read from the image itself.
+  const [savedImageIsSvg, setSavedImageIsSvg] = useState(false);
   const [svgDataUrl, setSvgDataUrl] = useState<string | null>(null);
   const [extractedVisualSpec, setExtractedVisualSpec] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<"original" | "svg">("original");
@@ -119,11 +139,29 @@ export function CustomPromptModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!savedImageUrl || savedImageUrl.startsWith("data:")) return;
+    let cancelled = false;
+    fetch(savedImageUrl)
+      .then((res) => {
+        if (!cancelled && res.headers.get("content-type")?.startsWith("image/svg+xml")) {
+          setSavedImageIsSvg(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [savedImageUrl]);
+
   if (!open) return null;
 
-  const isUploadedSvg = Boolean(
-    imageDataUrl?.startsWith("data:image/svg+xml;")
-  );
+  const showingSavedImage = editing && imageDataUrl !== null && imageDataUrl === savedImageUrl;
+  const isUploadedSvg =
+    Boolean(imageDataUrl?.startsWith("data:image/svg+xml;")) ||
+    (showingSavedImage && (savedImageIsSvg || Boolean(savedImageUrl?.startsWith("data:image/svg+xml;"))));
+  // The task type of a task that has been practised cannot change: its drafts are for that task.
+  const taskTypeLocked = editing && usageCount > 0;
   const usingGeneratedSvg = previewMode === "svg" && Boolean(svgDataUrl);
   const activePreviewUrl = usingGeneratedSvg ? svgDataUrl : imageDataUrl;
 
@@ -176,7 +214,10 @@ export function CustomPromptModal({
       }>(
         "/api/ai/transform-svg",
         {
-          imageDataUrl,
+          // A saved image is read on the server; a new one is sent as it is.
+          ...(showingSavedImage && !imageDataUrl.startsWith("data:")
+            ? { promptId: initialPrompt?.id }
+            : { imageDataUrl }),
           category,
           promptText: promptText.trim() || undefined,
         },
@@ -207,23 +248,32 @@ export function CustomPromptModal({
           : null;
       const finalVisualSpec =
         taskType === "task1" && usingGeneratedSvg ? extractedVisualSpec : null;
+      // Left out, the saved image and its visual spec stay as they are.
+      const imageFields =
+        editing && taskType === "task1" && finalImageUrl === savedImageUrl
+          ? {}
+          : { imageDataUrl: finalImageUrl, extractedVisualSpec: finalVisualSpec };
 
-      const res = await fetch("/api/prompts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskType,
-          category,
-          title,
-          topic,
-          promptText,
-          imageDataUrl: finalImageUrl,
-          extractedVisualSpec: finalVisualSpec,
-        }),
-      });
+      const res = await fetch(
+        initialPrompt ? `/api/prompts/${encodeURIComponent(initialPrompt.id)}` : "/api/prompts",
+        {
+          method: editing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskType,
+            category,
+            title,
+            topic,
+            promptText,
+            ...imageFields,
+          }),
+        }
+      );
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Failed to save custom prompt.");
+        setError(
+          data.error || (editing ? "Failed to save your changes." : "Failed to save custom prompt.")
+        );
         setSaving(false);
         return;
       }
@@ -234,7 +284,9 @@ export function CustomPromptModal({
       onCreated(data.prompt);
       onClose();
     } catch {
-      setError("Network error while saving custom prompt.");
+      setError(
+        editing ? "Network error while saving your changes." : "Network error while saving custom prompt."
+      );
     } finally {
       setSaving(false);
     }
@@ -251,10 +303,10 @@ export function CustomPromptModal({
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="font-serif text-xl font-semibold text-ink">
-              Upload Custom or Prep-Book Task
+              {editing ? "Edit Task" : "Upload Custom or Prep-Book Task"}
             </h2>
             <p className="text-xs text-ink-secondary mt-0.5">
-              Paste instructions and press <kbd className="font-mono px-1.5 py-0.5 rounded bg-subtle">Ctrl/Cmd+V</kbd> anywhere to attach a Task 1 chart screenshot.
+              {editing ? "Change the instructions, or" : "Paste instructions and"} press <kbd className="font-mono px-1.5 py-0.5 rounded bg-subtle">Ctrl/Cmd+V</kbd> anywhere to {editing ? "replace the" : "attach a"} Task 1 chart screenshot.
             </p>
           </div>
           <button
@@ -267,14 +319,24 @@ export function CustomPromptModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {editing && usageCount > 0 && (
+            <p id="edit-prompt-usage-notice" className="text-xs text-ink-secondary rounded-lg bg-subtle px-3 py-2">
+              {usageCount === 1
+                ? "You have practised this task once. That session will show the edited task; its scores stay as graded."
+                : `You have practised this task ${usageCount} times. Those sessions will show the edited task; their scores stay as graded.`}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-subtle">
             <button
               type="button"
+              disabled={taskTypeLocked && taskType !== "task1"}
+              title={taskTypeLocked && taskType !== "task1" ? "A task you have practised keeps its task type." : undefined}
               onClick={() => {
+                if (taskType === "task1") return;
                 setTaskType("task1");
                 setCategory("line");
               }}
-              className={`py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`py-2 rounded-lg text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
                 taskType === "task1"
                   ? "bg-surface text-ink shadow-xs"
                   : "text-ink-secondary"
@@ -284,11 +346,14 @@ export function CustomPromptModal({
             </button>
             <button
               type="button"
+              disabled={taskTypeLocked && taskType !== "task2"}
+              title={taskTypeLocked && taskType !== "task2" ? "A task you have practised keeps its task type." : undefined}
               onClick={() => {
+                if (taskType === "task2") return;
                 setTaskType("task2");
                 setCategory("opinion");
               }}
-              className={`py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`py-2 rounded-lg text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
                 taskType === "task2"
                   ? "bg-surface text-ink shadow-xs"
                   : "text-ink-secondary"
@@ -489,13 +554,93 @@ export function CustomPromptModal({
             >
               {saving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
+              ) : editing ? (
+                <Save className="w-4 h-4" />
               ) : (
                 <Upload className="w-4 h-4" />
               )}
-              <span>Save to Library</span>
+              <span>{editing ? "Save Changes" : "Save to Library"}</span>
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+/** Confirms and deletes one of the user's uploaded tasks. */
+export function DeletePromptDialog({
+  prompt,
+  usageCount = 0,
+  onClose,
+  onDeleted,
+}: {
+  prompt: PromptRecord;
+  usageCount?: number;
+  onClose: () => void;
+  onDeleted: (promptId: string) => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/prompts/${encodeURIComponent(prompt.id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to delete the task.");
+        return;
+      }
+      onDeleted(prompt.id);
+      onClose();
+    } catch {
+      setError("Network error while deleting the task.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div
+        role="alertdialog"
+        aria-labelledby="delete-prompt-title"
+        className="w-full max-w-md editorial-surface rounded-2xl p-6 space-y-4"
+      >
+        <h2 id="delete-prompt-title" className="font-serif text-xl font-semibold text-ink">
+          Delete this task?
+        </h2>
+        <p className="text-sm text-ink-secondary">
+          {usageCount > 0
+            ? `“${prompt.title}” will be removed from your library. You have practised it ${
+                usageCount === 1 ? "once" : `${usageCount} times`
+              }, so ${
+                usageCount === 1 ? "that session keeps" : "those sessions keep"
+              } the task and its image, to resume or review.`
+            : `“${prompt.title}” and its image will be removed from your library.`}
+        </p>
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <div className="flex items-center justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-line text-sm text-ink-secondary hover:text-ink cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            id="confirm-delete-prompt-btn"
+            type="button"
+            disabled={deleting}
+            onClick={handleDelete}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50 cursor-pointer"
+          >
+            {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            <span>Delete</span>
+          </button>
+        </div>
       </div>
     </div>
   );

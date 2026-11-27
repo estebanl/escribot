@@ -46,6 +46,20 @@ internal sealed class CosmosPromptRepository(CosmosStore store, UserDocuments do
     public Task<bool> DeleteAsync(string userId, string promptId, CancellationToken cancellationToken = default) =>
         documents.DeleteAsync(DocumentTypes.Prompt, userId, promptId, cancellationToken);
 
+    public async Task<(Prompt Before, Prompt After)?> UpdateAsync(string userId, string promptId, Func<Prompt, Prompt?> change, CancellationToken cancellationToken = default)
+    {
+        Prompt? before = null;
+        var after = await documents.UpdateAsync(DocumentTypes.Prompt, userId, promptId, current =>
+        {
+            before = current;
+            return change(current) ?? current;
+        }, cancellationToken);
+        return after is null || before is null ? null : (before, after);
+    }
+
+    public Task<Prompt?> DeleteIfAsync(string userId, string promptId, Func<Prompt, bool> condition, CancellationToken cancellationToken = default) =>
+        documents.DeleteIfAsync(DocumentTypes.Prompt, userId, promptId, condition, cancellationToken);
+
     public async Task<IReadOnlyDictionary<string, string>> GetSeedHashesAsync(CancellationToken cancellationToken = default)
     {
         var rows = await CosmosStore.QueryAsync<JsonObject>(

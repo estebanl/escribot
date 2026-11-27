@@ -12,9 +12,12 @@ import {
   AlertTriangle,
   Layers,
   Loader2,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import {
   CustomPromptModal,
+  DeletePromptDialog,
   GeneratePromptModal,
   type PromptRecord,
 } from "./PromptModals";
@@ -57,11 +60,14 @@ function modeLabel(mode: string) {
 export function StudioHomeClient({
   initialPrompts,
   recentSessions,
+  promptUsage = {},
   settingsSummary,
   canTransformSvg = false,
 }: {
   initialPrompts: PromptRecord[];
   recentSessions: RecentSessionSummary[];
+  /** Sessions per uploaded prompt id. */
+  promptUsage?: Record<string, number>;
   settingsSummary: {
     currentBand: number;
     targetBand: number;
@@ -80,14 +86,24 @@ export function StudioHomeClient({
   const [openPromptId, setOpenPromptId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState<PromptRecord | null>(null);
+  const [deletingPrompt, setDeletingPrompt] = useState<PromptRecord | null>(null);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
 
   // Full 60m Mock Exam selector state
   const [mockOpen, setMockOpen] = useState(false);
   const task1Prompts = prompts.filter((p) => p.taskType === "task1");
   const task2Prompts = prompts.filter((p) => p.taskType === "task2");
-  const [selectedMockT1, setSelectedMockT1] = useState(task1Prompts[0]?.id || "");
-  const [selectedMockT2, setSelectedMockT2] = useState(task2Prompts[0]?.id || "");
+  const [pickedMockT1, setSelectedMockT1] = useState(task1Prompts[0]?.id || "");
+  const [pickedMockT2, setSelectedMockT2] = useState(task2Prompts[0]?.id || "");
+  // A pick stays valid only while its prompt is still listed for that task: one deleted or
+  // edited into the other task falls back to the first prompt of the right task.
+  const selectedMockT1 = task1Prompts.some((p) => p.id === pickedMockT1)
+    ? pickedMockT1
+    : task1Prompts[0]?.id || "";
+  const selectedMockT2 = task2Prompts.some((p) => p.id === pickedMockT2)
+    ? pickedMockT2
+    : task2Prompts[0]?.id || "";
 
   async function startSession(
     mode: SessionMode,
@@ -402,6 +418,30 @@ export function StudioHomeClient({
                       </button>
 
                       <div className="flex items-center gap-2 shrink-0">
+                        {prompt.source === "custom" && (
+                          <>
+                            <button
+                              id={`edit-prompt-btn-${prompt.id}`}
+                              type="button"
+                              aria-label={`Edit ${prompt.title}`}
+                              title="Edit task"
+                              onClick={() => setEditingPrompt(prompt)}
+                              className="btn btn-sm btn-secondary px-2"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-ink-secondary" />
+                            </button>
+                            <button
+                              id={`delete-prompt-btn-${prompt.id}`}
+                              type="button"
+                              aria-label={`Delete ${prompt.title}`}
+                              title="Delete task"
+                              onClick={() => setDeletingPrompt(prompt)}
+                              className="btn btn-sm btn-secondary px-2"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-ink-secondary" />
+                            </button>
+                          </>
+                        )}
                         <button
                           id={`coach-btn-${prompt.id}`}
                           type="button"
@@ -521,6 +561,32 @@ export function StudioHomeClient({
         onCreated={(newP) => setPrompts((prev) => [newP, ...prev])}
         canTransformSvg={canTransformSvg}
       />
+
+      {editingPrompt && (
+        <CustomPromptModal
+          key={editingPrompt.id}
+          open
+          initialPrompt={editingPrompt}
+          usageCount={promptUsage[editingPrompt.id] ?? 0}
+          onClose={() => setEditingPrompt(null)}
+          onCreated={(updated) =>
+            setPrompts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+          }
+          canTransformSvg={canTransformSvg}
+        />
+      )}
+
+      {deletingPrompt && (
+        <DeletePromptDialog
+          prompt={deletingPrompt}
+          usageCount={promptUsage[deletingPrompt.id] ?? 0}
+          onClose={() => setDeletingPrompt(null)}
+          onDeleted={(id) => {
+            setPrompts((prev) => prev.filter((p) => p.id !== id));
+            if (openPromptId === id) setOpenPromptId(null);
+          }}
+        />
+      )}
 
       <GeneratePromptModal
         open={generateOpen}

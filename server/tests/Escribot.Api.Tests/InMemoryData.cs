@@ -428,6 +428,38 @@ public sealed class InMemoryData(TimeProvider time) :
         }
     }
 
+    Task<(Prompt Before, Prompt After)?> IPromptRepository.UpdateAsync(string userId, string promptId, Func<Prompt, Prompt?> change, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var list = Prompts.GetValueOrDefault(userId) ?? [];
+            var index = list.FindIndex(p => p.Id == promptId);
+            if (index < 0)
+            {
+                return Task.FromResult<(Prompt, Prompt)?>(null);
+            }
+
+            var before = list[index];
+            var after = change(before) ?? before;
+            list[index] = after with { UserId = userId };
+            return Task.FromResult<(Prompt, Prompt)?>((before, list[index]));
+        }
+    }
+
+    Task<Prompt?> IPromptRepository.DeleteIfAsync(string userId, string promptId, Func<Prompt, bool> condition, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (!Prompts.TryGetValue(userId, out var list) || list.FirstOrDefault(p => p.Id == promptId) is not { } current || !condition(current))
+            {
+                return Task.FromResult<Prompt?>(null);
+            }
+
+            list.Remove(current);
+            return Task.FromResult<Prompt?>(current);
+        }
+    }
+
     // ---- Writing ----
 
     Task<WritingSession?> IWritingRepository.GetOwnedSessionAsync(string userId, string sessionId, CancellationToken cancellationToken)
